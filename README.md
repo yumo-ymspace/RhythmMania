@@ -14,7 +14,7 @@
 A precision mania-style rhythm game that runs entirely in the browser.
 Load your own `.osu` maps, tune your offsets, and compete for perfect accuracy.
 
-[![License: GPL v3](https://img.shields.io/badge/license-%20%20GNU%20GPLv3%20-green?style=plastic)](https://gnu.org)
+[![License: GNU GPL v3](https://img.shields.io/badge/License-GNU_GPL_v3-blue)](https://gnu.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
