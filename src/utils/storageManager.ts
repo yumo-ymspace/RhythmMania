@@ -240,7 +240,10 @@ class StorageManager {
   public async deleteBeatmapAndCleanup(id: string): Promise<void> {
     const database = await this.getDB();
     
-    // 1. Query target beatmap to grab its packageId
+    // 1. Evict any active Object URL resource pointers from the LRU cache immediately
+    this.lruMediaCache.evict(id);
+
+    // 2. Query target beatmap to grab its packageId
     const beatmap: SavedBeatmap | null = await new Promise((resolve, reject) => {
       const tx = database.transaction('beatmaps', 'readonly');
       const req = tx.objectStore('beatmaps').get(id);
@@ -249,18 +252,6 @@ class StorageManager {
     });
 
     if (!beatmap) return;
-
-    // 2. Evict active Object URL resource pointers from the LRU cache if no other difficulties share this package
-    const packageId = beatmap.packageId;
-    if (packageId) {
-      const allMaps: SavedBeatmap[] = await this.getAllBeatmaps();
-      const referencesExist = allMaps.some(m => m.id !== id && m.packageId === packageId);
-      if (!referencesExist) {
-        this.lruMediaCache.evict(packageId);
-      }
-    } else {
-      this.lruMediaCache.evict(id);
-    }
 
     // 3. Delete the beatmap record
     await new Promise<void>((resolve, reject) => {

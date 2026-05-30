@@ -77,8 +77,7 @@ export default function SongSelect({
       setIsLoadingMedia(true);
       try {
         // Query memory-warm asset cache first to save main-thread operations
-        const cacheKey = mapWithPkg.packageId || map.id;
-        const cached = storageManager.lruMediaCache.get(cacheKey);
+        const cached = storageManager.lruMediaCache.get(map.id);
         if (cached) {
           map.audioUrl = cached.audioUrl || map.audioUrl;
           map.videoUrl = cached.videoUrl || map.videoUrl;
@@ -155,7 +154,7 @@ export default function SongSelect({
           }
 
           // Register resolved URLs in Least-Recently-Used caching list (Capacity: 3)
-          storageManager.lruMediaCache.put(cacheKey, {
+          storageManager.lruMediaCache.put(map.id, {
             audioUrl: parsedAudioUrl,
             videoUrl: parsedVideoUrl,
             bgUrl: parsedBgUrl
@@ -297,13 +296,9 @@ export default function SongSelect({
         await storageManager.savePackage(packageId, file.name, file);
 
         // Revoke active Object URLs of unselected items to optimize memory
-        const selectedMap = customMaps.find(m => m.id === selectedCustomMapId);
-        const selectedCacheKey = selectedMap ? ((selectedMap as any).packageId || selectedMap.id) : '';
-
         customMaps.forEach(map => {
-          const cacheKey = (map as any).packageId || map.id;
-          if (cacheKey === selectedCacheKey) return; // Maintain selected active package
-          storageManager.lruMediaCache.evict(cacheKey);
+          if (map.id === selectedCustomMapId) return; // Maintain selected active
+          storageManager.lruMediaCache.evict(map.id);
         });
 
         const zip = await JSZip.loadAsync(file);
@@ -408,9 +403,8 @@ export default function SongSelect({
               parsedMap.bgUrl = bgUrl;
             }
 
-            const cacheKey = (parsedMap as any).packageId || parsedMap.id;
             // Prefilter into Least-Recently-Used caching to optimize access speed
-            storageManager.lruMediaCache.put(cacheKey, {
+            storageManager.lruMediaCache.put(parsedMap.id, {
               audioUrl: audioUrl || '',
               videoUrl: videoUrl || '',
               bgUrl: bgUrl || ''
@@ -494,7 +488,7 @@ export default function SongSelect({
             }
 
             let loadedBytes = 0;
-            const chunks: BlobPart[] = [];
+            const chunks: Uint8Array[] = [];
 
             while (true) {
               const { done, value } = await reader.read();
@@ -615,8 +609,7 @@ export default function SongSelect({
                 const bgAssetUrl = await resolveFileToUrl(media.bgFilename, ['.jpg', '.jpeg', '.png', '.bmp']);
                 if (bgAssetUrl) parsedMap.bgUrl = bgAssetUrl;
 
-                const cacheKey = (parsedMap as any).packageId || parsedMap.id;
-                storageManager.lruMediaCache.put(cacheKey, {
+                storageManager.lruMediaCache.put(parsedMap.id, {
                   audioUrl: audUrl || '',
                   videoUrl: vidUrl || '',
                   bgUrl: bgAssetUrl || ''
@@ -635,7 +628,7 @@ export default function SongSelect({
               parsedDifficulties.sort((a, b) => a.stars - b.stars);
               const easiestMap = parsedDifficulties[0];
               
-              // Select the easiest map in the list view without starting gameplay automatically
+              // Select the easiest map in the list view
               await handleSelectCustomMap(easiestMap);
               setSelectedCustomMapId(easiestMap.id);
               TempMemoryCache.remove(packageId);

@@ -410,7 +410,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-slate-900 bg-slate-950/40 py-6 font-mono text-[10px] text-slate-600 mt-12 dark:bg-transparent">
           <div className="max-w-7xl mx-auto px-4 md:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span>RHYTHM_MANIA_ENGINE_LIVE // v1.0.0 (Built: 30/5/2026) // BUFFER_STABLE</span>
+            <span>RHYTHM_MANIA_ENGINE_LIVE // v0.2.0 (Built: 30/5/2026) // BUFFER_STABLE</span>
             <span className="flex items-center gap-1">
               Crafted by Yumo(yumo-ymspace) • Respecting Competitive Integrity & Game Feel
             </span>
