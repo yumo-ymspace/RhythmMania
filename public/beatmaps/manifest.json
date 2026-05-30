@@ -1,0 +1,35 @@
+[
+  {
+    "id": "server_odo",
+    "title": "Odo",
+    "artist": "Ado",
+    "creator": "Official",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/1450065 Ado - Odo.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Normal (★3.2)", "Hard (★4.8)", "Insane (★6.0)", "Galaxy (★7.2)"]
+  },
+  {
+    "id": "server_kaibutsu",
+    "title": "Kaibutsu(TV Size)",
+    "artist": "YOASOBI",
+    "creator": "Official",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/1328989 YOASOBI - Kaibutsu (TV Size).osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Normal (★3.2)", "Hard (★4.8)", "Insane (★6.0)", "Galaxy (★7.2)"]
+  },
+  {
+    "id": "server_new_genesis",
+    "title": "New Genesis",
+    "artist": "Ado",
+    "creator": "Official",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/1830890 Ado - New Genesis.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Normal (★3.2)", "Hard (★4.8)", "Insane (★6.0)", "Galaxy (★7.2)"]
+  }
+]
