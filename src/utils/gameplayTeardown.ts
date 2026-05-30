@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import { AssetLifecycleManager } from './assetLifecycle';
 
 export interface AudioEngineLike {
   stop: () => void;
@@ -48,7 +47,9 @@ export function executeTeardown(
   }
   console.log("PlayZone Teardown: Key listeners successfully flushed.");
 
-  // 4. Revoke and de-allocate local media URL blobs to avoid memory leaks
-  AssetLifecycleManager.clearAll();
-  console.log("PlayZone Teardown: Memory media blobs cleaned up.");
+  // 4. Note: We do NOT call AssetLifecycleManager.clearAll() or storageManager.lruMediaCache.clearAll() here.
+  // The LRU Media Cache (capacity: 3) automatically manages the lifecycle of dynamic Blob URLs 
+  // and revokes them when they are evicted from the cache. Revoking them prematurely on teardown
+  // would break active/cached references and cause decoding failures when starting subsequent plays.
+  console.log("PlayZone Teardown: Cleanup completed (cache preserved for smooth navigation).");
 }
