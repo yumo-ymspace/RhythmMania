@@ -1,15 +1,15 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import { GameSettings } from '../types';
+import { GameplayMediaRegistry } from './mediaRegistry';
 
 export class VideoSyncController {
-  private videoEl: HTMLVideoElement;
   private getAudioTimeMs: () => number;
   private videoStartTimeMs: number; // Parsed from .osu (e.g., -1500)
-  private settings: GameSettings;
+  private getSettings: () => GameSettings;
   
   private lastSyncTime: number = 0;
   private syncIntervalMs: number = 180; // Run PLL checks roughly 5.5 times per second
@@ -19,15 +19,13 @@ export class VideoSyncController {
   private readonly DEADBAND_CATASTROPHIC_MS = 900; // Over 900ms: Hard seek to re-align single-shot
 
   constructor(
-    video: HTMLVideoElement,
     getAudioTimeMs: () => number,
     videoStartTimeMs: number,
-    settings: GameSettings
+    getSettings: () => GameSettings
   ) {
-    this.videoEl = video;
     this.getAudioTimeMs = getAudioTimeMs;
     this.videoStartTimeMs = videoStartTimeMs;
-    this.settings = settings;
+    this.getSettings = getSettings;
   }
 
   /**
@@ -35,53 +33,57 @@ export class VideoSyncController {
    * Automatic throttling prevents hardware decoder queue exhaustion.
    */
   public update() {
+    const videoEl = GameplayMediaRegistry.getVideo();
+    if (!videoEl) return;
+
     const now = performance.now();
     if (now - this.lastSyncTime < this.syncIntervalMs) return; // Throttled check
     this.lastSyncTime = now;
 
-    if (this.videoEl.seeking) return;
+    if (videoEl.seeking) return;
 
     const audioTimeSec = this.getAudioTimeMs() / 1000;
+    const settings = this.getSettings();
     
     // Target position: audio time - (parsed videoStartTime offset) - (user-customizable adjustment offset)
-    const userOffsetSec = (this.settings.videoOffset || 0) / 1000;
+    const userOffsetSec = (settings.videoOffset || 0) / 1000;
     const targetVideoTimeSec = audioTimeSec - (this.videoStartTimeMs / 1000) - userOffsetSec;
     
     // Ignore updates & pause if target time is negative (video hasn't started yet)
     if (targetVideoTimeSec < 0) {
-      if (this.videoEl.currentTime > 0) {
-        this.videoEl.currentTime = 0;
+      if (videoEl.currentTime > 0) {
+        videoEl.currentTime = 0;
       }
-      if (!this.videoEl.paused) {
-        try { this.videoEl.pause(); } catch (e) {}
+      if (!videoEl.paused) {
+        try { videoEl.pause(); } catch (e) {}
       }
       return;
     }
 
-    if (this.videoEl.paused && audioTimeSec > 0) {
-      this.videoEl.play().catch(() => {});
+    if (videoEl.paused && audioTimeSec > 0) {
+      videoEl.play().catch(() => {});
     }
 
-    const currentVideoTimeSec = this.videoEl.currentTime;
+    const currentVideoTimeSec = videoEl.currentTime;
     const driftSec = targetVideoTimeSec - currentVideoTimeSec;
     const driftMs = Math.abs(driftSec) * 1000;
 
     // Phase Locked Loop Decision Logic
     if (driftMs >= this.DEADBAND_CATASTROPHIC_MS) {
       // Catastrophic drift: Force a single discrete seek
-      this.videoEl.currentTime = targetVideoTimeSec;
-      this.videoEl.playbackRate = 1.0;
+      videoEl.currentTime = targetVideoTimeSec;
+      videoEl.playbackRate = 1.0;
     } else if (driftMs > this.DEADBAND_FINE_MS) {
       // Proportional controller: Adjust playback rate gently to close the gap
       // Map drift driftSec to a maximum adjustment of +/- 0.15 of the normal speed 
       const pAdjustment = (driftSec / 1.0) * 0.25; // Proportional gain term
       const targetRate = 1.0 + Math.min(Math.max(pAdjustment, -0.15), 0.15); // clamp rate [0.85x, 1.15x]
       
-      this.videoEl.playbackRate = targetRate;
+      videoEl.playbackRate = targetRate;
     } else {
       // Fine Align: within acceptable bounds, run at design 1.0x native rate
-      if (this.videoEl.playbackRate !== 1.0) {
-        this.videoEl.playbackRate = 1.0;
+      if (videoEl.playbackRate !== 1.0) {
+        videoEl.playbackRate = 1.0;
       }
     }
   }

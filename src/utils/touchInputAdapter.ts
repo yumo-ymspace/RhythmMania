@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 export class TouchInputAdapter {
@@ -55,9 +55,12 @@ export class TouchInputAdapter {
       const relativeY = touch.clientY - containerRect.top;
       const verticalRatio = relativeY / containerRect.height;
 
-      // PIANO TILES CONSTRAINT: Only register taps in the bottom 35% of the playfield
-      if (verticalRatio < 0.65) {
-        console.log("Tap ignored: Outside of active bottom receptor zone (verticalRatio < 0.65).");
+      const isMobile = window.innerWidth <= 768;
+      const activeTapThreshold = isMobile ? 0.55 : 0.65;
+
+      // PIANO TILES CONSTRAINT: Only register taps in the active bottom area
+      if (verticalRatio < activeTapThreshold) {
+        console.log(`Tap ignored: Outside of active bottom receptor zone (verticalRatio < ${activeTapThreshold}).`);
         continue;
       }
 
@@ -85,8 +88,11 @@ export class TouchInputAdapter {
         const relativeY = touch.clientY - containerRect.top;
         const verticalRatio = relativeY / containerRect.height;
 
-        // PIANO TILES CONSTRAINT: If they slide out of the active bottom 35% zone, release keypress
-        if (verticalRatio < 0.65) {
+        const isMobile = window.innerWidth <= 768;
+        const activeTapThreshold = isMobile ? 0.55 : 0.65;
+
+        // PIANO TILES CONSTRAINT: If they slide out of the active bottom zone, release keypress
+        if (verticalRatio < activeTapThreshold) {
           this.onKeyUp(previousLane);
           this.activeTouches.delete(touch.identifier);
           continue;

@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import React, { useState, useRef } from 'react';
@@ -164,9 +164,6 @@ export default function SongSelect({
           if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
           if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
           if (parsedBgUrl) map.bgUrl = parsedBgUrl;
-
-          // Clean up the memory bridge cache after successful gameplay launch / media url resolution
-          TempMemoryCache.remove(mapWithPkg.packageId);
         }
       } catch (err) {
         console.error('Error unpacking file media from database:', err);
@@ -423,6 +420,7 @@ export default function SongSelect({
         if (importedCount > 0 && lastImportedMap) {
           await handleSelectCustomMap(lastImportedMap);
           setSelectedCustomMapId(lastImportedId);
+          TempMemoryCache.remove(packageId);
           setImportStatus({ 
             type: 'ok', 
             msg: `Successfully imported ${importedCount} difficulties from "${file.name}".` 
@@ -599,6 +597,7 @@ export default function SongSelect({
                 mapWithMeta.bgFilename = media.bgFilename;
                 mapWithMeta.originalOsuContent = osu.content;
                 mapWithMeta.isServerMap = true;
+                mapWithMeta.isCached = true;
                 mapWithMeta.oszUrl = oszUrl;
 
                 const audUrl = await resolveFileToUrl(media.audioFilename, ['.mp3', '.ogg', '.wav']);
@@ -632,6 +631,7 @@ export default function SongSelect({
               // Select the easiest map in the list view
               await handleSelectCustomMap(easiestMap);
               setSelectedCustomMapId(easiestMap.id);
+              TempMemoryCache.remove(packageId);
             } else {
               throw new Error('No valid playable difficulties found inside downloaded package.');
             }

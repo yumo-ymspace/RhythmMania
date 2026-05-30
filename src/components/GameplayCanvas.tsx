@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -103,6 +103,12 @@ export default function GameplayCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const syncControllerRef = useRef<VideoSyncController | null>(null);
+
+  // Keep latest settings in ref to prevent stale closure in the requestAnimationFrame loop
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // Safely register HTMLVideoElement in non-serializable global registry
   useEffect(() => {
@@ -781,7 +787,9 @@ export default function GameplayCanvas({
     spawnX += styles[colIndex].width / 2;
     
     // Receptor positioning depending on scrolling direction settings (upwards vs downwards)
-    const receptorY = settings.upsurfaceNoteMode ? 60 : canvas.height - 80;
+    const isMobile = window.innerWidth <= 768;
+    const receptorOffsetY = isMobile ? 130 : 80;
+    const receptorY = settings.upsurfaceNoteMode ? 60 : canvas.height - receptorOffsetY;
 
     for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -907,10 +915,9 @@ export default function GameplayCanvas({
         if (videoRef.current) {
           if (!syncControllerRef.current) {
             syncControllerRef.current = new VideoSyncController(
-              videoRef.current,
               () => audioTimeRef.current,
               beatmap.videoStartTime || 0,
-              settings
+              () => settingsRef.current
             );
           }
           try {
@@ -958,7 +965,9 @@ export default function GameplayCanvas({
         accumulatedX += colStyles[i].width;
       }
 
-      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 80;
+      const isMobile = window.innerWidth <= 768;
+      const receptorOffsetY = isMobile ? 130 : 80;
+      const receptorY = settings.upsurfaceNoteMode ? 60 : height - receptorOffsetY;
 
       // Draw lane background rails & column glows
       for (let i = 0; i < keyCount; i++) {

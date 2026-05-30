@@ -1,6 +1,6 @@
 /**
  * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import React, { useState, useEffect } from 'react';
@@ -37,6 +37,63 @@ const DEFAULT_SETTINGS: GameSettings = {
   backgroundDim: 0.60,
   disableVideo: false,
   videoOffset: 0,
+};
+
+// Add this helper function outside the component to deep-sanitize beatmaps before saving to IndexedDB
+const sanitizeBeatmapForStorage = (map: any): any => {
+  if (!map) return map;
+  // Destructure only known-safe serializable scalar properties
+  const {
+    id, title, artist, creator, version, audioUrl, videoUrl, bgUrl,
+    bpm, duration, stars, keyCount, notes, timingPoints
+  } = map;
+
+  // Re-build a clean serializable structure
+  const cleanNotes = Array.isArray(notes) ? notes.map((note: any) => {
+    const { time, column, duration, isLongNote } = note;
+    return {
+      time: Number(time),
+      column: Number(column),
+      duration: duration !== undefined ? Number(duration) : undefined,
+      isLongNote: isLongNote !== undefined ? Boolean(isLongNote) : undefined
+    };
+  }) : [];
+
+  const cleanTimingPoints = Array.isArray(timingPoints) ? timingPoints.map((tp: any) => {
+    const { time, beatLength, bpmSpeedMultiplier } = tp;
+    return {
+      time: Number(time),
+      beatLength: Number(beatLength),
+      bpmSpeedMultiplier: bpmSpeedMultiplier !== undefined ? Number(bpmSpeedMultiplier) : undefined
+    };
+  }) : undefined;
+
+  return {
+    id: String(id),
+    title: String(title || ''),
+    artist: String(artist || ''),
+    creator: String(creator || ''),
+    version: String(version || ''),
+    audioUrl: typeof audioUrl === 'string' ? audioUrl : undefined,
+    videoUrl: typeof videoUrl === 'string' ? videoUrl : undefined,
+    bgUrl: typeof bgUrl === 'string' ? bgUrl : undefined,
+    bpm: Number(bpm || 120),
+    duration: Number(duration || 0),
+    stars: Number(stars || 0),
+    keyCount: Number(keyCount || 4),
+    notes: cleanNotes,
+    timingPoints: cleanTimingPoints,
+    // Safely whitelist meta properties, verifying primitive types
+    packageId: typeof map.packageId === 'string' ? map.packageId : undefined,
+    parentPackageId: typeof map.parentPackageId === 'string' ? map.parentPackageId : undefined,
+    audioFilename: typeof map.audioFilename === 'string' ? map.audioFilename : undefined,
+    videoFilename: typeof map.videoFilename === 'string' ? map.videoFilename : undefined,
+    bgFilename: typeof map.bgFilename === 'string' ? map.bgFilename : undefined,
+    originalOsuContent: typeof map.originalOsuContent === 'string' ? map.originalOsuContent : undefined,
+    isServerMap: typeof map.isServerMap === 'boolean' ? map.isServerMap : undefined,
+    isCached: typeof map.isCached === 'boolean' ? map.isCached : undefined,
+    oszUrl: typeof map.oszUrl === 'string' ? map.oszUrl : undefined,
+  };
 };
 
 export default function App() {
@@ -86,7 +143,8 @@ export default function App() {
               setCustomMaps(parsed);
               // Safely migrate them into IndexedDB for persistent reload support
               for (const map of parsed) {
-                await storageManager.saveBeatmap(map as any);
+                const clean = sanitizeBeatmapForStorage(map);
+                await storageManager.saveBeatmap(clean);
               }
             }
           }
@@ -138,12 +196,13 @@ export default function App() {
   };
 
   const handleImportOsuMap = async (map: Beatmap) => {
+    const cleanMap = sanitizeBeatmapForStorage(map);
     setCustomMaps(prev => {
-      const filtered = prev.filter(m => m.id !== map.id);
-      return [map, ...filtered];
+      const filtered = prev.filter(m => m.id !== cleanMap.id);
+      return [cleanMap, ...filtered];
     });
     try {
-      await storageManager.saveBeatmap(map as any);
+      await storageManager.saveBeatmap(cleanMap);
     } catch (e) {
       console.error('Failed to persist imported beatmap to IndexedDB:', e);
     }
@@ -351,7 +410,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-slate-900 bg-slate-950/40 py-6 font-mono text-[10px] text-slate-600 mt-12 dark:bg-transparent">
           <div className="max-w-7xl mx-auto px-4 md:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span>RHYTHM_MANIA_ENGINE_LIVE // v0.1.7 (Built: {typeof __BUILD_TIME__ !== 'undefined' ? new Date(__BUILD_TIME__).toLocaleDateString() : 'Unknown'}) // BUFFER_STABLE</span>
+            <span>RHYTHM_MANIA_ENGINE_LIVE // v0.2.0 (Built: 30/5/2026) // BUFFER_STABLE</span>
             <span className="flex items-center gap-1">
               Crafted by Yumo(yumo-ymspace) • Respecting Competitive Integrity & Game Feel
             </span>

@@ -1,6 +1,0 @@
-{
-  "name": "Mania Rhythm Game",
-  "description": "A high-performance, precision-gauged mania-style lane rhythm game featuring 4K-7K key modes, procedural beatmap scaling, custom key rebound matrices, and real-time .osu community map parsing.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
