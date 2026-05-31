@@ -759,6 +759,7 @@ export default function GameplayCanvas({
 
   // Sparkles particle engine
   const spawnParticles = (colIndex: number, color: string) => {
+    if (settings.disableParticles) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -813,7 +814,7 @@ export default function GameplayCanvas({
       if (!container || !canvas) return;
       
       const rect = container.getBoundingClientRect();
-      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
       
       // Custom boundary scaling
       canvas.width = rect.width * dpr;
@@ -861,7 +862,7 @@ export default function GameplayCanvas({
     const render = () => {
       if (!ctx || !canvas) return;
 
-      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
       const width = canvas.width / dpr;
       const height = canvas.height / dpr;
 
@@ -1292,24 +1293,28 @@ export default function GameplayCanvas({
       }
 
       // 5. RENDER PARTICLES BURST GENERATION
-      particlesRef.current.forEach((p, idx) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.alpha -= p.decay;
-        
-        if (p.alpha <= 0) {
-          particlesRef.current.splice(idx, 1);
-          return;
-        }
+      if (!settings.disableParticles) {
+        particlesRef.current.forEach((p, idx) => {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.alpha -= p.decay;
+          
+          if (p.alpha <= 0) {
+            particlesRef.current.splice(idx, 1);
+            return;
+          }
 
-        ctx.save();
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.alpha;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      });
+          ctx.save();
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      } else if (particlesRef.current.length > 0) {
+        particlesRef.current = [];
+      }
 
       // 6. DRAW PLAYTIME ELAPSED TIMING BAR AND COMBOS
       ctx.restore(); // POP screen shake translations

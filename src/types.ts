@@ -94,6 +94,8 @@ export interface GameSettings {
   backgroundDim: number; // solid-black lane background shielding opacity (0 to 1)
   disableVideo?: boolean; // whether background video playback is completely disabled
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
+  disableParticles?: boolean; // completely disable particle visual burst generator
+  limitDprToOne?: boolean; // cap canvas device pixel ratio to 1x to save GPU rendering cost
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate';

@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.3.5
+**HIGH DENSITY MATRIX** · v0.3.6
 
 A precision mania-style rhythm game that runs entirely in the browser.
 Load your own `.osu` maps, tune your offsets, and compete for perfect accuracy.
@@ -137,7 +137,7 @@ src/
 public/
 └── beatmaps/
     ├── manifest.json              # Server-hosted map index
-    └── 1450065 Ado - Odo.osz        # Bundled demo map (Odo by Ado)
+    └── osz_files.osz              # Bundled maps
 ```
 
 ---

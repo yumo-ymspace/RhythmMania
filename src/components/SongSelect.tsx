@@ -693,7 +693,12 @@ export default function SongSelect({
                     </div>
                     
                     <div className="overflow-hidden w-full">
-                      <h4 className="font-extrabold font-sans text-xs text-white tracking-tight block truncate uppercase">{map.title}</h4>
+                      <h4 className="font-extrabold font-sans text-xs text-white tracking-tight block truncate uppercase">
+                        {map.title}
+                        {!map.isServerPackage && (
+                          <span className="text-cyan-400 text-[10px] lowercase normal-case ml-1 font-semibold">[{map.difficulty}]</span>
+                        )}
+                      </h4>
                       <p className="text-[10px] text-slate-400 font-sans block truncate mt-0.5">{map.artist}</p>
                     </div>
                   </div>
@@ -717,7 +722,9 @@ export default function SongSelect({
                           </span>
                         ) : (
                           <>
-                            <span className="text-red-400 font-black">★ {map.stars}</span>
+                            <span className="text-rose-450 font-bold uppercase border border-rose-500/10 bg-rose-500/5 px-1.5 py-0.5 rounded text-[8px] tracking-wide inline-block max-w-[80px] truncate" title={map.difficulty}>
+                              {map.difficulty}
+                            </span>
                             <span className="text-slate-600">•</span>
                             <span className="text-slate-400">{map.bpm} BPM</span>
                           </>
@@ -839,9 +846,19 @@ export default function SongSelect({
                 <h3 className="text-lg font-black font-sans text-white tracking-tighter uppercase italic leading-tight block">
                   {selectedCustomMap.title}
                 </h3>
-                <p className="text-xs text-cyan-400 font-sans tracking-tight font-bold mt-1 uppercase">
-                  by {selectedCustomMap.artist}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  <span className="text-xs text-cyan-400 font-sans tracking-tight font-bold uppercase">
+                    by {selectedCustomMap.artist}
+                  </span>
+                  {!(selectedCustomMap as any).isServerPackage && (
+                    <>
+                      <span className="text-slate-600 text-xs">•</span>
+                      <span className="px-1.5 py-0.5 bg-cyan-400/15 text-cyan-400 border border-cyan-400/30 rounded font-mono text-[9px] font-bold uppercase">
+                        {selectedCustomMap.difficulty}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="flex flex-col gap-4">

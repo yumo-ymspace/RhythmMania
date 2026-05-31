@@ -176,6 +176,8 @@ export default function SettingsScreen({
         backgroundDim: 0.60,
         disableVideo: false,
         videoOffset: 0,
+        disableParticles: false,
+        limitDprToOne: false,
       });
     }
   };
@@ -253,7 +255,7 @@ export default function SettingsScreen({
           {/* SCROLLING MECHANICS */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-4 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Zap className="h-4 w-4 text-cyan-400" /> Lane Mechanics
+              <Zap className="h-4 w-4 text-cyan-400" /> Lane & Performance Mechanics
             </h3>
 
             <div className="flex items-center justify-between py-1 text-xs font-sans">
@@ -291,6 +293,44 @@ export default function SettingsScreen({
                 }`}
               >
                 {settings.disableVideo ? 'DISABLED' : 'ENABLED'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 text-xs font-sans border-t border-white/5 pt-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-slate-200">Disable Decorative Particles</span>
+                <span className="text-slate-500 text-[10px]">Turn off hit Sparks animations to reduce CPU/GPU workload</span>
+              </div>
+              
+              <button
+                id="disable-particles-toggle"
+                onClick={() => updateSettings({ disableParticles: !settings.disableParticles })}
+                className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
+                  settings.disableParticles 
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
+                }`}
+              >
+                {settings.disableParticles ? 'DISABLED' : 'ENABLED'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 text-xs font-sans border-t border-white/5 pt-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-slate-200">Cap Screen Resolution</span>
+                <span className="text-slate-500 text-[10px]">Cuts canvas pixel ratio to 1.0x to significantly optimize rendering density</span>
+              </div>
+              
+              <button
+                id="limit-dpr-toggle"
+                onClick={() => updateSettings({ limitDprToOne: !settings.limitDprToOne })}
+                className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
+                  settings.limitDprToOne 
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
+                }`}
+              >
+                {settings.limitDprToOne ? 'ACTIVE (1.0x)' : 'AUTO (HIGH-DPI)'}
               </button>
             </div>
 
