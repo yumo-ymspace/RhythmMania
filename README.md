@@ -14,6 +14,8 @@
 A precision mania-style rhythm game that runs entirely in the browser.
 Load your own `.osu` maps, tune your offsets, and compete for perfect accuracy.
 
+**Live site: https://www.rhythm-mania.com/**
+
 [![License: GNU GPL v3](https://img.shields.io/badge/License-GNU_GPL_v3-green)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
