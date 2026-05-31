@@ -1141,35 +1141,154 @@ export default function GameplayCanvas({
       });
 
       // 4. DRAW GAMEPLAY RECEPTOR BUTTONS (HIT LINE INDICATION)
-      for (let i = 0; i < keyCount; i++) {
-        const xPos = colX[i];
-        const colW = colStyles[i].width;
-        const isPressed = activeColumnsRef.current[i];
+      const isMobileDevice = typeof window !== 'undefined' && (
+        window.innerWidth <= 1024 && (
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+          window.innerWidth <= 768 ||
+          window.innerHeight < 500
+        )
+      );
+
+      if (isMobileDevice) {
+        const hitZoneTop = height * 0.65;
         
         ctx.save();
-        ctx.strokeStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.4)';
-        ctx.lineWidth = isPressed ? 4 : 2;
         
-        ctx.fillStyle = isPressed ? 'rgba(59,130,246,0.15)' : 'rgba(30,41,59,0.5)';
+        // 1. Draw solid translucent glassmorphism background for the entire bottom hit zone
+        const fillGrad = ctx.createLinearGradient(0, hitZoneTop, 0, height);
+        fillGrad.addColorStop(0, 'rgba(8, 8, 12, 0.7)'); // slate/black with sleek dark backing
+        fillGrad.addColorStop(0.1, 'rgba(8, 8, 12, 0.85)');
+        fillGrad.addColorStop(1, 'rgba(5, 5, 8, 0.98)');
+        ctx.fillStyle = fillGrad;
+        ctx.fillRect(0, hitZoneTop, width, height - hitZoneTop);
+        
+        // 2. Draw thick sleek neon-cyan top edge for the touch/hit line zone
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.8)'; // CYAN border
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.roundRect(xPos + 5, receptorY - 12, colW - 10, 24, 4);
-        ctx.fill();
+        ctx.moveTo(0, hitZoneTop);
+        ctx.lineTo(width, hitZoneTop);
         ctx.stroke();
 
-        ctx.fillStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.3)';
+        // 3. Draw a nice neon separator glow on top of the border line
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
+        ctx.lineWidth = 8;
         ctx.beginPath();
-        ctx.arc(xPos + colW / 2, receptorY, 4, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(0, hitZoneTop);
+        ctx.lineTo(width, hitZoneTop);
+        ctx.stroke();
+        
+        // 4. Draw horizontal bar helper instructions
+        ctx.font = '900 10px system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.7)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▼  TAP ANYWHERE IN THIS BOTTOM ZONE  ▼', width / 2, hitZoneTop + 14);
 
-        const layoutKeys = settings.bindings[keyCount];
-        if (layoutKeys && layoutKeys[i]) {
-          ctx.font = '600 11px font-mono, JetBrains Mono, monospace';
-          ctx.fillStyle = isPressed ? '#93c5fd' : '#64748b';
+        // 5. Draw per-lane visual states in the hit zone
+        for (let i = 0; i < keyCount; i++) {
+          const xPos = colX[i];
+          const colW = colStyles[i].width;
+          const isPressed = activeColumnsRef.current[i];
+          
+          // Draw lane separators inside the hit zone to make boundaries clear
+          if (i > 0) {
+            ctx.strokeStyle = 'rgba(71, 85, 105, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(xPos, hitZoneTop);
+            ctx.lineTo(xPos, height);
+            ctx.stroke();
+          }
+
+          if (isPressed) {
+            // Draw beautiful neon/cyan channel backlight glow when tapped
+            const pressGrad = ctx.createLinearGradient(xPos, hitZoneTop, xPos, height);
+            pressGrad.addColorStop(0, 'rgba(6, 182, 212, 0.35)'); // rich translucent cyan
+            pressGrad.addColorStop(1, 'rgba(99, 102, 241, 0.05)'); // fading to indigo
+            ctx.fillStyle = pressGrad;
+            ctx.fillRect(xPos, hitZoneTop, colW, height - hitZoneTop);
+            
+            // Channel highlight inner border
+            ctx.strokeStyle = 'rgba(34, 211, 238, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(xPos + 2, hitZoneTop + 2, colW - 4, height - hitZoneTop - 4);
+          } else {
+            // Subtle dotted/solid guide box inside tap zone
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(xPos + 2, hitZoneTop + 2, colW - 4, height - hitZoneTop - 4);
+          }
+          
+          // 6. Draw comfortable thumb tap circles
+          const circleY = hitZoneTop + (height - hitZoneTop) * 0.55; 
+          ctx.beginPath();
+          ctx.arc(xPos + colW / 2, circleY, isPressed ? 24 : 18, 0, Math.PI * 2);
+          ctx.fillStyle = isPressed ? 'rgba(34, 211, 238, 0.4)' : 'rgba(15, 23, 42, 0.8)';
+          ctx.strokeStyle = isPressed ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)';
+          ctx.lineWidth = isPressed ? 3 : 1.5;
+          ctx.fill();
+          ctx.stroke();
+
+          // Circle overlay indicator label
+          ctx.font = 'bold 10px system-ui, -apple-system, sans-serif';
+          ctx.fillStyle = isPressed ? '#ffffff' : 'rgba(148, 163, 184, 0.7)';
           ctx.textAlign = 'center';
-          ctx.fillText(layoutKeys[i].toUpperCase(), xPos + colW/2, settings.upsurfaceNoteMode ? receptorY - 20 : receptorY + 28);
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`C${i + 1}`, xPos + colW / 2, circleY);
+        }
+        
+        ctx.restore();
+        
+        // Also draw receptors centered on the hit line inside mobile view
+        for (let i = 0; i < keyCount; i++) {
+          const xPos = colX[i];
+          const colW = colStyles[i].width;
+          const isPressed = activeColumnsRef.current[i];
+          
+          ctx.save();
+          // Draw standard clean cyan/glow receptors
+          ctx.strokeStyle = isPressed ? '#22d3ee' : 'rgba(34, 211, 238, 0.35)';
+          ctx.lineWidth = isPressed ? 3 : 1.5;
+          ctx.beginPath();
+          ctx.moveTo(xPos + 10, receptorY);
+          ctx.lineTo(xPos + colW - 10, receptorY);
+          ctx.stroke();
+          ctx.restore();
         }
 
-        ctx.restore();
+      } else {
+        // Render classic PC key receptors and bindings
+        for (let i = 0; i < keyCount; i++) {
+          const xPos = colX[i];
+          const colW = colStyles[i].width;
+          const isPressed = activeColumnsRef.current[i];
+          
+          ctx.save();
+          ctx.strokeStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.4)';
+          ctx.lineWidth = isPressed ? 4 : 2;
+          
+          ctx.fillStyle = isPressed ? 'rgba(59,130,246,0.15)' : 'rgba(30,41,59,0.5)';
+          ctx.beginPath();
+          ctx.roundRect(xPos + 5, receptorY - 12, colW - 10, 24, 4);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.3)';
+          ctx.beginPath();
+          ctx.arc(xPos + colW / 2, receptorY, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          const layoutKeys = settings.bindings[keyCount];
+          if (layoutKeys && layoutKeys[i]) {
+            ctx.font = '600 11px font-mono, JetBrains Mono, monospace';
+            ctx.fillStyle = isPressed ? '#93c5fd' : '#64748b';
+            ctx.textAlign = 'center';
+            ctx.fillText(layoutKeys[i].toUpperCase(), xPos + colW/2, settings.upsurfaceNoteMode ? receptorY - 20 : receptorY + 28);
+          }
+
+          ctx.restore();
+        }
       }
 
       // 5. RENDER PARTICLES BURST GENERATION

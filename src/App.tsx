@@ -154,6 +154,17 @@ export default function App() {
   };
 
   const handleGameplayFinish = (finalScore: ScoreState) => {
+    try {
+      if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen().catch(err => console.log('Exit fullscreen failed:', err));
+        } else if ((document as any).webkitExitFullscreen) {
+          (document as any).webkitExitFullscreen();
+        }
+      }
+    } catch (e) {
+      console.log('Fullscreen exit error:', e);
+    }
     setScoreState(finalScore);
     setCurrentScreen('results');
   };
@@ -339,6 +350,15 @@ export default function App() {
             updateSettings={updateSettings}
             onFinish={handleGameplayFinish}
             onBack={() => {
+              try {
+                if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
+                  if (document.exitFullscreen) {
+                    document.exitFullscreen().catch(err => console.log(err));
+                  } else if ((document as any).webkitExitFullscreen) {
+                    (document as any).webkitExitFullscreen();
+                  }
+                }
+              } catch (e) {}
               setSelectedBeatmap(null);
               setCurrentScreen('select');
             }}
@@ -351,6 +371,15 @@ export default function App() {
             beatmap={selectedBeatmap}
             onRetry={handleRetrySong}
             onBack={() => {
+              try {
+                if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
+                  if (document.exitFullscreen) {
+                    document.exitFullscreen().catch(err => console.log(err));
+                  } else if ((document as any).webkitExitFullscreen) {
+                    (document as any).webkitExitFullscreen();
+                  }
+                }
+              } catch (e) {}
               setSelectedBeatmap(null);
               setCurrentScreen('select');
             }}
@@ -370,7 +399,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.3.4</span>
+            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.3.5</span>
             <span className="flex items-center gap-1 opacity-75">
               Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
             </span>

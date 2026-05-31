@@ -437,6 +437,29 @@ export default function SongSelect({
 
   const handleStartPlay = async () => {
     if (selectedCustomMap) {
+      // Automatic fullscreen on mobile devices to optimize playable vertical space
+      const isMobileDevice = typeof window !== 'undefined' && (
+        window.innerWidth <= 1024 && (
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+          window.innerWidth <= 768 ||
+          window.innerHeight < 500
+        )
+      );
+      if (isMobileDevice) {
+        const elem = document.documentElement;
+        try {
+          if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(err => console.log('Fullscreen request was blocked:', err));
+          } else if ((elem as any).webkitRequestFullscreen) {
+            (elem as any).webkitRequestFullscreen();
+          } else if ((elem as any).msRequestFullscreen) {
+            (elem as any).msRequestFullscreen();
+          }
+        } catch (fullscreenErr) {
+          console.warn('Browser standard fullscreen is unsupported or denied inside iframe sandbox:', fullscreenErr);
+        }
+      }
+
       const isVirtual = (selectedCustomMap as any).isServerMap && !(selectedCustomMap as any).isCached;
 
       if (isVirtual) {
