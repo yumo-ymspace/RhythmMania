@@ -1,0 +1,195 @@
+/**
+ * @license
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
+import { Beatmap } from '../types';
+import { AssetLifecycleManager } from './assetLifecycle';
+import { TempMemoryCache } from './tempMemoryCache';
+
+export interface SavedBeatmap extends Beatmap {
+  packageId?: string;
+  parentPackageId?: string;
+  audioFilename?: string;
+  videoFilename?: string | null;
+  bgFilename?: string | null;
+  originalOsuContent?: string;
+  isServerMap?: boolean;
+  oszUrl?: string;
+}
+
+export interface PackageRecord {
+  id: string;
+  name: string;
+  zipData?: ArrayBuffer;
+}
+
+const DB_NAME = 'RhythmManiaDB';
+const DB_VERSION = 1;
+
+class SimpleBlobCache {
+  private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string }>();
+  private order: string[] = [];
+
+  constructor(private capacity = 3) {}
+
+  public get(id: string) {
+    if (!this.cache.has(id)) return null;
+    this.order = this.order.filter(k => k !== id).concat(id);
+    return this.cache.get(id);
+  }
+
+  public put(id: string, urls: { audioUrl: string; videoUrl: string; bgUrl: string }) {
+    if (this.cache.has(id)) {
+      this.order = this.order.filter(k => k !== id);
+    } else if (this.order.length >= this.capacity) {
+      const oldest = this.order.shift();
+      if (oldest) this.evict(oldest);
+    }
+    this.cache.set(id, urls);
+    this.order.push(id);
+  }
+
+  public evict(id: string) {
+    const urls = this.cache.get(id);
+    if (urls) {
+      if (urls.audioUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.audioUrl);
+      if (urls.videoUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.videoUrl);
+      if (urls.bgUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.bgUrl);
+    }
+    this.cache.delete(id);
+    this.order = this.order.filter(k => k !== id);
+  }
+
+  public clearAll() {
+    this.order.forEach(id => this.evict(id));
+    this.cache.clear();
+    this.order = [];
+  }
+}
+
+class StorageManager {
+  private db: IDBDatabase | null = null;
+  private initPromise: Promise<IDBDatabase> | null = null;
+  public lruMediaCache = new SimpleBlobCache(3);
+
+  constructor() {
+    this.initPromise = this.init();
+  }
+
+  private init(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        reject(new Error('IndexedDB not supported'));
+        return;
+      }
+      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve(request.result);
+      };
+      request.onupgradeneeded = () => {
+        const d = request.result;
+        if (!d.objectStoreNames.contains('beatmaps')) d.createObjectStore('beatmaps', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('packages')) d.createObjectStore('packages', { keyPath: 'id' });
+      };
+    });
+  }
+
+  private async getDB(): Promise<IDBDatabase> {
+    if (this.db) return this.db;
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.init();
+    return this.initPromise;
+  }
+
+  public async savePackage(id: string, name: string, zipBlob: Blob): Promise<void> {
+    const database = await this.getDB();
+    const arrayBuffer = await zipBlob.arrayBuffer();
+    TempMemoryCache.set(id, arrayBuffer);
+
+    return new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('packages', 'readwrite');
+      const store = tx.objectStore('packages');
+      store.put({ id, name, zipData: arrayBuffer.slice(0) });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  public async saveBeatmap(beatmap: SavedBeatmap): Promise<void> {
+    const database = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('beatmaps', 'readwrite');
+      tx.objectStore('beatmaps').put(beatmap);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  public async getAllBeatmaps(): Promise<SavedBeatmap[]> {
+    const database = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction('beatmaps', 'readonly');
+      const req = tx.objectStore('beatmaps').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  public async getPackage(id: string): Promise<Blob | null> {
+    const database = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = database.transaction('packages', 'readonly');
+      const req = tx.objectStore('packages').get(id);
+      req.onsuccess = () => {
+        const record = req.result as PackageRecord | undefined;
+        if (record?.zipData) {
+          resolve(new Blob([record.zipData], { type: 'application/octet-stream' }));
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  public async deleteBeatmapAndCleanup(id: string): Promise<void> {
+    const database = await this.getDB();
+    this.lruMediaCache.evict(id);
+
+    const beatmap: SavedBeatmap | null = await new Promise((resolve, reject) => {
+      const tx = database.transaction('beatmaps', 'readonly');
+      const req = tx.objectStore('beatmaps').get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+
+    if (!beatmap) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('beatmaps', 'readwrite');
+      tx.objectStore('beatmaps').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+
+    if (beatmap.packageId) {
+      const pkgId = beatmap.packageId;
+      const allMaps = await this.getAllBeatmaps();
+      const referencesExist = allMaps.some(m => m.packageId === pkgId);
+
+      if (!referencesExist) {
+        await new Promise<void>((resolve, reject) => {
+          const tx = database.transaction('packages', 'readwrite');
+          tx.objectStore('packages').delete(pkgId);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+    }
+  }
+}
+
+export const storageManager = new StorageManager();

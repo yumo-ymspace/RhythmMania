@@ -1,0 +1,553 @@
+/**
+ * @license
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronLeft, Keyboard, Sliders, Volume2, RefreshCw, Gauge, Zap } from 'lucide-react';
+import { GameSettings, KeyBindings } from '../types';
+
+interface SettingsScreenProps {
+  settings: GameSettings;
+  updateSettings: (s: Partial<GameSettings>) => void;
+  onBack: () => void;
+}
+
+export default function SettingsScreen({
+  settings,
+  updateSettings,
+  onBack
+}: SettingsScreenProps) {
+  const [activeRebind, setActiveRebind] = useState<{ keyCount: number; colIndex: number } | null>(null);
+  
+  const [calibrating, setCalibrating] = useState<boolean>(false);
+  const [tapTimes, setTapTimes] = useState<number[]>([]);
+  const [metronomeBpm] = useState<number>(120);
+  const [beatProgress, setBeatProgress] = useState<number>(0);
+  const [caliOffsetResult, setCaliOffsetResult] = useState<number | null>(null);
+  
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const intervalRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!activeRebind) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      const pressedKey = e.key.toLowerCase();
+      
+      if (pressedKey === 'escape' || pressedKey === 'tab') {
+        setActiveRebind(null);
+        return;
+      }
+
+      const bindingsCopy = JSON.parse(JSON.stringify(settings.bindings)) as KeyBindings;
+      const keyLimit = activeRebind.keyCount;
+      const targetCol = activeRebind.colIndex;
+
+      if (bindingsCopy[keyLimit]) {
+        bindingsCopy[keyLimit][targetCol] = pressedKey;
+        updateSettings({ bindings: bindingsCopy });
+      }
+
+      setActiveRebind(null);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeRebind, settings.bindings]);
+
+  // Calibration metronome sound tickers
+  useEffect(() => {
+    if (!calibrating) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      setBeatProgress(0);
+      return;
+    }
+
+    const beatDurationMs = 60000 / metronomeBpm;
+    let start = Date.now();
+
+    intervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const progress = (elapsed % beatDurationMs) / beatDurationMs;
+      setBeatProgress(progress);
+      
+      if (progress < 0.05) {
+        triggerWebBeep(1200, 0.02);
+      }
+    }, 16);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [calibrating]);
+
+  // Spacebar physical interceptor for metronome tap testing
+  useEffect(() => {
+    if (!calibrating) return;
+
+    const handleSpacePress = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        registerTapEvent();
+      }
+    };
+
+    window.addEventListener('keydown', handleSpacePress);
+    return () => window.removeEventListener('keydown', handleSpacePress);
+  }, [calibrating, tapTimes]);
+
+  const triggerWebBeep = (freq: number, duration: number) => {
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtxClass();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch(e) {}
+  };
+
+  const registerTapEvent = () => {
+    triggerWebBeep(700, 0.04);
+
+    const beatDurationMs = 60000 / metronomeBpm;
+    const elapsed = Date.now() % beatDurationMs;
+    
+    let diff = elapsed;
+    if (diff > beatDurationMs / 2) {
+      diff = diff - beatDurationMs; 
+    }
+
+    const updated = [...tapTimes, diff].slice(-10);
+    setTapTimes(updated);
+
+    if (updated.length >= 8) {
+      const sum = updated.reduce((a, b) => a + b, 0);
+      const mean = Math.round(sum / updated.length);
+      setCaliOffsetResult(mean);
+    }
+  };
+
+  const applyOffsetCalibration = () => {
+    if (caliOffsetResult !== null) {
+      updateSettings({ audioOffset: caliOffsetResult });
+      setCalibrating(false);
+      setTapTimes([]);
+      setCaliOffsetResult(null);
+    }
+  };
+
+  const resetAllSettings = () => {
+    const verified = window.confirm('Restore default keybindings, volumes, and visual modes?');
+    if (verified) {
+      updateSettings({
+        scrollSpeed: 21,
+        audioOffset: 0,
+        visualOffset: 0,
+        hitsoundVolume: 0.60,
+        musicVolume: 0.75,
+        keyMode: 4,
+        bindings: {
+          2: ['f', 'j'],
+          3: ['f', ' ', 'j'],
+          4: ['d', 'f', 'j', 'k'],
+          5: ['d', 'f', ' ', 'j', 'k'],
+          6: ['s', 'd', 'f', 'j', 'k', 'l'],
+          7: ['s', 'd', 'f', ' ', 'j', 'k', 'l'],
+          8: ['a', 's', 'd', 'f', 'j', 'k', 'l', ';']
+        },
+        upsurfaceNoteMode: false,
+        videoOpacity: 0.35,
+        backgroundDim: 0.60,
+        disableVideo: false,
+        videoOffset: 0,
+      });
+    }
+  };
+
+  return (
+    <div id="settings-screen-container" className="flex flex-col gap-6 w-full max-w-6xl mx-auto h-full p-2 lg:p-4 text-slate-100 pb-12">
+      
+      {/* HEADER CONTROLS BANNER */}
+      <div className="flex justify-between items-center bg-[#08080C]/90 border border-white/5 p-4 rounded-2xl shadow-xl backdrop-blur-md">
+        <div className="flex items-center gap-3.5">
+          <span className="p-3 bg-cyan-400/5 rounded-xl border border-cyan-400/10 text-cyan-400">
+            <Sliders className="h-5 w-5" />
+          </span>
+          <div>
+            <span className="text-[9px] text-slate-500 font-mono tracking-widest uppercase">LATENCY CONTROLS DECK</span>
+            <h2 className="text-base font-black font-sans leading-none mt-1 uppercase italic tracking-wider text-white">System Settings</h2>
+          </div>
+        </div>
+
+        <button
+          id="settings-back-btn"
+          onClick={onBack}
+          className="flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-indigo-500 hover:brightness-110 text-black font-sans text-xs font-black uppercase tracking-wider rounded-xl italic shadow-[0_0_20px_rgba(34,211,238,0.2)] hover:shadow-[0_0_25px_rgba(34,211,238,0.45)] active:scale-95 transition-all cursor-pointer"
+        >
+          <ChevronLeft className="h-4 w-4 stroke-[3]" /> Return Selector
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* LEFT PANEL: DECIBELS / DIM PANEL PREFERENCES */}
+        <div className="lg:col-span-6 flex flex-col gap-6">
+          
+          {/* DECIBEL SLIDERS */}
+          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
+            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+              <Volume2 className="h-4 w-4 text-cyan-400" /> Decibel Modifiers
+            </h3>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between text-xs font-bold font-sans">
+                  <span className="text-slate-300 uppercase tracking-tight">Main Music Volume</span>
+                  <span className="font-mono text-cyan-405">{Math.round(settings.musicVolume * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05"
+                  value={settings.musicVolume}
+                  onChange={(e) => updateSettings({ musicVolume: parseFloat(e.target.value) })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between text-xs font-bold font-sans">
+                  <span className="text-slate-300 uppercase tracking-tight">System Hitsounds feedback</span>
+                  <span className="font-mono text-cyan-405">{Math.round(settings.hitsoundVolume * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05"
+                  value={settings.hitsoundVolume}
+                  onChange={(e) => updateSettings({ hitsoundVolume: parseFloat(e.target.value) })}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SCROLLING MECHANICS */}
+          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-4 backdrop-blur-md">
+            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+              <Zap className="h-4 w-4 text-cyan-400" /> Lane Mechanics
+            </h3>
+
+            <div className="flex items-center justify-between py-1 text-xs font-sans">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-slate-200">Upsurface scroll mapping</span>
+                <span className="text-slate-500 text-[10px]">Lanes move upwards instead of standard default descent</span>
+              </div>
+              
+              <button
+                id="upsurface-toggle"
+                onClick={() => updateSettings({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
+                className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
+                  settings.upsurfaceNoteMode 
+                    ? 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20' 
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
+                }`}
+              >
+                {settings.upsurfaceNoteMode ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 text-xs font-sans border-t border-white/5 pt-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-slate-200">Disable Background Video</span>
+                <span className="text-slate-500 text-[10px]">Completely disable background rendering of videos to save render cycles</span>
+              </div>
+              
+              <button
+                id="disable-video-toggle"
+                onClick={() => updateSettings({ disableVideo: !settings.disableVideo })}
+                className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
+                  settings.disableVideo 
+                    ? 'bg-red-500/10 text-red-400 border-red-550/20' 
+                    : 'bg-white/5 text-slate-405 border-white/5 hover:bg-white/10'
+                }`}
+              >
+                {settings.disableVideo ? 'DISABLED' : 'ENABLED'}
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-3">
+              <div className="flex justify-between text-xs font-bold font-sans">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-slate-200">Video Canvas Opacity</span>
+                  <span className="text-slate-500 text-[10px] font-normal">Adjust dim settings of background video playback</span>
+                </div>
+                <span className="font-mono text-cyan-405">{Math.round((settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35) * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.05"
+                value={settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35}
+                onChange={(e) => updateSettings({ videoOpacity: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-3">
+              <div className="flex justify-between text-xs font-bold font-sans">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-slate-200">Playfield Shield Cover opacity</span>
+                  <span className="text-slate-500 text-[10px] font-normal">Solid opaque background panel layout behind visual note streams</span>
+                </div>
+                <span className="font-mono text-cyan-455">{Math.round((settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60) * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.05"
+                value={settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60}
+                onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              />
+            </div>
+          </div>
+
+          {/* LATENCY MATRIX */}
+          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-4 backdrop-blur-md">
+            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+              <Gauge className="h-4 w-4 text-cyan-400" /> Latency Timing Sync
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-1">
+              <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2">
+                <span className="text-[9px] text-cyan-400 font-black uppercase tracking-wider font-mono">Audio Phase Shift</span>
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  Compensates for delayed audio outputs (e.g. bluetooth outputs).
+                </p>
+                <div className="flex items-center gap-2 mt-auto pt-2 justify-between">
+                  <input 
+                    type="number"
+                    value={settings.audioOffset}
+                    onChange={(e) => updateSettings({ audioOffset: parseInt(e.target.value) || 0 })}
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-450 focus:outline-none"
+                  />
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={() => updateSettings({ audioOffset: settings.audioOffset - 5 })}
+                      className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      -5ms
+                    </button>
+                    <button 
+                      onClick={() => updateSettings({ audioOffset: settings.audioOffset + 5 })}
+                      className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      +5ms
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2">
+                <span className="text-[9px] text-indigo-400 font-black uppercase tracking-wider font-mono">Visual Rendering Delay</span>
+                <p className="text-[10px] text-slate-550 leading-snug">
+                  Aligns visual hit frames with the physical song triggers.
+                </p>
+                <div className="flex items-center gap-2 mt-auto pt-2 justify-between">
+                  <input 
+                    type="number"
+                    value={settings.visualOffset || 0}
+                    onChange={(e) => updateSettings({ visualOffset: parseInt(e.target.value) || 0 })}
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-455 focus:outline-none"
+                  />
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={() => updateSettings({ visualOffset: (settings.visualOffset || 0) - 5 })}
+                      className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      -5ms
+                    </button>
+                    <button 
+                      onClick={() => updateSettings({ visualOffset: (settings.visualOffset || 0) + 5 })}
+                      className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      +5ms
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2 col-span-1 sm:col-span-2">
+                <span className="text-[9px] text-fuchsia-400 font-black uppercase tracking-wider font-mono">Video Render Timing offset</span>
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  Sync drift modifier for background video streams. Shifts later if positive, earlier if negative.
+                </p>
+                <div className="flex items-center gap-2.5 mt-auto pt-2 justify-between">
+                  <input 
+                    type="number"
+                    value={settings.videoOffset || 0}
+                    onChange={(e) => updateSettings({ videoOffset: parseInt(e.target.value) || 0 })}
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-450 focus:outline-none"
+                  />
+                  <div className="flex gap-1 flex-1 justify-end">
+                    <button 
+                      onClick={() => updateSettings({ videoOffset: (settings.videoOffset || 0) - 10 })}
+                      className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      -10ms
+                    </button>
+                    <button 
+                      onClick={() => updateSettings({ videoOffset: (settings.videoOffset || 0) + 10 })}
+                      className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer"
+                    >
+                      +10ms
+                    </button>
+                    <button 
+                      onClick={() => updateSettings({ videoOffset: 0 })}
+                      className="px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/5 font-mono text-[9px] rounded-lg font-bold transition cursor-pointer text-slate-400"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* METRONOME TIMING TOOL */}
+            <div className="border border-white/5 rounded-2xl p-4 flex flex-col gap-3.5 bg-black/40 mt-1">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-extrabold uppercase text-slate-200 tracking-wider">Dynamic Metronome Timing</span>
+                <button
+                  id="metronome-calibrate-btn"
+                  onClick={() => {
+                    setCalibrating(!calibrating);
+                    setTapTimes([]);
+                    setCaliOffsetResult(null);
+                  }}
+                  className={`px-3 py-1.5 font-mono font-bold text-[10px] uppercase tracking-wider rounded-lg transition ${
+                    calibrating ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5'
+                  }`}
+                >
+                  {calibrating ? 'STOP TEST' : 'START TEST'}
+                </button>
+              </div>
+
+              {calibrating && (
+                <div className="flex flex-col gap-3.5 shrink-0">
+                  <p className="text-[11px] text-slate-400 leading-normal">
+                    Press <kbd className="px-1.5 py-0.5 bg-neutral-800 rounded font-mono text-[10px] text-slate-300">Spacebar</kbd> or click the trigger card below matching the visual ticks to calculate hardware sound latencies.
+                  </p>
+
+                  <div className="flex items-center justify-center py-5 bg-black/60 rounded-xl border border-white/5 relative">
+                    <div 
+                      className={`h-12 w-12 rounded-full border-2 transition-all duration-75 flex items-center justify-center ${
+                        beatProgress < 0.12 ? 'border-cyan-400 bg-cyan-400/20 scale-105 shadow-[0_0_20px_rgba(34,211,238,0.3)]' : 'border-white/5 bg-white/5'
+                      }`}
+                    >
+                      <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">TICK</span>
+                    </div>
+                  </div>
+
+                  <button
+                    id="calibrate-tap-pad"
+                    onClick={registerTapEvent}
+                    className="py-3 bg-cyan-400 text-black font-extrabold uppercase tracking-widest text-xs rounded-xl shadow-lg hover:brightness-105 active:scale-[0.99] transition cursor-pointer"
+                  >
+                    PRESS SPACE OR TAP PAD
+                  </button>
+
+                  <div className="flex items-center justify-between text-[10px] font-mono mt-0.5">
+                    <span className="text-slate-500">Taps Linked: {tapTimes.length}/8</span>
+                    {caliOffsetResult !== null && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400 font-bold uppercase">Computed: {caliOffsetResult}ms</span>
+                        <button
+                          onClick={applyOffsetCalibration}
+                          className="px-2.5 py-1 bg-cyan-400 text-black font-sans font-black uppercase rounded-lg text-[9px]"
+                        >
+                          APPLY OFFSET
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL: KEYBOARD MAPPING COLUMNS */}
+        <div className="lg:col-span-6 bg-[#08080C]/90 border border-white/5 p-6 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
+          <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+            <Keyboard className="h-5 w-5 text-cyan-400" /> Lane Rebinding Matrix
+          </h3>
+
+          <p className="text-slate-400 text-xs leading-relaxed font-sans">
+            Click on any keyboard slot block, then type any letter on your hardware keyboard to bind that key to the respective column.
+          </p>
+
+          <div className="flex flex-col gap-4 max-h-[380px] overflow-y-auto pr-1">
+            {[2, 3, 4, 5, 6, 7, 8].map((num) => {
+              const columns = settings.bindings[num] || [];
+              return (
+                <div key={num} className="flex flex-col gap-2 bg-black/40 p-4 rounded-xl border border-white/5">
+                  <span className="text-[9px] text-slate-500 font-extrabold tracking-widest uppercase font-mono">{num} KEYS - LANE REBINDS</span>
+                  
+                  <div className="flex gap-2 flex-wrap mt-1">
+                    {columns.map((colKey, idx) => {
+                      const isRebindingNow = activeRebind?.keyCount === num && activeRebind?.colIndex === idx;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => setActiveRebind({ keyCount: num, colIndex: idx })}
+                          className={`flex-1 py-3 font-mono text-xs font-black rounded-xl transition border flex flex-col items-center justify-center cursor-pointer ${
+                            isRebindingNow 
+                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/35 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.1)]' 
+                              : 'bg-black/30 border-white/[0.03] hover:bg-black/85 text-white hover:border-cyan-400/20'
+                          }`}
+                        >
+                          <span className={`${isRebindingNow ? 'text-rose-400' : 'text-slate-500'} text-[8px] uppercase font-sans tracking-tight`}>Col {idx + 1}</span>
+                          <span className="text-xs uppercase mt-0.5">{isRebindingNow ? '???' : colKey === ' ' ? 'SPACE' : colKey}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-auto pt-4 border-t border-white/5">
+            <button
+              onClick={resetAllSettings}
+              className="w-full py-3 bg-white/5 hover:bg-rose-500/5 border border-white/5 hover:border-rose-500/15 text-slate-400 hover:text-rose-450 font-sans text-[11px] font-extrabold uppercase tracking-widest rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Restore Defaults
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
