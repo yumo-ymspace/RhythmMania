@@ -770,13 +770,16 @@ export default function GameplayCanvas({
     const keyCount = beatmap.keyCount;
     let totalWeight = 0;
     for (let i = 0; i < keyCount; i++) {
-      let weight = 1.0;
-      if (keyCount === 5 && i === 2) weight = 1.35;
-      else if (keyCount === 7 && i === 3) weight = 1.35;
-      else if (keyCount === 8 && i === 0) weight = 1.4;
-      totalWeight += weight;
+       let weight = 1.0;
+       if (keyCount === 5 && i === 2) weight = 1.35;
+       else if (keyCount === 7 && i === 3) weight = 1.35;
+       else if (keyCount === 8 && i === 0) weight = 1.4;
+       totalWeight += weight;
     }
-    const baseWidth = canvas.width / totalWeight;
+    const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+    const logicalWidth = canvas.width / dpr;
+    const logicalHeight = canvas.height / dpr;
+    const baseWidth = logicalWidth / totalWeight;
     const styles = getColumnStyles(keyCount, baseWidth);
     
     let spawnX = 0;
@@ -786,7 +789,7 @@ export default function GameplayCanvas({
     spawnX += styles[colIndex].width / 2;
     
     // Receptor positioning depending on scrolling direction settings (upwards vs downwards)
-    const receptorY = settings.upsurfaceNoteMode ? 60 : canvas.height - 80;
+    const receptorY = settings.upsurfaceNoteMode ? 60 : logicalHeight - 80;
 
     for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;

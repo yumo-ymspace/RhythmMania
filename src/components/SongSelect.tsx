@@ -939,7 +939,7 @@ export default function SongSelect({
                 id="start-play-btn"
                 disabled={isLoadingMedia || downloadingMapId !== null || !isSelectedMapReady}
                 onClick={handleStartPlay}
-                className={`w-full py-4 bg-gradient-to-r from-cyan-400 to-indigo-550 hover:brightness-110 text-black font-sans font-black text-xs rounded-xl uppercase tracking-[0.2em] italic shadow-[0_0_20px_rgba(34,211,238,0.25)] hover:shadow-[0_0_25px_rgba(34,211,238,0.4)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                className={`w-full py-4 bg-blue-600 hover:bg-blue-550 text-white font-sans font-black text-xs rounded-xl uppercase tracking-[0.2em] italic shadow-[0_0_20px_rgba(37,99,235,0.25)] hover:shadow-[0_0_25px_rgba(37,99,235,0.4)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
                   (isLoadingMedia || downloadingMapId !== null || !isSelectedMapReady) ? 'opacity-50 cursor-not-allowed saturate-50' : ''
                 }`}
               >
