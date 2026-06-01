@@ -408,7 +408,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.3.11</span>
+            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.3.12</span>
             <span className="flex items-center gap-1 opacity-75">
               Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
             </span>

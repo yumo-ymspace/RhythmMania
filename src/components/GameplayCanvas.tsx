@@ -108,6 +108,16 @@ export default function GameplayCanvas({
   const setVideoRef = React.useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
     GameplayMediaRegistry.setVideo(node);
+    if (node) {
+      try {
+        node.load();
+        node.play().catch((e) => {
+          console.warn('Video eager play on register failed, ignoring safely:', e);
+        });
+      } catch (err) {
+        console.warn('Error inside video registration player:', err);
+      }
+    }
   }, []);
   const animationFrameRef = useRef<number | null>(null);
 
@@ -388,6 +398,26 @@ export default function GameplayCanvas({
       } catch (e) {}
     }
 
+    // Automatically scroll the browser/window up, ensuring gameplay elements, focus mode or exit buttons are prominent on mobile viewports
+    try {
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        // Also scroll the container itself into view to ensure it clears any headers/margins
+        setTimeout(() => {
+          const containerElem = document.getElementById('gameplay-container');
+          if (containerElem) {
+            containerElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          // Reset scroll counters just in case smooth scrolling gets blocked by iframe sandboxing policies
+          document.documentElement.scrollTop = 0;
+          document.body.scrollTop = 0;
+        }, 150);
+      }
+    } catch (scrollErr) {
+      console.warn('Silent fallback for scroll transition bounds:', scrollErr);
+    }
+
     // Direct count down before launching music
     setShowCountdown(3);
   };
@@ -454,6 +484,11 @@ export default function GameplayCanvas({
             // Play audio as soon as countdown wraps up
             mainAudio.play(beatmap.bpm, settings.audioOffset);
             isPlayingRef.current = true;
+            if (videoRef.current) {
+              videoRef.current.play().catch(err => {
+                console.warn('Video failed to start after countdown elapsed:', err);
+              });
+            }
           }
           return prev - 1;
         });
@@ -1158,7 +1193,7 @@ export default function GameplayCanvas({
       );
 
       if (isMobileDevice) {
-        const hitZoneTop = height * 0.65;
+        const hitZoneTop = height * 0.60;
         
         ctx.save();
         
@@ -1177,7 +1212,7 @@ export default function GameplayCanvas({
         ctx.moveTo(0, hitZoneTop);
         ctx.lineTo(width, hitZoneTop);
         ctx.stroke();
-
+ 
         // 3. Draw a nice neon separator glow on top of the border line
         ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
         ctx.lineWidth = 8;
@@ -1192,7 +1227,7 @@ export default function GameplayCanvas({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('▼  TAP ANYWHERE IN THIS BOTTOM ZONE  ▼', width / 2, hitZoneTop + 14);
-
+ 
         // 5. Draw per-lane visual states in the hit zone
         for (let i = 0; i < keyCount; i++) {
           const xPos = colX[i];
@@ -1208,7 +1243,7 @@ export default function GameplayCanvas({
             ctx.lineTo(xPos, height);
             ctx.stroke();
           }
-
+ 
           if (isPressed) {
             // Draw beautiful neon/cyan channel backlight glow when tapped
             const pressGrad = ctx.createLinearGradient(xPos, hitZoneTop, xPos, height);
@@ -1229,7 +1264,7 @@ export default function GameplayCanvas({
           }
           
           // 6. Draw comfortable thumb tap circles
-          const circleY = hitZoneTop + (height - hitZoneTop) * 0.55; 
+          const circleY = hitZoneTop + (height - hitZoneTop) * 0.38; 
           ctx.beginPath();
           ctx.arc(xPos + colW / 2, circleY, isPressed ? 24 : 18, 0, Math.PI * 2);
           ctx.fillStyle = isPressed ? 'rgba(34, 211, 238, 0.4)' : 'rgba(15, 23, 42, 0.8)';
@@ -1237,7 +1272,7 @@ export default function GameplayCanvas({
           ctx.lineWidth = isPressed ? 3 : 1.5;
           ctx.fill();
           ctx.stroke();
-
+ 
           // Circle overlay indicator label
           ctx.font = 'bold 10px system-ui, -apple-system, sans-serif';
           ctx.fillStyle = isPressed ? '#ffffff' : 'rgba(148, 163, 184, 0.7)';
@@ -1481,7 +1516,6 @@ export default function GameplayCanvas({
         {/* PLAY HIGHWAY HERO BOX */}
         <div 
           className="flex-1 w-full flex justify-center relative overflow-hidden bg-[#050508]"
-          style={{ height: '100%' }}
         >
           {/* STATIC BACKGROUND IMAGE LAYER (Layer -1, z-index: 5) */}
           {beatmap.bgUrl && (!beatmap.videoUrl || settings.disableVideo || isVideoError) && (
@@ -1676,6 +1710,30 @@ export default function GameplayCanvas({
               {isPaused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4 fill-current" />}
             </button>
           </div>
+        </div>
+
+        {/* MOBILE ONLY ADDITIONAL CONTROLS BAR */}
+        <div className="w-full md:hidden flex items-center justify-between gap-3 px-6 pb-4 pt-1 bg-slate-900/60 border-t border-slate-950/40 select-none">
+          <button
+            id="mobile-quit-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExit();
+            }}
+            className="flex-1 flex items-center justify-center text-rose-400 hover:text-rose-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-rose-500/10 cursor-pointer active:bg-rose-950/30"
+          >
+            ✕ Quit Performance
+          </button>
+          <button
+            id="mobile-focus-toggle-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleFocus();
+            }}
+            className="flex-1 flex items-center justify-center text-cyan-400 hover:text-cyan-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-cyan-500/10 cursor-pointer active:bg-cyan-950/25"
+          >
+            {isFocusMode ? 'Normal View' : 'Focus Play'}
+          </button>
         </div>
       </div>
 
