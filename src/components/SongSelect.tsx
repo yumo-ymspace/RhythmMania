@@ -204,7 +204,7 @@ export default function SongSelect({
         if (!activePackageIds.has(s.id)) {
           virtualServerPackages.push({
             id: s.id,
-            title: s.title.replace(/\s*[([][1-8]K\s*Mania[\])]/gi, '').trim(),
+            title: s.title.replace(/\s*[([][1-8]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim(),
             artist: s.artist,
             creator: s.creator,
             oszUrl: s.oszUrl,
@@ -316,45 +316,6 @@ export default function SongSelect({
           return;
         }
 
-        const blobCache: { [key: string]: string } = {};
-
-        const resolveFileToUrl = async (filename: string | null, fallbackExts: string[]): Promise<string> => {
-          if (!filename) {
-            const fallbackObj = await resolver.findLargestFileByExtensions(fallbackExts) || resolver.findFallbackByExtensions(fallbackExts)?.file;
-            if (fallbackObj) {
-              const fileNameKey = (fallbackObj as any).name || 'unknown_fallback';
-              if (blobCache[fileNameKey]) return blobCache[fileNameKey];
-              const b = await fallbackObj.async('blob');
-              const url = AssetLifecycleManager.registerBlob(b);
-              blobCache[fileNameKey] = url;
-              return url;
-            }
-            return '';
-          }
-
-          const cachedKey = filename.toLowerCase();
-          if (blobCache[cachedKey]) return blobCache[cachedKey];
-
-          const fileObj = resolver.findFile(filename);
-          if (fileObj) {
-            const b = await fileObj.async('blob');
-            const url = AssetLifecycleManager.registerBlob(b);
-            blobCache[cachedKey] = url;
-            return url;
-          }
-
-          const fallbackObj = await resolver.findLargestFileByExtensions(fallbackExts) || resolver.findFallbackByExtensions(fallbackExts)?.file;
-          if (fallbackObj) {
-            const fileNameKey = (fallbackObj as any).name || 'unknown_fallback';
-            if (blobCache[fileNameKey]) return blobCache[fileNameKey];
-            const b = await fallbackObj.async('blob');
-            const url = AssetLifecycleManager.registerBlob(b);
-            blobCache[fileNameKey] = url;
-            return url;
-          }
-          return '';
-        };
-        
         let importedCount = 0;
         let lastId = '';
         let lastMap: Beatmap | null = null;
@@ -374,20 +335,9 @@ export default function SongSelect({
             mapWithMeta.bgFilename = media.bgFilename;
             mapWithMeta.originalOsuContent = osu.content;
             
-            const audioUrl = await resolveFileToUrl(media.audioFilename, ['.mp3', '.ogg', '.wav']);
-            if (audioUrl) parsedMap.audioUrl = audioUrl;
-
-            const videoUrl = await resolveFileToUrl(media.videoFilename, ['.mp4', '.webm', '.avi', '.mkv', '.mov']);
-            if (videoUrl) parsedMap.videoUrl = videoUrl;
-
-            const bgUrl = await resolveFileToUrl(media.bgFilename, ['.jpg', '.jpeg', '.png', '.bmp']);
-            if (bgUrl) parsedMap.bgUrl = bgUrl;
-
-            storageManager.lruMediaCache.put(parsedMap.id, {
-              audioUrl: audioUrl || '',
-              videoUrl: videoUrl || '',
-              bgUrl: bgUrl || ''
-            });
+            parsedMap.audioUrl = '';
+            parsedMap.videoUrl = '';
+            parsedMap.bgUrl = '';
             
             onImportOsuMap(parsedMap);
             lastId = parsedMap.id;
@@ -397,11 +347,10 @@ export default function SongSelect({
         }
         
         if (importedCount > 0 && lastMap) {
-          await handleSelectCustomMap(lastMap);
-          setSelectedCustomMapId(lastId);
+          setSelectedCustomMapId('');
           setImportStatus({ 
             type: 'ok', 
-            msg: `Successfully imported ${importedCount} beatmaps.` 
+            msg: `Successfully imported ${importedCount} beatmaps! Select a map from the library list on the left to play.` 
           });
         } else {
           setImportStatus({ type: 'err', msg: 'No playable difficulties inside.' });
@@ -424,10 +373,10 @@ export default function SongSelect({
       }
 
       onImportOsuMap(parsedMap);
-      setSelectedCustomMapId(parsedMap.id);
+      setSelectedCustomMapId('');
       setImportStatus({ 
         type: 'ok', 
-        msg: `Loaded single beatmap: "${parsedMap.title}"` 
+        msg: `Successfully loaded single beatmap: "${parsedMap.title}"! Select it from the library list on the left to play.` 
       });
       setTimeout(() => setImportStatus(null), 5000);
     } catch (err) {

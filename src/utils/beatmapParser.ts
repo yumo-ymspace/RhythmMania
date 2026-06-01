@@ -68,16 +68,21 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   let keyCount = 4; // CircleSize (standard header detection)
   let overallDifficulty = 8;
   let hpDrainRate = 8;
+  let mode = 0; // Default to 0 (osu! standard)
+  let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
   
   const rawNotes: Array<{
     x: number;
     time: number;
     typeBit: number;
     extra: string;
+    slides: number;
+    pixelLength: number;
   }> = [];
 
   let inHitObjects = false;
   const timingPoints: Array<{ time: number; beatLength: number }> = [];
+  const allTimingPoints: Array<{ time: number; beatLength: number }> = [];
   let inTimingPoints = false;
 
   for (const rawLine of lines) {
@@ -103,7 +108,7 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
 
         switch (key) {
           case 'title':
-            title = value.replace(/\s*[([][1-8]K\s*Mania[\])]/gi, '').trim();
+            title = value.replace(/\s*[([][1-8]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
           case 'artist':
             artist = value;
@@ -112,7 +117,7 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
             creator = value;
             break;
           case 'version':
-            difficulty = value;
+            difficulty = value.replace(/\s*[([][1-8]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
           case 'circlesize':
             keyCount = parseInt(value, 10) || 4;
@@ -123,6 +128,13 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
           case 'hpdrainrate':
             hpDrainRate = parseFloat(value) || 8;
             break;
+          case 'mode':
+            mode = parseInt(value, 10);
+            if (isNaN(mode)) mode = 0;
+            break;
+          case 'slidermultiplier':
+            sliderMultiplier = parseFloat(value) || 1.4;
+            break;
         }
       }
     } else if (inTimingPoints) {
@@ -132,10 +144,13 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
         const time = parseFloat(parts[0]);
         const beatLength = parseFloat(parts[1]);
         
-        // Uninherited timing points ALWAYS map positive beatLength representing mills per beat.
-        // Negative elements represent slider/velocity multipliers and are not BPM-defining.
-        if (beatLength > 0 && !isNaN(beatLength) && !isNaN(time)) {
-          timingPoints.push({ time, beatLength });
+        if (!isNaN(beatLength) && !isNaN(time)) {
+          allTimingPoints.push({ time, beatLength });
+          // Uninherited timing points ALWAYS map positive beatLength representing mills per beat.
+          // Negative elements represent slider/velocity multipliers and are not BPM-defining.
+          if (beatLength > 0) {
+            timingPoints.push({ time, beatLength });
+          }
         }
       }
     } else if (inHitObjects) {
@@ -146,12 +161,25 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
         const time = parseInt(parts[2], 10);
         const typeBit = parseInt(parts[3], 10);
         const extra = parts[5] || '';
+        // Slider slides are at parts[6], pixelLength at parts[7]
+        const slides = parts[6] ? parseInt(parts[6], 10) : 1;
+        const pixelLength = parts[7] ? parseFloat(parts[7]) : 0;
         if (!isNaN(x) && !isNaN(time)) {
-          rawNotes.push({ x, time, typeBit, extra });
+          rawNotes.push({
+            x,
+            time,
+            typeBit,
+            extra,
+            slides: isNaN(slides) ? 1 : slides,
+            pixelLength: isNaN(pixelLength) ? 0 : pixelLength
+          });
         }
       }
     }
   }
+
+  // Sort raw timing points
+  allTimingPoints.sort((a, b) => a.time - b.time);
 
   // SECOND PASS: Dynamic Column & KeyCount detection based on unique coordinates
   const rawXValues = new Set<number>();
@@ -176,18 +204,68 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   const detectedKeyCount = clusteredX.length;
   let finalKeyCount = keyCount;
 
-  // Prefer the detected count of unique columns if is between 2 and 8 and:
-  // - matches more columns than the parsed/default value
-  // - or the parsed/default value falls back to 4
-  if (detectedKeyCount >= 2 && detectedKeyCount <= 8) {
-    if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 8) {
-      finalKeyCount = detectedKeyCount;
+  if (mode === 0) {
+    // Mode 0 (standard osu!): convert Circle Size to a playable key count from 4 to 7
+    finalKeyCount = Math.max(4, Math.min(7, Math.round(keyCount)));
+    // Clear clusteredX for standard mode to force standard formula conversion
+    clusteredX.length = 0;
+  } else {
+    // Prefer the detected count of unique columns if is between 2 and 8 and:
+    // - matches more columns than the parsed/default value
+    // - or the parsed/default value falls back to 4
+    if (detectedKeyCount >= 2 && detectedKeyCount <= 8) {
+      if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 8) {
+        finalKeyCount = detectedKeyCount;
+      }
+    }
+
+    if (finalKeyCount < 1 || finalKeyCount > 8) {
+      finalKeyCount = 4; // Absolute safe fallback
     }
   }
 
-  if (finalKeyCount < 1 || finalKeyCount > 8) {
-    finalKeyCount = 4; // Absolute safe fallback
-  }
+  // Helper resolver to retrieve effective beatLength and SV multiplier at any specific hit time
+  const getTimingAtTime = (startTime: number) => {
+    // 1. Find the active beatLength (Uninherited Tempo)
+    let activeBeatLength = 500; // default 120 bpm (500ms per beat)
+    for (let i = timingPoints.length - 1; i >= 0; i--) {
+      if (timingPoints[i].time <= startTime) {
+        activeBeatLength = timingPoints[i].beatLength;
+        break;
+      }
+    }
+    if (timingPoints.length > 0 && startTime < timingPoints[0].time) {
+      activeBeatLength = timingPoints[0].beatLength;
+    }
+
+    // 2. Find the active SV (Slider Velocity Multiplier)
+    let activeSV = 1.0;
+    let lastPoint: { time: number; beatLength: number } | null = null;
+    for (let i = allTimingPoints.length - 1; i >= 0; i--) {
+      if (allTimingPoints[i].time <= startTime) {
+        lastPoint = allTimingPoints[i];
+        break;
+      }
+    }
+    if (!lastPoint && allTimingPoints.length > 0) {
+      lastPoint = allTimingPoints[0];
+    }
+
+    if (lastPoint) {
+      if (lastPoint.beatLength < 0) {
+        // SV multiplier is -100 / beatLength
+        activeSV = -100 / lastPoint.beatLength;
+      } else {
+        activeSV = 1.0;
+      }
+    }
+
+    if (activeSV <= 0 || isNaN(activeSV)) {
+      activeSV = 1.0;
+    }
+
+    return { beatLength: activeBeatLength, sv: activeSV };
+  };
 
   const notes: HitObject[] = [];
   let noteIdCounter = 0;
@@ -195,15 +273,15 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   for (const rn of rawNotes) {
     let column = 0;
 
-    if (clusteredX.length === finalKeyCount) {
+    if (clusteredX.length === finalKeyCount && clusteredX.length > 0) {
       // Direct clustering mapping - 100% precise against differences in format or scaling grids
       const idx = clusteredX.findIndex(cx => Math.abs(cx - rn.x) <= 8);
       column = idx !== -1 ? idx : 0;
-    } else if (sortedRawX.length > 0 && Math.max(...sortedRawX) < finalKeyCount) {
+    } else if (sortedRawX.length > 0 && Math.max(...sortedRawX) < finalKeyCount && mode !== 0) {
       // If the coordinates in the file are already column indices (e.g. 0 to initial count)
       column = Math.max(0, Math.min(finalKeyCount - 1, rn.x));
     } else {
-      // Robust standard mathematical fallback
+      // Robust standard mathematical fallback: Column = floor(x * CircleSize / 512)
       column = Math.floor((rn.x * finalKeyCount) / 512);
     }
 
@@ -220,6 +298,16 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
         endTime = parseInt(rn.extra.substring(0, colIndex), 10);
       } else {
         endTime = parseInt(rn.extra, 10) || (rn.time + 200);
+      }
+    } else if (mode === 0 && (rn.typeBit & 2) !== 0) {
+      // Standard slider being converted to hold note in standard mode (mode: 0)
+      type = 'hold';
+      const totalPixelLength = rn.pixelLength * (rn.slides || 1);
+      const timing = getTimingAtTime(rn.time);
+      const duration = totalPixelLength / (sliderMultiplier * 100 * timing.sv) * timing.beatLength;
+      endTime = Math.round(rn.time + duration);
+      if (isNaN(endTime) || endTime <= rn.time) {
+        endTime = rn.time + 150; // Fallback to 150ms hold note if duration calculation invalid
       }
     }
 
