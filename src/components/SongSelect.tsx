@@ -204,7 +204,7 @@ export default function SongSelect({
         if (!activePackageIds.has(s.id)) {
           virtualServerPackages.push({
             id: s.id,
-            title: s.title,
+            title: s.title.replace(/\s*[([][1-8]K\s*Mania[\])]/gi, '').trim(),
             artist: s.artist,
             creator: s.creator,
             oszUrl: s.oszUrl,

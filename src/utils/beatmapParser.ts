@@ -65,7 +65,7 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   let artist = 'Unknown Artist';
   let creator = 'Unknown Mapper';
   let difficulty = 'Normal';
-  let keyCount: number | null = null; // CircleSize (standard header detection)
+  let keyCount = 4; // CircleSize (standard header detection)
   let overallDifficulty = 8;
   let hpDrainRate = 8;
   
@@ -103,7 +103,7 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
 
         switch (key) {
           case 'title':
-            title = value;
+            title = value.replace(/\s*[([][1-8]K\s*Mania[\])]/gi, '').trim();
             break;
           case 'artist':
             artist = value;
@@ -114,13 +114,9 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
           case 'version':
             difficulty = value;
             break;
-          case 'circlesize': {
-            const val = parseInt(value, 10);
-            if (!isNaN(val)) {
-              keyCount = val;
-            }
+          case 'circlesize':
+            keyCount = parseInt(value, 10) || 4;
             break;
-          }
           case 'overalldifficulty':
             overallDifficulty = parseFloat(value) || 8;
             break;
@@ -177,16 +173,20 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
     }
   }
 
-  let finalKeyCount = 4;
-  if (keyCount !== null && !isNaN(keyCount) && keyCount >= 2 && keyCount <= 9) {
-    finalKeyCount = keyCount;
-  } else {
-    const detectedKeyCount = clusteredX.length;
-    if (detectedKeyCount >= 2 && detectedKeyCount <= 9) {
+  const detectedKeyCount = clusteredX.length;
+  let finalKeyCount = keyCount;
+
+  // Prefer the detected count of unique columns if is between 2 and 8 and:
+  // - matches more columns than the parsed/default value
+  // - or the parsed/default value falls back to 4
+  if (detectedKeyCount >= 2 && detectedKeyCount <= 8) {
+    if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 8) {
       finalKeyCount = detectedKeyCount;
-    } else {
-      finalKeyCount = 4;
     }
+  }
+
+  if (finalKeyCount < 1 || finalKeyCount > 8) {
+    finalKeyCount = 4; // Absolute safe fallback
   }
 
   const notes: HitObject[] = [];

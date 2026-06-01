@@ -104,13 +104,11 @@ export default function GameplayCanvas({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const syncControllerRef = useRef<VideoSyncController | null>(null);
 
-  // Safely register HTMLVideoElement in non-serializable global registry
-  useEffect(() => {
-    GameplayMediaRegistry.setVideo(videoRef.current);
-    return () => {
-      GameplayMediaRegistry.setVideo(null);
-    };
-  }, [videoRef.current]);
+  // Callback ref to register HTMLVideoElement in non-serializable global registry correctly on mount/unmount
+  const setVideoRef = React.useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    GameplayMediaRegistry.setVideo(node);
+  }, []);
   const animationFrameRef = useRef<number | null>(null);
 
   const handleExit = () => {
@@ -333,6 +331,12 @@ export default function GameplayCanvas({
   };
 
   const judgementWindows = getJudgementWindows(beatmap.overallDifficulty);
+  const marvelousJudg = judgementWindows.find(w => w.type === 'marvelous') || judgementWindows[0];
+  const perfectJudg = judgementWindows.find(w => w.type === 'perfect') || judgementWindows[1];
+  const greatJudg = judgementWindows.find(w => w.type === 'great') || judgementWindows[2];
+  const goodJudg = judgementWindows.find(w => w.type === 'good') || judgementWindows[3];
+  const badJudg = judgementWindows.find(w => w.type === 'bad') || judgementWindows[4];
+  const missJudg = judgementWindows.find(w => w.type === 'miss') || judgementWindows[judgementWindows.length - 1];
 
   const initializeGameplay = () => {
     // Deep copy notes from the beatmap, ensuring gameplay properties reset
@@ -652,22 +656,22 @@ export default function GameplayCanvas({
     }
 
     // Otherwise, they are releasing near the end (normal release window evaluation)
-    const greatWindow = judgementWindows[2].windowMs; // Great window is standard lenient boundary for releases
-    const missWindow = judgementWindows[5].windowMs;
+    const greatWindow = greatJudg.windowMs; // Great window is standard lenient boundary for releases
+    const missWindow = missJudg.windowMs;
 
     holdNote.isReleased = true;
     holdNote.releaseTime = playTime;
 
     if (absEndDiff <= greatWindow) {
       // Beautiful hold completion!
-      applyJudgement(judgementWindows[0], colIndex); // counts as Marvelous completion!
+      applyJudgement(marvelousJudg, colIndex); // counts as Marvelous completion!
     } else if (absEndDiff <= missWindow) {
       // Sluggish release
-      applyJudgement(judgementWindows[3], colIndex); // counts as Good
+      applyJudgement(goodJudg, colIndex); // counts as Good
     } else {
       // Released way too early or late
       holdNote.isHoldFailed = true;
-      applyJudgement(judgementWindows[5], colIndex); // Miss
+      applyJudgement(missJudg, colIndex); // Miss
       screenShakeRef.current = 6;
     }
   };
@@ -830,14 +834,14 @@ export default function GameplayCanvas({
 
     // Track notes elapsed to trigger automatic Miss judgments
     const checkAutonomousMisses = (currentTime: number) => {
-      const missBound = judgementWindows[5].windowMs;
+      const missBound = missJudg.windowMs;
       const state = scoreStateRef.current;
 
       notesRef.current.forEach((n) => {
         // 1. Normal notes missed
         if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
           n.isMissed = true;
-          applyJudgement(judgementWindows[5], n.column);
+          applyJudgement(missJudg, n.column);
         }
         
         // 2. Continuous hold note missed intermediate bounds
@@ -846,13 +850,13 @@ export default function GameplayCanvas({
           if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
             n.isHoldFailed = true;
             n.isReleased = true; // completed with fail
-            applyJudgement(judgementWindows[5], n.column);
+            applyJudgement(missJudg, n.column);
           }
           // Or if reached end without hit or release failure, and time elapsed past miss boundary.
           else if (!n.releaseGraceUntil && currentTime - n.endTime > missBound) {
             n.isHoldFailed = true;
             n.isReleased = true;
-            applyJudgement(judgementWindows[5], n.column);
+            applyJudgement(missJudg, n.column);
           }
         }
       });
@@ -1294,14 +1298,13 @@ export default function GameplayCanvas({
 
       // 5. RENDER PARTICLES BURST GENERATION
       if (!settings.disableParticles) {
-        particlesRef.current.forEach((p, idx) => {
+        particlesRef.current = particlesRef.current.filter((p) => {
           p.x += p.vx;
           p.y += p.vy;
           p.alpha -= p.decay;
           
           if (p.alpha <= 0) {
-            particlesRef.current.splice(idx, 1);
-            return;
+            return false;
           }
 
           ctx.save();
@@ -1311,6 +1314,7 @@ export default function GameplayCanvas({
           ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
+          return true;
         });
       } else if (particlesRef.current.length > 0) {
         particlesRef.current = [];
@@ -1505,7 +1509,7 @@ export default function GameplayCanvas({
           {/* HARDWARE-ACCELERATED SYNCHRONIZED VIDEO LAYER (Layer 0, z-index: 10) */}
           {beatmap.videoUrl && !settings.disableVideo && (
             <video
-              ref={videoRef}
+              ref={setVideoRef}
               key={beatmap.videoUrl}
               src={beatmap.videoUrl}
               muted

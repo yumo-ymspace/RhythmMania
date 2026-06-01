@@ -99,9 +99,21 @@ class StorageManager {
 
   private async getDB(): Promise<IDBDatabase> {
     if (this.db) return this.db;
-    if (this.initPromise) return this.initPromise;
+    if (this.initPromise) {
+      try {
+        return await this.initPromise;
+      } catch (err) {
+        this.initPromise = null;
+        throw err;
+      }
+    }
     this.initPromise = this.init();
-    return this.initPromise;
+    try {
+      return await this.initPromise;
+    } catch (err) {
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   public async savePackage(id: string, name: string, zipBlob: Blob): Promise<void> {
