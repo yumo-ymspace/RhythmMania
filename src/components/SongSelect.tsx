@@ -869,12 +869,10 @@ export default function SongSelect({
                       {(selectedCustomMap as any).difficultiesSummary && (selectedCustomMap as any).difficultiesSummary.length > 0 ? (
                         (selectedCustomMap as any).difficultiesSummary.map((diff: string, idx: number) => {
                           const hasStar = diff.includes('★');
-                          const starText = hasStar ? '★' + diff.split('★')[1]?.replace(')', '') : '';
                           const diffName = hasStar ? diff.split('★')[0]?.replace('(', '').trim() : diff;
                           return (
-                            <div key={idx} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-1.5 last:border-b-0 last:pb-0">
+                            <div key={idx} className="flex items-center text-[10px] font-mono border-b border-white/5 pb-1.5 last:border-b-0 last:pb-0">
                               <span className="text-slate-300 font-medium uppercase">{diffName}</span>
-                              <span className="text-rose-400 font-bold text-xs">{starText || 'Starred'}</span>
                             </div>
                           );
                         })

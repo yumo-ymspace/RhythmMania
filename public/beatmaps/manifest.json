@@ -8,6 +8,17 @@
     "keyCount": 4,
     "oszUrl": "/beatmaps/1328989 YOASOBI - Kaibutsu (TV Size).osz",
     "hash": "d13a9a1a4c9b",
-    "difficultiesSummary": ["Normal (★3.2)", "Hard (★4.8)", "Insane (★6.0)", "Galaxy (★7.2)"]
+    "difficultiesSummary": ["gokugohan12468's Easy", "Wanpachi's Normal", "Hard", "Beast", "Addy's Extra", "PikA's Insane ft.Kuro", "Syoko's Expert"]
+  },
+  {
+    "id": "server_odo",
+    "title": "Odo",
+    "artist": "Ado",
+    "creator": "Official",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/Ado - Odo.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Normal", "Hard", "K.O.", "Kyutei's Insane", "Lobelia's Expert"]
   }
 ]
