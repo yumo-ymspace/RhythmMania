@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.4.0
+**HIGH DENSITY MATRIX** · v0.4.1
 
 A precision mania-style rhythm game that runs entirely in the browser.
 Load your own `.osu` maps, tune your offsets, and compete for perfect accuracy.

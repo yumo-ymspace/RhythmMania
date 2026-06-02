@@ -643,10 +643,15 @@ export default function SongSelect({
                     </div>
                     
                     <div className="overflow-hidden w-full">
-                      <h4 className="font-extrabold font-sans text-xs text-white tracking-tight block truncate uppercase">
-                        {map.title}
+                      <h4 className="font-extrabold font-sans text-xs text-white tracking-tight flex items-center flex-wrap gap-1 uppercase">
+                        <span className="truncate max-w-[70%]">{map.title}</span>
+                        {(map as any).originalKeyCount && (
+                          <span className="px-1 py-0.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-[8px] font-sans font-black tracking-widest uppercase rounded">
+                            [Mod 4K]
+                          </span>
+                        )}
                         {!map.isServerPackage && (
-                          <span className="text-cyan-400 text-[10px] lowercase normal-case ml-1 font-semibold">[{map.difficulty}]</span>
+                          <span className="text-cyan-400 text-[10px] lowercase normal-case font-semibold shrink-0">[{map.difficulty}]</span>
                         )}
                       </h4>
                       <p className="text-[10px] text-slate-400 font-sans block truncate mt-0.5">{map.artist}</p>
@@ -793,8 +798,13 @@ export default function SongSelect({
               </h4>
               
               <div className="border-b border-white/5 pb-4">
-                <h3 className="text-lg font-black font-sans text-white tracking-tighter uppercase italic leading-tight block">
-                  {selectedCustomMap.title}
+                <h3 className="text-lg font-black font-sans text-white tracking-tighter uppercase italic leading-tight flex flex-wrap items-center gap-1.5">
+                  <span>{selectedCustomMap.title}</span>
+                  {(selectedCustomMap as any).originalKeyCount && (
+                    <span className="px-1.5 py-0.5 bg-cyan-400/10 border border-cyan-500/20 text-cyan-400 text-[9px] font-sans font-black tracking-wider rounded normal-case shadow-[0_0_10px_rgba(34,211,238,0.15)] animate-pulse">
+                      [Mod 4K]
+                    </span>
+                  )}
                 </h3>
                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
                   <span className="text-xs text-skin-accent font-sans tracking-tight font-bold uppercase">
@@ -832,11 +842,59 @@ export default function SongSelect({
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-1 bg-black/40 p-3.5 rounded-xl border border-white/5">
-                    <span className="text-[9px] text-slate-500 font-extrabold tracking-widest uppercase">KEY REQUIREMENT</span>
-                    <span className="text-[10px] font-mono text-skin-accent font-black uppercase mt-0.5">
-                      {selectedCustomMap.keyCount || 4} Lanes Required (Verified mapping)
-                    </span>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1 bg-black/40 p-3.5 rounded-xl border border-white/5">
+                      <span className="text-[9px] text-slate-500 font-extrabold tracking-widest uppercase">KEY REQUIREMENT</span>
+                      <span className="text-[10px] font-mono text-skin-accent font-black uppercase mt-0.5">
+                        {selectedCustomMap.keyCount || 4} Lanes Required (Verified mapping)
+                      </span>
+                    </div>
+
+                    {selectedCustomMap.keyCount !== 4 && !(selectedCustomMap as any).isServerPackage && (
+                      <button
+                        id="convert-to-4k-btn"
+                        onClick={() => {
+                          const convertedNotes = selectedCustomMap.notes.map(note => ({
+                            ...note,
+                            column: Math.min(3, Math.max(0, note.column % 4))
+                          }));
+                          const convertedMap = {
+                            ...selectedCustomMap,
+                            originalKeyCount: selectedCustomMap.keyCount,
+                            originalNotes: selectedCustomMap.notes,
+                            keyCount: 4,
+                            notes: convertedNotes
+                          };
+                          // Save in IndexedDB and refresh state in parent App
+                          onImportOsuMap(convertedMap);
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-400 font-sans text-[10px] font-black uppercase tracking-wider rounded-xl border border-cyan-500/20 hover:border-cyan-500/35 transition-all cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.1)] active:scale-95"
+                        title="Rewrite note columns from multidimensional lanes into standard 4-key maps"
+                      >
+                        ✦ Convert lanes to 4 keys (4K)
+                      </button>
+                    )}
+
+                    {(selectedCustomMap as any).originalKeyCount && (
+                      <button
+                        id="revert-to-original-btn"
+                        onClick={() => {
+                          const originalMap = {
+                            ...selectedCustomMap,
+                            keyCount: (selectedCustomMap as any).originalKeyCount,
+                            notes: (selectedCustomMap as any).originalNotes || selectedCustomMap.notes,
+                            originalKeyCount: undefined,
+                            originalNotes: undefined
+                          };
+                          // Save in IndexedDB and refresh state in parent App
+                          onImportOsuMap(originalMap);
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/15 text-amber-400 font-sans text-[10px] font-black uppercase tracking-wider rounded-xl border border-amber-500/20 hover:border-amber-500/35 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.1)] active:scale-95"
+                        title="Turn back to original key count layout"
+                      >
+                        ✦ Revert to {(selectedCustomMap as any).originalKeyCount} Keys ({(selectedCustomMap as any).originalKeyCount}K)
+                      </button>
+                    )}
                   </div>
                 )}
 

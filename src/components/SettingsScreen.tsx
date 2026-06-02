@@ -435,6 +435,113 @@ export default function SettingsScreen({
               </div>
             )}
           </div>
+
+          {/* ADVANCED PLAYFIELD SKINS STYLE GRAPHICS */}
+          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
+            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+              <Sliders className="h-4 w-4 text-skin-accent" /> Aesthetic Style Tweaks
+            </h3>
+
+            <p className="text-slate-400 text-xs leading-normal -mt-2">
+              Transform target receptors and falling notes. Customize corner rounding, transparency, and structure to build your ultimate gaming surface.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Note style & shape */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Falling Note Style</span>
+                
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] text-slate-400 font-medium">Corner Rounding / Shape Preset</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'rounded', name: 'Rounded Rect' },
+                      { id: 'square', name: 'Sharp Square' },
+                      { id: 'circle', name: 'Classic Circle' },
+                      { id: 'pill', name: 'Elastic Pill' },
+                    ].map((ns) => (
+                      <button
+                        key={ns.id}
+                        type="button"
+                        onClick={() => updateSettings({ noteStyle: ns.id as any })}
+                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                          (settings.noteStyle || 'rounded') === ns.id 
+                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                            : 'border-white/5 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {ns.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold">
+                    <span className="text-slate-350">Note Translucency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.1" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.noteOpacity ?? 1}
+                    onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Receptor style & shape */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Target Receptor Key Style</span>
+                
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] text-slate-400 font-medium font-sans">Receptor Appearance Structure</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'tactile', name: 'Tactile Glass' },
+                      { id: 'square', name: 'Sharp Square' },
+                      { id: 'minimal', name: 'Piano Segment' },
+                      { id: 'translucent', name: 'Transparent Glow' },
+                    ].map((rc) => (
+                      <button
+                        key={rc.id}
+                        type="button"
+                        onClick={() => updateSettings({ receptorStyle: rc.id as any })}
+                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                          (settings.receptorStyle || 'tactile') === rc.id 
+                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                            : 'border-white/5 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {rc.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold">
+                    <span className="text-slate-350">Key Receptor Translucency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.1" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.receptorOpacity ?? 1}
+                    onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* DECIBEL SLIDERS */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">

@@ -5,11 +5,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders } from 'lucide-react';
-import { GameScreen, GameSettings, Beatmap, ScoreState } from './types';
+import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord } from './types';
 import SongSelect from './components/SongSelect';
 import GameplayCanvas from './components/GameplayCanvas';
 import ResultsScreen from './components/ResultsScreen';
 import SettingsScreen from './components/SettingsScreen';
+import PersonalHistoryScreen from './components/PersonalHistoryScreen';
 import { mainAudio } from './audio/AudioEngine';
 import { storageManager } from './utils/storageManager';
 
@@ -40,6 +41,10 @@ const DEFAULT_SETTINGS: GameSettings = {
   disableParticles: false,
   limitDprToOne: false,
   skinId: 'neon',
+  noteStyle: 'rounded',
+  receptorStyle: 'tactile',
+  noteOpacity: 1.0,
+  receptorOpacity: 1.0,
 };
 
 export default function App() {
@@ -48,6 +53,86 @@ export default function App() {
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+
+  // Performance history states
+  const [playHistory, setPlayHistory] = useState<PlayHistoryRecord[]>([]);
+  const [historyLimit, setHistoryLimit] = useState<number>(50);
+  const [activeReplayFrames, setActiveReplayFrames] = useState<ReplayFrame[] | null>(null);
+
+  // Load play history & latency settings on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedHistory = localStorage.getItem('rhythm_mania_v1_play_history');
+        if (storedHistory) {
+          setPlayHistory(JSON.parse(storedHistory));
+        }
+        
+        const storedLimit = localStorage.getItem('rhythm_mania_v1_history_limit');
+        if (storedLimit) {
+          setHistoryLimit(Number(storedLimit));
+        }
+      } catch (e) {
+        console.error('Failed to load local history logs:', e);
+      }
+    }
+  }, []);
+
+  const handleClearHistory = () => {
+    setPlayHistory([]);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('rhythm_mania_v1_play_history');
+      } catch (e) {
+        console.error('Failed to wipe local history logs:', e);
+      }
+    }
+  };
+
+  const handleDeleteHistoryRecord = (id: string) => {
+    setPlayHistory(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(updated));
+        } catch (e) {
+          console.error('Failed to persist history deleted state:', e);
+        }
+      }
+      return updated;
+    });
+  };
+
+  const handleSetHistoryLimit = (limit: number) => {
+    setHistoryLimit(limit);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('rhythm_mania_v1_history_limit', String(limit));
+        
+        // Trim current logs that overflow the threshold
+        setPlayHistory(prev => {
+          if (prev.length > limit) {
+            const truncated = prev.slice(0, limit);
+            localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(truncated));
+            return truncated;
+          }
+          return prev;
+        });
+      } catch (e) {
+        console.error('Failed to update history retention policy:', e);
+      }
+    }
+  };
+
+  const handleWatchReplay = (record: PlayHistoryRecord) => {
+    // Look up the beatmap in our selection
+    const targetMap = [...customMaps].find(m => m.id === record.beatmapId);
+    if (targetMap) {
+      setSelectedBeatmap(targetMap);
+      setActiveReplayFrames(record.replayFrames);
+      setCurrentScreen('play');
+    }
+  };
 
   // Dynamically apply selected skin colors to the site theme/UI elements!
   useEffect(() => {
@@ -155,6 +240,10 @@ export default function App() {
         skinId: updated.skinId || 'neon',
         customSkinColors: updated.customSkinColors,
         customSkinName: updated.customSkinName,
+        noteStyle: updated.noteStyle || 'rounded',
+        receptorStyle: updated.receptorStyle || 'tactile',
+        noteOpacity: updated.noteOpacity !== undefined ? Number(updated.noteOpacity) : 1.0,
+        receptorOpacity: updated.receptorOpacity !== undefined ? Number(updated.receptorOpacity) : 1.0,
       };
 
       if (updated.bindings) {
@@ -199,11 +288,12 @@ export default function App() {
   };
 
   const handleSelectMap = (map: Beatmap) => {
+    setActiveReplayFrames(null); // Fresh clean live playthrough
     setSelectedBeatmap(map);
     setCurrentScreen('play');
   };
 
-  const handleGameplayFinish = (finalScore: ScoreState) => {
+  const handleGameplayFinish = (finalScore: ScoreState, replayFrames: ReplayFrame[] = []) => {
     try {
       if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
         if (document.exitFullscreen) {
@@ -215,11 +305,56 @@ export default function App() {
     } catch (e) {
       console.log('Fullscreen exit error:', e);
     }
+
+    // Only commit to performance logs if they are NOT playing a spectator replay
+    if (selectedBeatmap && !activeReplayFrames) {
+      let gradeChar = 'D';
+      const acc = finalScore.accuracy;
+      if (finalScore.failed) gradeChar = 'FAIL';
+      else if (acc >= 100) gradeChar = 'SS';
+      else if (acc >= 95) gradeChar = 'S';
+      else if (acc >= 90) gradeChar = 'A';
+      else if (acc >= 80) gradeChar = 'B';
+      else if (acc >= 70) gradeChar = 'C';
+
+      const newRecord: PlayHistoryRecord = {
+        id: `play_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        beatmapId: selectedBeatmap.id,
+        beatmapTitle: selectedBeatmap.title,
+        beatmapArtist: selectedBeatmap.artist,
+        keyCount: selectedBeatmap.keyCount,
+        score: finalScore.score,
+        accuracy: finalScore.accuracy,
+        maxCombo: finalScore.maxCombo,
+        grade: gradeChar,
+        isFailed: !!finalScore.failed,
+        scoreState: finalScore,
+        replayFrames: replayFrames
+      };
+
+      setPlayHistory(prev => {
+        const appended = [newRecord, ...prev].slice(0, historyLimit);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(appended));
+          } catch (e) {
+            console.error('History save error:', e);
+          }
+        }
+        return appended;
+      });
+    }
+
+    // Clear spectator frames to restore normal play state
+    setActiveReplayFrames(null);
+
     setScoreState(finalScore);
     setCurrentScreen('results');
   };
 
   const handleRetrySong = () => {
+    setActiveReplayFrames(null);
     setSelectedBeatmap(null);
     setCurrentScreen('select');
   };
@@ -278,6 +413,18 @@ export default function App() {
                 }`}
               >
                 System Latency
+              </button>
+
+              <button
+                id="header-nav-history"
+                onClick={() => setCurrentScreen('history')}
+                className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
+                  currentScreen === 'history' 
+                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Personal Performance
               </button>
             </nav>
           </div>
@@ -409,9 +556,11 @@ export default function App() {
                   }
                 }
               } catch (e) {}
+              setActiveReplayFrames(null);
               setSelectedBeatmap(null);
               setCurrentScreen('select');
             }}
+            replayData={activeReplayFrames}
           />
         )}
 
@@ -430,9 +579,22 @@ export default function App() {
                   }
                 }
               } catch (e) {}
+              setActiveReplayFrames(null);
               setSelectedBeatmap(null);
               setCurrentScreen('select');
             }}
+          />
+        )}
+
+        {currentScreen === 'history' && (
+          <PersonalHistoryScreen
+            history={playHistory}
+            allBeatmaps={customMaps}
+            onWatchReplay={handleWatchReplay}
+            onClearHistory={handleClearHistory}
+            onDeleteRecord={handleDeleteHistoryRecord}
+            historyLimit={historyLimit}
+            onSetHistoryLimit={handleSetHistoryLimit}
           />
         )}
 
@@ -449,7 +611,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.4.0</span>
+            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.4.1</span>
             <span className="flex items-center gap-1 opacity-75">
               Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
             </span>

@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
-import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState } from '../types';
+import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame } from '../types';
 import { VideoSyncController } from '../utils/videoSyncController';
 import { PlayZoneOverlay } from './PlayZoneOverlay';
 import { executeTeardown } from '../utils/gameplayTeardown';
@@ -139,8 +139,9 @@ interface GameplayCanvasProps {
   beatmap: Beatmap;
   settings: GameSettings;
   updateSettings?: (s: Partial<GameSettings>) => void;
-  onFinish: (score: ScoreState) => void;
+  onFinish: (score: ScoreState, replay?: ReplayFrame[]) => void;
   onBack: () => void;
+  replayData?: ReplayFrame[] | null;
 }
 
 interface Particle {
@@ -159,12 +160,17 @@ export default function GameplayCanvas({
   settings,
   updateSettings,
   onFinish,
-  onBack
+  onBack,
+  replayData = null
 }: GameplayCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const syncControllerRef = useRef<VideoSyncController | null>(null);
+
+  // Replay structures
+  const replayFramesRef = useRef<ReplayFrame[]>([]);
+  const lastProcessedReplayTimeRef = useRef<number>(-1);
 
   // Callback ref to register HTMLVideoElement in non-serializable global registry correctly on mount/unmount
   const setVideoRef = React.useCallback((node: HTMLVideoElement | null) => {
@@ -193,7 +199,13 @@ export default function GameplayCanvas({
     if (videoRef.current) {
       try { videoRef.current.pause(); } catch (e) {}
     }
-    onBack();
+    
+    // If they failed or are at 0 HP, submit as finished fail record so they see performance telemetry and replay
+    if (scoreStateRef.current.failed) {
+      onFinish(scoreStateRef.current, replayFramesRef.current);
+    } else {
+      onBack();
+    }
   };
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
 
@@ -443,6 +455,10 @@ export default function GameplayCanvas({
       completed: false,
       failed: false,
     };
+
+    // Reset replay tracking
+    replayFramesRef.current = [{ time: 0, keysPressed: new Array(beatmap.keyCount).fill(false) }];
+    lastProcessedReplayTimeRef.current = -1;
     
     syncControllerRef.current = null;
     
@@ -574,6 +590,13 @@ export default function GameplayCanvas({
         
         mainAudio.playHitsound();
         triggerHitEvent(colIndex);
+
+        if (!replayData) {
+          replayFramesRef.current.push({
+            time: audioTimeRef.current,
+            keysPressed: [...keysPressedRef.current]
+          });
+        }
       }
     };
 
@@ -584,6 +607,13 @@ export default function GameplayCanvas({
         activeColumnsRef.current[colIndex] = false;
         
         triggerReleaseEvent(colIndex);
+
+        if (!replayData) {
+          replayFramesRef.current.push({
+            time: audioTimeRef.current,
+            keysPressed: [...keysPressedRef.current]
+          });
+        }
       }
     };
 
@@ -602,6 +632,8 @@ export default function GameplayCanvas({
         return;
       }
 
+      if (replayData) return; // ignore user key taps in replay mode
+
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -611,6 +643,9 @@ export default function GameplayCanvas({
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      
+      if (replayData) return; // ignore user key taps in replay mode
+
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -632,20 +667,24 @@ export default function GameplayCanvas({
       touchAdapter = new TouchInputAdapter(virtualKeyDown, virtualKeyUp);
 
       handleTouchStart = (e: TouchEvent) => {
+        if (replayData) return;
         const rect = canvas.getBoundingClientRect();
         touchAdapter?.handleTouchStart(e, rect, beatmap.keyCount);
       };
 
       handleTouchMove = (e: TouchEvent) => {
+        if (replayData) return;
         const rect = canvas.getBoundingClientRect();
         touchAdapter?.handleTouchMove(e, rect, beatmap.keyCount);
       };
 
       handleTouchEnd = (e: TouchEvent) => {
+        if (replayData) return;
         touchAdapter?.handleTouchEnd(e);
       };
 
       handleTouchCancel = (e: TouchEvent) => {
+        if (replayData) return;
         touchAdapter?.handleTouchCancel(e);
       };
 
@@ -886,7 +925,7 @@ export default function GameplayCanvas({
     spawnX += styles[colIndex].width / 2;
     
     // Receptor positioning depending on scrolling direction settings (upwards vs downwards)
-    const receptorY = settings.upsurfaceNoteMode ? 60 : logicalHeight - 110;
+    const receptorY = settings.upsurfaceNoteMode ? 60 : logicalHeight - 155;
 
     for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -1005,6 +1044,37 @@ export default function GameplayCanvas({
       const songTime = rawSongTime + offsetDiff;
       audioTimeRef.current = songTime;
 
+      // Replay simulation playback
+      if (replayData && replayData.length > 0 && isPlayingRef.current && !isPaused && showCountdown === 0) {
+        const lastReplayTime = lastProcessedReplayTimeRef.current;
+        if (lastReplayTime === -1) {
+          lastProcessedReplayTimeRef.current = songTime;
+        } else {
+          const framesToProcess = replayData.filter(f => f.time > lastReplayTime && f.time <= songTime);
+          if (framesToProcess.length > 0) {
+            framesToProcess.forEach(frame => {
+              for (let col = 0; col < beatmap.keyCount; col++) {
+                const wasPressed = keysPressedRef.current[col];
+                const isCurrentlyPressed = frame.keysPressed[col];
+                
+                if (!wasPressed && isCurrentlyPressed) {
+                  keysPressedRef.current[col] = true;
+                  activeColumnsRef.current[col] = true;
+                  laneGlowRef.current[col] = 1.0;
+                  mainAudio.playHitsound();
+                  triggerHitEvent(col);
+                } else if (wasPressed && !isCurrentlyPressed) {
+                  keysPressedRef.current[col] = false;
+                  activeColumnsRef.current[col] = false;
+                  triggerReleaseEvent(col);
+                }
+              }
+            });
+          }
+          lastProcessedReplayTimeRef.current = songTime;
+        }
+      }
+
       if (isPlayingRef.current && !isPaused && showCountdown === 0) {
         checkAutonomousMisses(songTime);
         
@@ -1063,7 +1133,7 @@ export default function GameplayCanvas({
         accumulatedX += colStyles[i].width;
       }
 
-      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 110;
+      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 155;
 
       // Draw lane background rails & column glows
       for (let i = 0; i < keyCount; i++) {
@@ -1140,6 +1210,7 @@ export default function GameplayCanvas({
             const clipHeight = visualStartY - endY;
             
             ctx.save();
+            ctx.globalAlpha = settings.noteOpacity ?? 1.0;
             const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, endY);
             
             const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
@@ -1172,12 +1243,19 @@ export default function GameplayCanvas({
             const rh = Math.abs(clipHeight);
             
             ctx.beginPath();
-            if (settings.skinId === 'circles') {
-              ctx.roundRect(rx, ry, rw, rh, rw / 2); // Pill-style capsules
-            } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
-              ctx.rect(rx, ry, rw, rh); // Pure flat rectangles
+            const nStyle = settings.noteStyle || 'rounded';
+            if (nStyle === 'square') {
+              ctx.rect(rx, ry, rw, rh);
+            } else if (nStyle === 'circle' || nStyle === 'pill') {
+              ctx.roundRect(rx, ry, rw, rh, rw / 2);
             } else {
-              ctx.roundRect(rx, ry, rw, rh, 6);
+              if (settings.skinId === 'circles') {
+                ctx.roundRect(rx, ry, rw, rh, rw / 2); // Pill-style capsules
+              } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
+                ctx.rect(rx, ry, rw, rh); // Pure flat rectangles
+              } else {
+                ctx.roundRect(rx, ry, rw, rh, 6);
+              }
             }
             ctx.fill();
             
@@ -1219,7 +1297,21 @@ export default function GameplayCanvas({
         const rh = 20;
 
         ctx.save();
+        ctx.globalAlpha = settings.noteOpacity ?? 1.0;
         
+        // Define a local helper to enforce custom note rounding overrides
+        const drawNoteShape = (radiusDefault: number) => {
+          ctx.beginPath();
+          const nStyle = settings.noteStyle || 'rounded';
+          if (nStyle === 'square') {
+            ctx.rect(rx, ry, rw, rh);
+          } else if (nStyle === 'circle' || nStyle === 'pill') {
+            ctx.roundRect(rx, ry, rw, rh, rh / 2);
+          } else {
+            ctx.roundRect(rx, ry, rw, rh, radiusDefault);
+          }
+        };
+
         let noteFill: string = '';
         let noteStroke: string = colStyles[n.column].color;
 
@@ -1247,8 +1339,7 @@ export default function GameplayCanvas({
           ctx.strokeStyle = noteStroke;
           ctx.lineWidth = 2;
           
-          ctx.beginPath();
-          ctx.roundRect(rx, ry, rw, rh, 3);
+          drawNoteShape(3);
           ctx.fill();
           ctx.stroke();
         } else if (settings.skinId === 'classic-bar') {
@@ -1259,8 +1350,7 @@ export default function GameplayCanvas({
           ctx.strokeStyle = noteStroke;
           ctx.lineWidth = 1.5;
 
-          ctx.beginPath();
-          ctx.rect(rx, ry, rw, rh); // Rigid rectangular DDR bars
+          drawNoteShape(0); // 0 means square if standard
           ctx.fill();
           ctx.stroke();
 
@@ -1276,8 +1366,7 @@ export default function GameplayCanvas({
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 1.5;
 
-          ctx.beginPath();
-          ctx.roundRect(rx, ry, rw, rh, rh / 2); // Fully rounded pill shape for authentic mania bubbles
+          drawNoteShape(rh / 2);
           ctx.fill();
           ctx.stroke();
 
@@ -1290,14 +1379,17 @@ export default function GameplayCanvas({
           // Default Neon and Cyberpunk flows
           grad.addColorStop(0, noteStroke);
           grad.addColorStop(0.3, noteFill);
-          grad.addColorStop(1, 'rgba(15,23,42,0.85)');
+          if (settings.skinId === 'cyberpunk') {
+            grad.addColorStop(0.85, 'rgba(15, 23, 42, 0.95)');
+          } else {
+            grad.addColorStop(1, 'rgba(15,23,42,0.85)');
+          }
 
           ctx.fillStyle = grad;
           ctx.strokeStyle = noteStroke;
           ctx.lineWidth = 1.5;
           
-          ctx.beginPath();
-          ctx.roundRect(rx, ry, rw, rh, 5);
+          drawNoteShape(5);
           ctx.fill();
           ctx.stroke();
 
@@ -1359,6 +1451,7 @@ export default function GameplayCanvas({
         const rcColor = colStyles[i].color;
 
         ctx.save();
+        ctx.globalAlpha = settings.receptorOpacity ?? 1.0;
 
         if (isFocusMode) {
           // ==================== PIANO TILES STYLE ====================
@@ -1385,28 +1478,95 @@ export default function GameplayCanvas({
           ctx.stroke();
 
         } else {
-          // ==================== STANDARD VIEW PC & MOBILE RECEPTRS ====================
-          // Tactile, rounded-rectangle keycap "buttons" matching the user's reference image!
-          const rx = xPos + 6;
-          const ry = receptorY - 14;
-          const rw = colW - 12;
-          const rh = 28;
+          // Standard or selected receptor style block
+          const rStyle = settings.receptorStyle || 'tactile';
+          
+          if (rStyle === 'minimal') {
+            // ==================== PIANO SEGMENT STYLE ====================
+            const rx = xPos + 1;
+            const ry = receptorY - 5;
+            const rw = colW - 2;
+            const rh = 10;
 
-          // Button container background and borders
-          ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.85);
-          ctx.lineWidth = isPressed ? 3.5 : 2;
-          ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.45) : 'rgba(15, 23, 42, 0.85)';
+            ctx.fillStyle = isPressed 
+              ? 'rgba(255, 255, 255, 0.9)' 
+              : hexToRgba(rcColor, 0.15);
+            
+            ctx.beginPath();
+            ctx.roundRect(rx, ry, rw, rh, 3);
+            ctx.fill();
 
-          ctx.beginPath();
-          ctx.roundRect(rx, ry, rw, rh, 6);
-          ctx.fill();
-          ctx.stroke();
+            ctx.strokeStyle = isPressed 
+              ? '#ffffff' 
+              : hexToRgba(rcColor, 0.35);
+            ctx.lineWidth = isPressed ? 2.5 : 1.2;
+            ctx.stroke();
 
-          // Physical Center feedback dot (exactly like the reference image)
-          ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
-          ctx.beginPath();
-          ctx.arc(xPos + colW / 2, receptorY, isPressed ? 5.5 : 3.5, 0, Math.PI * 2);
-          ctx.fill();
+          } else if (rStyle === 'square') {
+            // ==================== SOLID SQUARE STYLE ====================
+            const rx = xPos + 4;
+            const ry = receptorY - 14;
+            const rw = colW - 8;
+            const rh = 28;
+
+            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.9);
+            ctx.lineWidth = isPressed ? 4.0 : 2;
+            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.6) : 'rgba(10, 10, 15, 0.95)';
+
+            ctx.beginPath();
+            ctx.rect(rx, ry, rw, rh); // Pure rigid sharp box
+            ctx.fill();
+            ctx.stroke();
+
+            // Physical Center feedback square
+            ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
+            ctx.fillRect(xPos + colW / 2 - (isPressed ? 6 : 4), receptorY - (isPressed ? 6 : 4), isPressed ? 12 : 8, isPressed ? 12 : 8);
+
+          } else if (rStyle === 'translucent') {
+            // ==================== TRANSLUCENT GLOW STYLE ====================
+            const rx = xPos + 6;
+            const ry = receptorY - 14;
+            const rw = colW - 12;
+            const rh = 28;
+
+            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.6);
+            ctx.lineWidth = isPressed ? 3.0 : 1.5;
+            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.35) : 'rgba(255, 255, 255, 0.05)';
+
+            ctx.beginPath();
+            ctx.roundRect(rx, ry, rw, rh, 8);
+            ctx.fill();
+            ctx.stroke();
+
+            // Elegant neon thin glow circle in the middle
+            ctx.strokeStyle = isPressed ? '#ffffff' : rcColor;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(xPos + colW / 2, receptorY, isPressed ? 7 : 5, 0, Math.PI * 2);
+            ctx.stroke();
+
+          } else {
+            // ==================== TACTILE CLASSIC GLASS (DEFAULT) ====================
+            const rx = xPos + 6;
+            const ry = receptorY - 14;
+            const rw = colW - 12;
+            const rh = 28;
+
+            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.85);
+            ctx.lineWidth = isPressed ? 3.5 : 2;
+            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.45) : 'rgba(15, 23, 42, 0.85)';
+
+            ctx.beginPath();
+            ctx.roundRect(rx, ry, rw, rh, 6);
+            ctx.fill();
+            ctx.stroke();
+
+            // Physical Center feedback dot
+            ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
+            ctx.beginPath();
+            ctx.arc(xPos + colW / 2, receptorY, isPressed ? 5.5 : 3.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
 
           // Draw binding character labels underneath each receptor button (PC and Mobile standard layout)
           const layoutKeys = settings.bindings[keyCount];
@@ -1460,7 +1620,7 @@ export default function GameplayCanvas({
         mainAudio.stop();
         
         setTimeout(() => {
-          onFinish(scoreStateRef.current);
+          onFinish(scoreStateRef.current, replayFramesRef.current);
         }, 1200);
       }
 
@@ -1489,6 +1649,7 @@ export default function GameplayCanvas({
     if (showCountdown > 0 || scoreStateRef.current.failed) return;
     
     if (isPaused) {
+      lastProcessedReplayTimeRef.current = -1;
       setIsPaused(false);
       isPlayingRef.current = true;
       mainAudio.play(beatmap.bpm, settings.audioOffset);
@@ -1602,6 +1763,7 @@ export default function GameplayCanvas({
           isFocusMode={isFocusMode}
           score={uiScore}
           accuracy={scoreStateRef.current.accuracy}
+          isReplay={!!replayData}
         />
 
         {/* PLAY HIGHWAY HERO BOX */}

@@ -33,6 +33,7 @@ export default function ResultsScreen({
   } = scoreState;
 
   const getGrade = (acc: number): { char: string; color: string; glow: string; bg: string; border: string; desc: string } => {
+    if (scoreState.failed) return { char: 'FAIL', color: 'text-rose-500', glow: 'shadow-[0_0_20px_rgba(239,68,68,0.25)] border-rose-500/20', bg: 'bg-rose-950/10', border: 'border-rose-500/20', desc: 'track failed' };
     if (acc >= 100) return { char: 'SS', color: 'text-cyan-400', glow: 'shadow-[0_0_35px_rgba(34,211,238,0.4)] border-cyan-500/25', bg: 'bg-cyan-950/10', border: 'border-cyan-500/30', desc: 'absolute perfection' };
     if (acc >= 95) return { char: 'S', color: 'text-amber-450', glow: 'shadow-[0_0_35px_rgba(245,158,11,0.3)] border-amber-500/25', bg: 'bg-amber-950/10', border: 'border-amber-500/30', desc: 'superb execution' };
     if (acc >= 90) return { char: 'A', color: 'text-emerald-400', glow: 'shadow-[0_0_25px_rgba(16,185,129,0.2)] border-emerald-500/20', bg: 'bg-emerald-950/10', border: 'border-emerald-500/20', desc: 'excellent pacing' };

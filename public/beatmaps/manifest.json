@@ -6,7 +6,7 @@
     "creator": "Official",
     "difficulty": "★",
     "keyCount": 4,
-    "oszUrl": "/beatmaps/1328989 YOASOBI - Kaibutsu (TV Size).osz",
+    "oszUrl": "/beatmaps/YOASOBI - Kaibutsu (TV Size).osz",
     "hash": "d13a9a1a4c9b",
     "difficultiesSummary": ["gokugohan12468's Easy", "Wanpachi's Normal", "Hard", "Beast", "Addy's Extra", "PikA's Insane ft.Kuro", "Syoko's Expert"]
   },
@@ -20,5 +20,16 @@
     "oszUrl": "/beatmaps/Ado - Odo.osz",
     "hash": "d13a9a1a4c9b",
     "difficultiesSummary": ["Normal", "Hard", "K.O.", "Kyutei's Insane", "Lobelia's Expert"]
+  },
+  {
+    "id": "server_mach_roger",
+    "title": "Mach Roger",
+    "artist": "MYUKKE.",
+    "creator": "Official",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/MYUKKE. - Mach Roger.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Easy", "Normal", "Py's Hard", "Insane", "Maharaja"]
   }
 ]

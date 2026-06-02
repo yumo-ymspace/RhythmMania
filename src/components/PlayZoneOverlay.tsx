@@ -11,6 +11,7 @@ interface PlayZoneOverlayProps {
   isFocusMode: boolean;
   score: number;
   accuracy: number;
+  isReplay?: boolean;
 }
 
 export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
@@ -18,7 +19,8 @@ export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
   onToggleFocus,
   isFocusMode,
   score,
-  accuracy
+  accuracy,
+  isReplay = false
 }) => {
   return (
     <div 
@@ -35,7 +37,7 @@ export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
           }}
           className="flex items-center text-slate-400 hover:text-rose-450 font-sans text-xs font-bold uppercase tracking-wider transition-all bg-[#08080C]/90 hover:bg-rose-950/15 px-4 py-2 rounded-xl border border-white/5 hover:border-rose-500/10 cursor-pointer"
         >
-          ✕ Quit Performance
+          ✕ Quit {isReplay ? 'Replay' : 'Performance'}
         </button>
 
         <button
@@ -62,6 +64,14 @@ export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
           >
             ✕ Exit Focus
           </button>
+        </div>
+      )}
+
+      {/* Center Replay indicator badge */}
+      {isReplay && (
+        <div className="absolute left-1/2 top-5 -translate-x-1/2 flex items-center gap-2 bg-cyan-950/70 border border-cyan-400/40 text-cyan-400 px-3 py-1 rounded-full shadow-[0_0_15px_rgba(34,211,238,0.25)] select-none">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="text-[10px] font-extrabold font-sans uppercase tracking-[0.2em]">REPLAY CINEMATIC</span>
         </div>
       )}
 

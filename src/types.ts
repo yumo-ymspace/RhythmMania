@@ -77,6 +77,22 @@ export interface ReplayFrame {
   keysPressed: boolean[];
 }
 
+export interface PlayHistoryRecord {
+  id: string;
+  timestamp: number;
+  beatmapId: string;
+  beatmapTitle: string;
+  beatmapArtist: string;
+  keyCount: number;
+  score: number;
+  accuracy: number;
+  maxCombo: number;
+  grade: string;
+  isFailed: boolean;
+  scoreState: ScoreState;
+  replayFrames: ReplayFrame[];
+}
+
 export interface KeyBindings {
   [keys: number]: string[]; // maps column counts (4, 5, 6, 7) to key arrays (e.g. ['d', 'f', 'j', 'k'])
 }
@@ -99,9 +115,13 @@ export interface GameSettings {
   skinId?: string; // custom osu!mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom')
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
+  noteStyle?: 'rounded' | 'square' | 'circle' | 'pill';
+  receptorStyle?: 'tactile' | 'square' | 'minimal' | 'translucent';
+  noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
+  receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
 }
 
-export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate';
+export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';
 
 declare global {
   const __APP_VERSION__: string;
