@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Keyboard, Sliders, Volume2, RefreshCw, Gauge, Zap } from 'lucide-react';
+import { ChevronLeft, Keyboard, Sliders, Volume2, RefreshCw, Gauge, Zap, Palette, UploadCloud, Check, FileText } from 'lucide-react';
 import { GameSettings, KeyBindings } from '../types';
 
 interface SettingsScreenProps {
@@ -28,6 +28,82 @@ export default function SettingsScreen({
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<any>(null);
+
+  const [dragOver, setDragOver] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const processSkinIniAndColors = (txt: string, filename: string) => {
+    const lines = txt.split(/\r?\n/);
+    const colorsFound: string[] = [];
+    
+    for (const line of lines) {
+      const cleanLine = line.trim();
+      if (cleanLine.startsWith('//') || cleanLine.startsWith(';')) continue;
+      
+      const match = cleanLine.match(/^(Colour|Color|KeyColour|KeyColor|NoteImageColor)([0-9]+)\s*:\s*([0-9\s,]+)/i);
+      if (match) {
+        const idx = parseInt(match[2]);
+        const rgbParts = match[3].split(',').map(s => parseInt(s.trim()));
+        if (rgbParts.length >= 3 && rgbParts.every(n => !isNaN(n))) {
+          const r = Math.min(255, Math.max(0, rgbParts[0]));
+          const g = Math.min(255, Math.max(0, rgbParts[1]));
+          const b = Math.min(255, Math.max(0, rgbParts[2]));
+          const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+          colorsFound[idx - 1] = hex; 
+        }
+      }
+    }
+
+    const finalColors = colorsFound.filter(c => !!c);
+    const baseColors = [...(settings.customSkinColors || ['#00e5ff', '#ffeb3b', '#f50057', '#00e676', '#ec4899'])];
+    
+    if (finalColors.length > 0) {
+      for (let i = 0; i < 5; i++) {
+        if (finalColors[i]) {
+          baseColors[i] = finalColors[i];
+        }
+      }
+      if (finalColors.length >= 1 && !finalColors[4]) {
+        baseColors[4] = finalColors[0];
+      }
+    }
+
+    updateSettings({
+      skinId: 'custom',
+      customSkinColors: baseColors,
+      customSkinName: filename.replace(/\.[^/.]+$/, "")
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await loadSkinFile(file);
+  };
+
+  const loadSkinFile = async (file: File) => {
+    if (file.name.toLowerCase().endsWith('.ini')) {
+      const txt = await file.text();
+      processSkinIniAndColors(txt, file.name);
+    } else if (file.name.toLowerCase().endsWith('.osk') || file.name.toLowerCase().endsWith('.zip')) {
+      try {
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(file);
+        const skinIniFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith('skin.ini'));
+        if (!skinIniFile) {
+          alert('Could not find any "skin.ini" file inside the zip/osk skin file container.');
+          return;
+        }
+        const txt = await skinIniFile.async('text');
+        processSkinIniAndColors(txt, file.name);
+      } catch (err) {
+        console.error('Failed unpacking zip/osk:', err);
+        alert('Unsupported ZIP archive schema, or file is corrupted.');
+      }
+    } else {
+      alert('Unsupported file type. Please upload a standard "skin.ini" or a compiled ".osk"/".zip" package.');
+    }
+  };
 
   useEffect(() => {
     if (!activeRebind) return;
@@ -188,7 +264,7 @@ export default function SettingsScreen({
       {/* HEADER CONTROLS BANNER */}
       <div className="flex justify-between items-center bg-[#08080C]/90 border border-white/5 p-4 rounded-2xl shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-3.5">
-          <span className="p-3 bg-cyan-400/5 rounded-xl border border-cyan-400/10 text-cyan-400">
+          <span className="p-3 bg-skin-accent-dim rounded-xl border border-skin-accent-dim text-skin-accent shadow-skin-accent-glow">
             <Sliders className="h-5 w-5" />
           </span>
           <div>
@@ -200,7 +276,7 @@ export default function SettingsScreen({
         <button
           id="settings-back-btn"
           onClick={onBack}
-          className="flex items-center gap-1.5 px-5 py-2.5 bg-gradient-to-r from-cyan-400 to-indigo-500 hover:brightness-110 text-black font-sans text-xs font-black uppercase tracking-wider rounded-xl italic shadow-[0_0_20px_rgba(34,211,238,0.2)] hover:shadow-[0_0_25px_rgba(34,211,238,0.45)] active:scale-95 transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-5 py-2.5 bg-skin-accent hover:brightness-110 text-slate-950 font-sans text-xs font-black uppercase tracking-wider rounded-xl italic shadow-skin-accent-neon active:scale-95 transition-all cursor-pointer"
         >
           <ChevronLeft className="h-4 w-4 stroke-[3]" /> Return Selector
         </button>
@@ -210,18 +286,167 @@ export default function SettingsScreen({
         
         {/* LEFT PANEL: DECIBELS / DIM PANEL PREFERENCES */}
         <div className="lg:col-span-6 flex flex-col gap-6">
+
+          {/* OSU!MANIA GAME SKINS SELECTION */}
+          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
+            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+              <Palette className="h-4 w-4 text-skin-accent" /> Game Skin Customization
+            </h3>
+
+            <p className="text-slate-400 text-xs leading-normal -mt-2">
+              Select your customized playfield skin. Different styles modify visual note shapes, target receptor visual states, and track lanes. Visit <a href="https://osuskins.net" target="_blank" rel="noopener noreferrer" className="text-skin-accent font-extrabold hover:underline">osuskins.net</a> for style references.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+              {[
+                { id: 'neon', name: 'Neon Cyber (Default)', desc: 'Neon flows and styled blue keycaps.', color: '#00b0ff', colorsBox: ['#00b0ff', '#eceff1'] },
+                { id: 'classic-bar', name: 'DDR Retro Bar', desc: 'Rigid high-contrast DDR-style flat notes.', color: '#ef4444', colorsBox: ['#ef4444', '#facc15'] },
+                { id: 'circles', name: 'osu!mania Circles', desc: 'Beautiful round keys & round pill notes.', color: '#3b82f6', colorsBox: ['#3b82f6', '#ec4899'] },
+                { id: 'cyberpunk', name: 'Vaporwave Neon', desc: 'Fluorescent magenta, yellow, and deep purple.', color: '#ec4899', colorsBox: ['#ec4899', '#facc15'] },
+                { id: 'emerald', name: 'Acid Emerald', desc: 'Acid toxic green tracks and emerald glows.', color: '#10b981', colorsBox: ['#10b981', '#34d399'] },
+                { id: 'minimalist', name: 'Monochrome Plain', desc: 'Plain flat grays & high-speed reading lanes.', color: '#ffffff', colorsBox: ['#ffffff', '#64748b'] },
+                { id: 'custom', name: 'Custom Skin Designer', desc: 'Custom colors from uploaded skin.ini or pickers.', color: '#06b6d4', colorsBox: (settings.customSkinColors || ['#00e5ff', '#ffeb3b', '#f50057', '#00e676', '#ec4899']).slice(0, 3) },
+              ].map((sk) => {
+                const activeSkin = settings.skinId === sk.id || (!settings.skinId && sk.id === 'neon');
+                return (
+                  <button
+                    key={sk.id}
+                    id={`skin-select-${sk.id}`}
+                    onClick={() => updateSettings({ skinId: sk.id })}
+                    className={`flex flex-col gap-2 p-3 text-left bg-black/45 hover:bg-[#11111a]/85 border rounded-xl transition cursor-pointer relative group ${
+                      activeSkin 
+                        ? 'border-skin-accent shadow-skin-accent-glow' 
+                        : 'border-white/5 hover:border-skin-accent-dim'
+                    }`}
+                  >
+                    {/* Active Check Dot */}
+                    {activeSkin && (
+                      <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-skin-accent animate-pulse shadow-skin-accent-glow" />
+                    )}
+
+                    <div className="flex items-center gap-1.5">
+                      {/* Note Shape Preview Badge */}
+                      <div className="flex gap-0.5 items-center">
+                        {sk.colorsBox.map((c, ci) => (
+                          <span key={ci} className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-black tracking-tight text-white">{sk.name}</span>
+                    </div>
+
+                    <span className="text-[10px] text-slate-400 leading-normal line-clamp-2">
+                      {sk.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom designer panel renders if the skinId is custom */}
+            {settings.skinId === 'custom' && (
+              <div id="custom-skin-panel" className="flex flex-col gap-4 p-4 border border-skin-accent-dim bg-skin-accent-dim rounded-xl mt-3 animate-fade-in shadow-skin-accent-glow">
+                {/* Drag and Drop Zone */}
+                <div
+                  id="skin-upload-dropzone"
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) await loadSkinFile(file);
+                  }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-5 text-center flex flex-col items-center justify-center gap-2.5 cursor-pointer transition-colors ${
+                    dragOver 
+                      ? 'border-skin-accent bg-skin-accent-dim text-skin-accent shadow-skin-accent-glow' 
+                      : 'border-white/10 hover:border-skin-accent-dim hover:bg-white/[0.02] text-slate-300'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept=".ini,.osk,.zip"
+                    className="hidden"
+                  />
+                  <span className="p-2 bg-skin-accent-dim rounded-full border border-skin-accent-dim text-skin-accent shadow-skin-accent-glow">
+                    <UploadCloud className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <span className="text-xs font-black tracking-tight text-white block">
+                      {settings.customSkinName 
+                        ? `Loaded: ${settings.customSkinName}` 
+                        : 'Upload skin.ini or osu! .osk/.zip skin package'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 leading-normal mt-1 block">
+                      Drag & drop your skin files, or click here to browse.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Manual Palette Controls */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/5">
+                    <span className="text-[9px] text-slate-400 font-extrabold tracking-widest uppercase font-mono">Manual Palette Designer</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateSettings({
+                          customSkinColors: ['#00e5ff', '#ffeb3b', '#f50057', '#00e676', '#ec4899'],
+                          customSkinName: undefined
+                        });
+                      }}
+                      className="text-[9px] font-black uppercase text-slate-400 hover:text-cyan-400 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" /> Reset Palette
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {[
+                      { index: 0, label: 'Side Keys', desc: 'Outer lanes color' },
+                      { index: 1, label: 'Main Keys', desc: 'Standard lanes color' },
+                      { index: 2, label: 'Center Key', desc: 'Middle column color' },
+                      { index: 3, label: 'Special Key', desc: '8K unique lane color' },
+                      { index: 4, label: 'Hold Trail', desc: 'Hold note body color' },
+                    ].map((pal) => {
+                      const colors = settings.customSkinColors || ['#00e5ff', '#ffeb3b', '#f50057', '#00e676', '#ec4899'];
+                      const activeColor = colors[pal.index] || '#ffffff';
+                      return (
+                        <div key={pal.index} className="flex flex-col gap-1.5 p-2 bg-black/35 border border-white/5 rounded-xl items-center text-center">
+                          <span className="text-[10px] font-bold text-slate-300 leading-none">{pal.label}</span>
+                          <input
+                            type="color"
+                            value={activeColor}
+                            onChange={(e) => {
+                              const updatedColors = [...colors];
+                              updatedColors[pal.index] = e.target.value;
+                              updateSettings({ customSkinColors: updatedColors });
+                            }}
+                            className="w-8 h-8 rounded-full border border-white/10 hover:border-cyan-400 bg-transparent shrink-0 cursor-pointer overflow-hidden p-0"
+                          />
+                          <span className="text-[8px] text-slate-500 font-mono uppercase">{activeColor}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
           
           {/* DECIBEL SLIDERS */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Volume2 className="h-4 w-4 text-cyan-400" /> Decibel Modifiers
+              <Volume2 className="h-4 w-4 text-skin-accent" /> Decibel Modifiers
             </h3>
 
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between text-xs font-bold font-sans">
                   <span className="text-slate-300 uppercase tracking-tight">Main Music Volume</span>
-                  <span className="font-mono text-cyan-405">{Math.round(settings.musicVolume * 100)}%</span>
+                  <span className="font-mono text-skin-accent shrink-0">{Math.round(settings.musicVolume * 100)}%</span>
                 </div>
                 <input 
                   type="range" 
@@ -230,14 +455,15 @@ export default function SettingsScreen({
                   step="0.05"
                   value={settings.musicVolume}
                   onChange={(e) => updateSettings({ musicVolume: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: 'var(--skin-accent)' }}
                 />
               </div>
 
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between text-xs font-bold font-sans">
                   <span className="text-slate-300 uppercase tracking-tight">System Hitsounds feedback</span>
-                  <span className="font-mono text-cyan-405">{Math.round(settings.hitsoundVolume * 100)}%</span>
+                  <span className="font-mono text-skin-accent shrink-0">{Math.round(settings.hitsoundVolume * 100)}%</span>
                 </div>
                 <input 
                   type="range" 
@@ -246,7 +472,8 @@ export default function SettingsScreen({
                   step="0.05"
                   value={settings.hitsoundVolume}
                   onChange={(e) => updateSettings({ hitsoundVolume: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: 'var(--skin-accent)' }}
                 />
               </div>
             </div>
@@ -255,7 +482,7 @@ export default function SettingsScreen({
           {/* SCROLLING MECHANICS */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-4 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Zap className="h-4 w-4 text-cyan-400" /> Lane & Performance Mechanics
+              <Zap className="h-4 w-4 text-skin-accent" /> Lane & Performance Mechanics
             </h3>
 
             <div className="flex items-center justify-between py-1 text-xs font-sans">
@@ -269,7 +496,7 @@ export default function SettingsScreen({
                 onClick={() => updateSettings({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
                 className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
                   settings.upsurfaceNoteMode 
-                    ? 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20' 
+                    ? 'bg-skin-accent-dim text-skin-accent border-skin-accent-dim shadow-skin-accent-glow' 
                     : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
                 }`}
               >
@@ -288,8 +515,8 @@ export default function SettingsScreen({
                 onClick={() => updateSettings({ disableVideo: !settings.disableVideo })}
                 className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition ${
                   settings.disableVideo 
-                    ? 'bg-red-500/10 text-red-400 border-red-550/20' 
-                    : 'bg-white/5 text-slate-405 border-white/5 hover:bg-white/10'
+                    ? 'bg-red-500/10 text-red-400 border-red-500/20' 
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
                 }`}
               >
                 {settings.disableVideo ? 'DISABLED' : 'ENABLED'}
@@ -299,7 +526,7 @@ export default function SettingsScreen({
             <div className="flex items-center justify-between py-1.5 text-xs font-sans border-t border-white/5 pt-3">
               <div className="flex flex-col gap-0.5">
                 <span className="font-bold text-slate-200">Disable Decorative Particles</span>
-                <span className="text-slate-500 text-[10px]">Turn off hit Sparks animations to reduce CPU/GPU workload</span>
+                <span className="text-slate-550 text-[10px]">Turn off hit Sparks animations to reduce CPU/GPU workload</span>
               </div>
               
               <button
@@ -340,7 +567,7 @@ export default function SettingsScreen({
                   <span className="text-slate-200">Video Canvas Opacity</span>
                   <span className="text-slate-500 text-[10px] font-normal">Adjust dim settings of background video playback</span>
                 </div>
-                <span className="font-mono text-cyan-405">{Math.round((settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35) * 100)}%</span>
+                <span className="font-mono text-skin-accent">{Math.round((settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35) * 100)}%</span>
               </div>
               <input 
                 type="range" 
@@ -349,7 +576,8 @@ export default function SettingsScreen({
                 step="0.05"
                 value={settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35}
                 onChange={(e) => updateSettings({ videoOpacity: parseFloat(e.target.value) })}
-                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                style={{ accentColor: 'var(--skin-accent)' }}
               />
             </div>
 
@@ -359,7 +587,7 @@ export default function SettingsScreen({
                   <span className="text-slate-200">Playfield Shield Cover opacity</span>
                   <span className="text-slate-500 text-[10px] font-normal">Solid opaque background panel layout behind visual note streams</span>
                 </div>
-                <span className="font-mono text-cyan-455">{Math.round((settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60) * 100)}%</span>
+                <span className="font-mono text-skin-accent">{Math.round((settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60) * 100)}%</span>
               </div>
               <input 
                 type="range" 
@@ -368,7 +596,8 @@ export default function SettingsScreen({
                 step="0.05"
                 value={settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60}
                 onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
-                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                style={{ accentColor: 'var(--skin-accent)' }}
               />
             </div>
           </div>
@@ -376,12 +605,12 @@ export default function SettingsScreen({
           {/* LATENCY MATRIX */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-4 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Gauge className="h-4 w-4 text-cyan-400" /> Latency Timing Sync
+              <Gauge className="h-4 w-4 text-skin-accent" /> Latency Timing Sync
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-1">
               <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2">
-                <span className="text-[9px] text-cyan-400 font-black uppercase tracking-wider font-mono">Audio Phase Shift</span>
+                <span className="text-[9px] text-skin-accent font-black uppercase tracking-wider font-mono">Audio Phase Shift</span>
                 <p className="text-[10px] text-slate-500 leading-snug">
                   Compensates for delayed audio outputs (e.g. bluetooth outputs).
                 </p>
@@ -390,7 +619,7 @@ export default function SettingsScreen({
                     type="number"
                     value={settings.audioOffset}
                     onChange={(e) => updateSettings({ audioOffset: parseInt(e.target.value) || 0 })}
-                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-450 focus:outline-none"
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-skin-accent focus:outline-none"
                   />
                   <div className="flex gap-1">
                     <button 
@@ -411,7 +640,7 @@ export default function SettingsScreen({
 
               <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2">
                 <span className="text-[9px] text-indigo-400 font-black uppercase tracking-wider font-mono">Visual Rendering Delay</span>
-                <p className="text-[10px] text-slate-550 leading-snug">
+                <p className="text-[10px] text-slate-550 leading-snug font-sans">
                   Aligns visual hit frames with the physical song triggers.
                 </p>
                 <div className="flex items-center gap-2 mt-auto pt-2 justify-between">
@@ -419,7 +648,7 @@ export default function SettingsScreen({
                     type="number"
                     value={settings.visualOffset || 0}
                     onChange={(e) => updateSettings({ visualOffset: parseInt(e.target.value) || 0 })}
-                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-455 focus:outline-none"
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-skin-accent focus:outline-none"
                   />
                   <div className="flex gap-1">
                     <button 
@@ -440,7 +669,7 @@ export default function SettingsScreen({
 
               <div className="bg-black/45 p-4 rounded-xl border border-white/5 flex flex-col gap-2 col-span-1 sm:col-span-2">
                 <span className="text-[9px] text-fuchsia-400 font-black uppercase tracking-wider font-mono">Video Render Timing offset</span>
-                <p className="text-[10px] text-slate-500 leading-snug">
+                <p className="text-[10px] text-slate-500 leading-snug font-sans">
                   Sync drift modifier for background video streams. Shifts later if positive, earlier if negative.
                 </p>
                 <div className="flex items-center gap-2.5 mt-auto pt-2 justify-between">
@@ -448,7 +677,7 @@ export default function SettingsScreen({
                     type="number"
                     value={settings.videoOffset || 0}
                     onChange={(e) => updateSettings({ videoOffset: parseInt(e.target.value) || 0 })}
-                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-cyan-450 focus:outline-none"
+                    className="w-16 bg-black border border-white/5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-skin-accent focus:outline-none"
                   />
                   <div className="flex gap-1 flex-1 justify-end">
                     <button 
@@ -502,7 +731,7 @@ export default function SettingsScreen({
                   <div className="flex items-center justify-center py-5 bg-black/60 rounded-xl border border-white/5 relative">
                     <div 
                       className={`h-12 w-12 rounded-full border-2 transition-all duration-75 flex items-center justify-center ${
-                        beatProgress < 0.12 ? 'border-cyan-400 bg-cyan-400/20 scale-105 shadow-[0_0_20px_rgba(34,211,238,0.3)]' : 'border-white/5 bg-white/5'
+                        beatProgress < 0.12 ? 'border-skin-accent bg-skin-accent-dim scale-105 shadow-skin-accent-glow' : 'border-white/5 bg-white/5'
                       }`}
                     >
                       <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">TICK</span>
@@ -512,7 +741,7 @@ export default function SettingsScreen({
                   <button
                     id="calibrate-tap-pad"
                     onClick={registerTapEvent}
-                    className="py-3 bg-cyan-400 text-black font-extrabold uppercase tracking-widest text-xs rounded-xl shadow-lg hover:brightness-105 active:scale-[0.99] transition cursor-pointer"
+                    className="py-3 bg-skin-accent text-slate-950 font-extrabold uppercase tracking-widest text-xs rounded-xl shadow-skin-accent-neon hover:brightness-105 active:scale-[0.99] transition cursor-pointer"
                   >
                     PRESS SPACE OR TAP PAD
                   </button>
@@ -524,7 +753,7 @@ export default function SettingsScreen({
                         <span className="text-amber-400 font-bold uppercase">Computed: {caliOffsetResult}ms</span>
                         <button
                           onClick={applyOffsetCalibration}
-                          className="px-2.5 py-1 bg-cyan-400 text-black font-sans font-black uppercase rounded-lg text-[9px]"
+                          className="px-2.5 py-1 bg-skin-accent text-slate-950 font-sans font-black uppercase rounded-lg text-[9px] shadow-skin-accent-glow"
                         >
                           APPLY OFFSET
                         </button>
@@ -540,7 +769,7 @@ export default function SettingsScreen({
         {/* RIGHT PANEL: KEYBOARD MAPPING COLUMNS */}
         <div className="lg:col-span-6 bg-[#08080C]/90 border border-white/5 p-6 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
           <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-            <Keyboard className="h-5 w-5 text-cyan-400" /> Lane Rebinding Matrix
+            <Keyboard className="h-5 w-5 text-skin-accent" /> Lane Rebinding Matrix
           </h3>
 
           <p className="text-slate-400 text-xs leading-relaxed font-sans">
@@ -564,7 +793,7 @@ export default function SettingsScreen({
                           className={`flex-1 py-3 font-mono text-xs font-black rounded-xl transition border flex flex-col items-center justify-center cursor-pointer ${
                             isRebindingNow 
                               ? 'bg-rose-500/10 text-rose-400 border-rose-500/35 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.1)]' 
-                              : 'bg-black/30 border-white/[0.03] hover:bg-black/85 text-white hover:border-cyan-400/20'
+                              : 'bg-black/30 border-white/[0.03] hover:bg-black/85 text-white hover:border-skin-accent-dim'
                           }`}
                         >
                           <span className={`${isRebindingNow ? 'text-rose-400' : 'text-slate-500'} text-[8px] uppercase font-sans tracking-tight`}>Col {idx + 1}</span>

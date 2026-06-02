@@ -19,16 +19,78 @@ export interface ColumnStyle {
   color: string;
 }
 
-export function getColumnStyles(keyCount: number, baseWidth: number): ColumnStyle[] {
+export function hexToRgba(hex: string, alpha: number): string {
+  if (!hex) return `rgba(255,255,255,${alpha})`;
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length === 3) {
+    const r = parseInt(cleanHex[0] + cleanHex[0], 16);
+    const g = parseInt(cleanHex[1] + cleanHex[1], 16);
+    const b = parseInt(cleanHex[2] + cleanHex[2], 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (cleanHex.length === 6) {
+    const r = parseInt(cleanHex.slice(0, 2), 16);
+    const g = parseInt(cleanHex.slice(2, 4), 16);
+    const b = parseInt(cleanHex.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return hex;
+}
+
+export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: string, customSkinColors?: string[]): ColumnStyle[] {
   const styles: ColumnStyle[] = [];
   
   // Standard competitive color maps
-  const colors = {
+  let colors = {
     blue: '#2e6b9e',
     white: '#eceff1',
     accent: '#d32f2f', // Center column color
     cyan: '#00b0ff'
   };
+
+  if (skinId === 'custom' && customSkinColors && customSkinColors.length >= 4) {
+    colors = {
+      blue: customSkinColors[0] || '#2e6b9e',
+      white: customSkinColors[1] || '#eceff1',
+      accent: customSkinColors[2] || '#d32f2f',
+      cyan: customSkinColors[3] || '#00b0ff'
+    };
+  } else if (skinId === 'classic-bar') {
+    colors = {
+      blue: '#00e5ff', // cyan-neon
+      white: '#ffc107', // pure gold
+      accent: '#f50057', // neon rose
+      cyan: '#00e676' // vibrant lime
+    };
+  } else if (skinId === 'circles') {
+    colors = {
+      blue: '#2979ff', // bubble blue
+      white: '#ff4081', // hot pink
+      accent: '#ffeb3b', // electric yellow
+      cyan: '#00e5ff' // vibrant ice cyan
+    };
+  } else if (skinId === 'cyberpunk') {
+    colors = {
+      blue: '#ec4899', // bubble magenta
+      white: '#8b5cf6', // violet
+      accent: '#eab308', // cyber tech orange/yellow
+      cyan: '#06b6d4' // tech cyan
+    };
+  } else if (skinId === 'emerald') {
+    colors = {
+      blue: '#10b981', // emerald green
+      white: '#34d399', // bright seafoam
+      accent: '#34d399', // Mint highlight
+      cyan: '#059669' // deep emerald green
+    };
+  } else if (skinId === 'minimalist') {
+    colors = {
+      blue: '#475569', // slate-600
+      white: '#f8fafc', // ultra white slate
+      accent: '#cbd5e1', // grey slate
+      cyan: '#64748b' // dark slate
+    };
+  }
 
   for (let i = 0; i < keyCount; i++) {
     let width = baseWidth;
@@ -815,7 +877,7 @@ export default function GameplayCanvas({
     const logicalWidth = canvas.width / dpr;
     const logicalHeight = canvas.height / dpr;
     const baseWidth = logicalWidth / totalWeight;
-    const styles = getColumnStyles(keyCount, baseWidth);
+    const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
     
     let spawnX = 0;
     for (let i = 0; i < colIndex; i++) {
@@ -824,7 +886,7 @@ export default function GameplayCanvas({
     spawnX += styles[colIndex].width / 2;
     
     // Receptor positioning depending on scrolling direction settings (upwards vs downwards)
-    const receptorY = settings.upsurfaceNoteMode ? 60 : logicalHeight - 80;
+    const receptorY = settings.upsurfaceNoteMode ? 60 : logicalHeight - 110;
 
     for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -992,7 +1054,7 @@ export default function GameplayCanvas({
         totalWeight += weight;
       }
       const baseWidth = width / totalWeight;
-      const colStyles = getColumnStyles(keyCount, baseWidth);
+      const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
 
       const colX: number[] = [];
       let accumulatedX = 0;
@@ -1001,7 +1063,7 @@ export default function GameplayCanvas({
         accumulatedX += colStyles[i].width;
       }
 
-      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 80;
+      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 110;
 
       // Draw lane background rails & column glows
       for (let i = 0; i < keyCount; i++) {
@@ -1080,33 +1142,43 @@ export default function GameplayCanvas({
             ctx.save();
             const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, endY);
             
+            const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
+              ? settings.customSkinColors[4]
+              : '#38bdf8';
+
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
                 holdGrad.addColorStop(0, flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)');
                 holdGrad.addColorStop(1, 'rgba(161,117,14,0.3)');
               } else {
-                holdGrad.addColorStop(0, 'rgba(34,211,238,0.7)');
-                holdGrad.addColorStop(1, 'rgba(59,130,246,0.3)');
+                holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)');
+                holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)');
               }
             } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
               holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
             } else {
-              holdGrad.addColorStop(0, 'rgba(59,130,246,0.5)');
-              holdGrad.addColorStop(1, 'rgba(56,189,248,0.2)');
+              holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)');
+              holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)');
             }
             
             ctx.fillStyle = holdGrad;
             
-            const padding = 12;
+            const padding = isFocusMode ? 3 : 12;
             const rx = xPos + padding;
             const ry = Math.min(visualStartY, endY);
             const rw = colW - padding * 2;
             const rh = Math.abs(clipHeight);
             
             ctx.beginPath();
-            ctx.roundRect(rx, ry, rw, rh, 6);
+            if (settings.skinId === 'circles') {
+              ctx.roundRect(rx, ry, rw, rh, rw / 2); // Pill-style capsules
+            } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
+              ctx.rect(rx, ry, rw, rh); // Pure flat rectangles
+            } else {
+              ctx.roundRect(rx, ry, rw, rh, 6);
+            }
             ctx.fill();
             
             ctx.strokeStyle = n.isHit && !n.isReleased 
@@ -1140,7 +1212,7 @@ export default function GameplayCanvas({
 
         const xPos = colX[n.column];
         const colW = colStyles[n.column].width;
-        const notePadding = 6;
+        const notePadding = isFocusMode ? 1.5 : 6;
         const rx = xPos + notePadding;
         const ry = noteY - 10;
         const rw = colW - notePadding * 2;
@@ -1152,33 +1224,86 @@ export default function GameplayCanvas({
         let noteStroke: string = colStyles[n.column].color;
 
         if (n.type === 'hold') {
-          noteFill = '#ec4899';
-          noteStroke = '#fbcfe8';
+          const holdCol = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
+            ? settings.customSkinColors[4]
+            : (settings.skinId === 'cyberpunk' ? '#eab308' : '#ec4899');
+          noteFill = holdCol;
+          noteStroke = settings.skinId === 'custom' ? '#ffffff' : (settings.skinId === 'cyberpunk' ? '#fef08a' : '#fbcfe8');
         } else {
           noteFill = colStyles[n.column].color;
-          if (noteFill === '#eceff1') noteStroke = '#cbd5e1';
+          if (settings.skinId === 'custom') {
+            noteStroke = '#ffffff';
+          } else if (noteFill === '#eceff1') noteStroke = '#cbd5e1';
           else if (noteFill === '#2e6b9e') noteStroke = '#93c5fd';
           else if (noteFill === '#d32f2f') noteStroke = '#fecdd3';
           else if (noteFill === '#00b0ff') noteStroke = '#e0f7fa';
           else noteStroke = '#94a3b8';
         }
 
+        // Apply skin theme aesthetic note gradients
         const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
-        grad.addColorStop(0, noteStroke);
-        grad.addColorStop(0.3, noteFill);
-        grad.addColorStop(1, 'rgba(15,23,42,0.8)');
+        if (settings.skinId === 'minimalist') {
+          ctx.fillStyle = noteFill;
+          ctx.strokeStyle = noteStroke;
+          ctx.lineWidth = 2;
+          
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rh, 3);
+          ctx.fill();
+          ctx.stroke();
+        } else if (settings.skinId === 'classic-bar') {
+          grad.addColorStop(0, '#ffffff');
+          grad.addColorStop(0.35, noteFill);
+          grad.addColorStop(1, 'rgba(8, 8, 12, 0.9)');
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = noteStroke;
+          ctx.lineWidth = 1.5;
 
-        ctx.fillStyle = grad;
-        ctx.strokeStyle = noteStroke;
-        ctx.lineWidth = 1.5;
-        
-        ctx.beginPath();
-        ctx.roundRect(rx, ry, rw, rh, 5);
-        ctx.fill();
-        ctx.stroke();
+          ctx.beginPath();
+          ctx.rect(rx, ry, rw, rh); // Rigid rectangular DDR bars
+          ctx.fill();
+          ctx.stroke();
 
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
+          // Authentic white target stripe
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
+        } else if (settings.skinId === 'circles') {
+          grad.addColorStop(0, '#ffffff');
+          grad.addColorStop(0.25, noteStroke);
+          grad.addColorStop(0.55, noteFill);
+          grad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rh, rh / 2); // Fully rounded pill shape for authentic mania bubbles
+          ctx.fill();
+          ctx.stroke();
+
+          // Dynamic center bead glow
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(rx + rw / 2, ry + rh / 2, rh * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Default Neon and Cyberpunk flows
+          grad.addColorStop(0, noteStroke);
+          grad.addColorStop(0.3, noteFill);
+          grad.addColorStop(1, 'rgba(15,23,42,0.85)');
+
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = noteStroke;
+          ctx.lineWidth = 1.5;
+          
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rh, 5);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
+        }
 
         ctx.restore();
       });
@@ -1192,146 +1317,112 @@ export default function GameplayCanvas({
         )
       );
 
-      if (isMobileDevice) {
+      // On mobile standard view, highlight the bottom 40% tap zone with a highly subtle glassmorphism hint
+      if (isMobileDevice && !isFocusMode) {
         const hitZoneTop = height * 0.60;
-        
         ctx.save();
         
-        // 1. Draw solid translucent glassmorphism background for the entire bottom hit zone
+        // 1. Draw ultra subtle glassmorphism backing (keeps incoming notes fully visible)
         const fillGrad = ctx.createLinearGradient(0, hitZoneTop, 0, height);
-        fillGrad.addColorStop(0, 'rgba(8, 8, 12, 0.7)'); // slate/black with sleek dark backing
-        fillGrad.addColorStop(0.1, 'rgba(8, 8, 12, 0.85)');
-        fillGrad.addColorStop(1, 'rgba(5, 5, 8, 0.98)');
+        fillGrad.addColorStop(0, 'rgba(8, 8, 12, 0.12)');
+        fillGrad.addColorStop(1, 'rgba(5, 5, 8, 0.35)');
         ctx.fillStyle = fillGrad;
         ctx.fillRect(0, hitZoneTop, width, height - hitZoneTop);
         
-        // 2. Draw thick sleek neon-cyan top edge for the touch/hit line zone
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.8)'; // CYAN border
-        ctx.lineWidth = 3;
+        // 2. Draw neat, extremely subtle neon-cyan threshold separator line at the 60% mark
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.35)';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(0, hitZoneTop);
         ctx.lineTo(width, hitZoneTop);
         ctx.stroke();
- 
-        // 3. Draw a nice neon separator glow on top of the border line
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.35)';
-        ctx.lineWidth = 8;
-        ctx.beginPath();
-        ctx.moveTo(0, hitZoneTop);
-        ctx.lineTo(width, hitZoneTop);
-        ctx.stroke();
-        
-        // 4. Draw horizontal bar helper instructions
-        ctx.font = '900 10px system-ui, -apple-system, sans-serif';
-        ctx.fillStyle = 'rgba(34, 211, 238, 0.7)';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('▼  TAP ANYWHERE IN THIS BOTTOM ZONE  ▼', width / 2, hitZoneTop + 14);
- 
-        // 5. Draw per-lane visual states in the hit zone
-        for (let i = 0; i < keyCount; i++) {
+
+        // 3. Draw lane separators in the touch zone for clear finger positioning
+        for (let i = 1; i < keyCount; i++) {
           const xPos = colX[i];
-          const colW = colStyles[i].width;
-          const isPressed = activeColumnsRef.current[i];
-          
-          // Draw lane separators inside the hit zone to make boundaries clear
-          if (i > 0) {
-            ctx.strokeStyle = 'rgba(71, 85, 105, 0.15)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(xPos, hitZoneTop);
-            ctx.lineTo(xPos, height);
-            ctx.stroke();
-          }
- 
-          if (isPressed) {
-            // Draw beautiful neon/cyan channel backlight glow when tapped
-            const pressGrad = ctx.createLinearGradient(xPos, hitZoneTop, xPos, height);
-            pressGrad.addColorStop(0, 'rgba(6, 182, 212, 0.35)'); // rich translucent cyan
-            pressGrad.addColorStop(1, 'rgba(99, 102, 241, 0.05)'); // fading to indigo
-            ctx.fillStyle = pressGrad;
-            ctx.fillRect(xPos, hitZoneTop, colW, height - hitZoneTop);
-            
-            // Channel highlight inner border
-            ctx.strokeStyle = 'rgba(34, 211, 238, 0.8)';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(xPos + 2, hitZoneTop + 2, colW - 4, height - hitZoneTop - 4);
-          } else {
-            // Subtle dotted/solid guide box inside tap zone
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(xPos + 2, hitZoneTop + 2, colW - 4, height - hitZoneTop - 4);
-          }
-          
-          // 6. Draw comfortable thumb tap circles
-          const circleY = hitZoneTop + (height - hitZoneTop) * 0.38; 
+          ctx.strokeStyle = 'rgba(71, 85, 105, 0.1)';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(xPos + colW / 2, circleY, isPressed ? 24 : 18, 0, Math.PI * 2);
-          ctx.fillStyle = isPressed ? 'rgba(34, 211, 238, 0.4)' : 'rgba(15, 23, 42, 0.8)';
-          ctx.strokeStyle = isPressed ? '#22d3ee' : 'rgba(148, 163, 184, 0.3)';
-          ctx.lineWidth = isPressed ? 3 : 1.5;
-          ctx.fill();
+          ctx.moveTo(xPos, hitZoneTop);
+          ctx.lineTo(xPos, height);
           ctx.stroke();
- 
-          // Circle overlay indicator label
-          ctx.font = 'bold 10px system-ui, -apple-system, sans-serif';
-          ctx.fillStyle = isPressed ? '#ffffff' : 'rgba(148, 163, 184, 0.7)';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(`C${i + 1}`, xPos + colW / 2, circleY);
         }
-        
+
         ctx.restore();
-        
-        // Also draw receptors centered on the hit line inside mobile view
-        for (let i = 0; i < keyCount; i++) {
-          const xPos = colX[i];
-          const colW = colStyles[i].width;
-          const isPressed = activeColumnsRef.current[i];
-          
-          ctx.save();
-          // Draw standard clean cyan/glow receptors
-          ctx.strokeStyle = isPressed ? '#22d3ee' : 'rgba(34, 211, 238, 0.35)';
-          ctx.lineWidth = isPressed ? 3 : 1.5;
-          ctx.beginPath();
-          ctx.moveTo(xPos + 10, receptorY);
-          ctx.lineTo(xPos + colW - 10, receptorY);
-          ctx.stroke();
-          ctx.restore();
-        }
+      }
 
-      } else {
-        // Render classic PC key receptors and bindings
-        for (let i = 0; i < keyCount; i++) {
-          const xPos = colX[i];
-          const colW = colStyles[i].width;
-          const isPressed = activeColumnsRef.current[i];
+      // Draw beautiful, highly visible receptors (the landing "base") for all columns
+      for (let i = 0; i < keyCount; i++) {
+        const xPos = colX[i];
+        const colW = colStyles[i].width;
+        const isPressed = activeColumnsRef.current[i];
+        const rcColor = colStyles[i].color;
+
+        ctx.save();
+
+        if (isFocusMode) {
+          // ==================== PIANO TILES STYLE ====================
+          // Minimalist, high-performance target bar segments at receptorY with no clutter (no dots, no letters)
+          const rx = xPos + 1;
+          const ry = receptorY - 5;
+          const rw = colW - 2;
+          const rh = 10;
+
+          // Segment background fill
+          ctx.fillStyle = isPressed 
+            ? 'rgba(255, 255, 255, 0.9)' 
+            : hexToRgba(rcColor, 0.15);
           
-          ctx.save();
-          ctx.strokeStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.4)';
-          ctx.lineWidth = isPressed ? 4 : 2;
-          
-          ctx.fillStyle = isPressed ? 'rgba(59,130,246,0.15)' : 'rgba(30,41,59,0.5)';
           ctx.beginPath();
-          ctx.roundRect(xPos + 5, receptorY - 12, colW - 10, 24, 4);
+          ctx.roundRect(rx, ry, rw, rh, 3);
+          ctx.fill();
+
+          // Outer high-contrast frame
+          ctx.strokeStyle = isPressed 
+            ? '#ffffff' 
+            : hexToRgba(rcColor, 0.35);
+          ctx.lineWidth = isPressed ? 2.5 : 1.2;
+          ctx.stroke();
+
+        } else {
+          // ==================== STANDARD VIEW PC & MOBILE RECEPTRS ====================
+          // Tactile, rounded-rectangle keycap "buttons" matching the user's reference image!
+          const rx = xPos + 6;
+          const ry = receptorY - 14;
+          const rw = colW - 12;
+          const rh = 28;
+
+          // Button container background and borders
+          ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.85);
+          ctx.lineWidth = isPressed ? 3.5 : 2;
+          ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.45) : 'rgba(15, 23, 42, 0.85)';
+
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rh, 6);
           ctx.fill();
           ctx.stroke();
 
-          ctx.fillStyle = isPressed ? '#60a5fa' : 'rgba(148,163,184,0.3)';
+          // Physical Center feedback dot (exactly like the reference image)
+          ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
           ctx.beginPath();
-          ctx.arc(xPos + colW / 2, receptorY, 4, 0, Math.PI * 2);
+          ctx.arc(xPos + colW / 2, receptorY, isPressed ? 5.5 : 3.5, 0, Math.PI * 2);
           ctx.fill();
 
+          // Draw binding character labels underneath each receptor button (PC and Mobile standard layout)
           const layoutKeys = settings.bindings[keyCount];
           if (layoutKeys && layoutKeys[i]) {
-            ctx.font = '600 11px font-mono, JetBrains Mono, monospace';
-            ctx.fillStyle = isPressed ? '#93c5fd' : '#64748b';
+            ctx.font = '700 11px font-mono, JetBrains Mono, monospace';
+            ctx.fillStyle = isPressed ? '#ffffff' : '#94a3b8';
             ctx.textAlign = 'center';
-            ctx.fillText(layoutKeys[i].toUpperCase(), xPos + colW/2, settings.upsurfaceNoteMode ? receptorY - 20 : receptorY + 28);
+            ctx.fillText(
+              layoutKeys[i].toUpperCase(), 
+              xPos + colW / 2, 
+              settings.upsurfaceNoteMode ? receptorY - 22 : receptorY + 28
+            );
           }
-
-          ctx.restore();
         }
+
+        ctx.restore();
       }
 
       // 5. RENDER PARTICLES BURST GENERATION
@@ -1584,7 +1675,7 @@ export default function GameplayCanvas({
             className="h-full relative transition-all duration-205 z-20 playfield-chassis-container" 
             style={{ 
               width: '100%', 
-              maxWidth: `${beatmap.keyCount * (beatmap.keyCount > 6 ? 53 : 60)}px`,
+              maxWidth: isFocusMode ? '100%' : `${beatmap.keyCount * (beatmap.keyCount > 6 ? 53 : 60)}px`,
               minWidth: '240px'
             }}
           >
@@ -1713,28 +1804,30 @@ export default function GameplayCanvas({
         </div>
 
         {/* MOBILE ONLY ADDITIONAL CONTROLS BAR */}
-        <div className="w-full md:hidden flex items-center justify-between gap-3 px-6 pb-4 pt-1 bg-slate-900/60 border-t border-slate-950/40 select-none">
-          <button
-            id="mobile-quit-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleExit();
-            }}
-            className="flex-1 flex items-center justify-center text-rose-400 hover:text-rose-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-rose-500/10 cursor-pointer active:bg-rose-950/30"
-          >
-            ✕ Quit Performance
-          </button>
-          <button
-            id="mobile-focus-toggle-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleFocus();
-            }}
-            className="flex-1 flex items-center justify-center text-cyan-400 hover:text-cyan-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-cyan-500/10 cursor-pointer active:bg-cyan-950/25"
-          >
-            {isFocusMode ? 'Normal View' : 'Focus Play'}
-          </button>
-        </div>
+        {!isFocusMode && (
+          <div className="w-full md:hidden flex items-center justify-between gap-3 px-6 pb-4 pt-1 bg-slate-900/60 border-t border-slate-950/40 select-none">
+            <button
+              id="mobile-quit-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleExit();
+              }}
+              className="flex-1 flex items-center justify-center text-rose-400 hover:text-rose-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-rose-500/10 cursor-pointer active:bg-rose-950/30"
+            >
+              ✕ Quit Performance
+            </button>
+            <button
+              id="mobile-focus-toggle-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleFocus();
+              }}
+              className="flex-1 flex items-center justify-center text-cyan-400 hover:text-cyan-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-cyan-500/10 cursor-pointer active:bg-cyan-950/25"
+            >
+              {isFocusMode ? 'Normal View' : 'Focus Play'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 2. LATENCY HUD / MAP SPECS DASHBOARD */}

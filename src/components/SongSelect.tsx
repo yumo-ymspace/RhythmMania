@@ -509,8 +509,9 @@ export default function SongSelect({
           }
 
           if (importedCount > 0 && parsedDifficulties.length > 0) {
-            setImportStatus({ type: 'ok', msg: `Successfully downloaded and cached "${serverMapTitle}"! Please select it from the list to play.` });
-            setSelectedCustomMapId('');
+            setImportStatus({ type: 'ok', msg: `Successfully downloaded and cached "${serverMapTitle}"!` });
+            // Excellent UX upgrade: select the first difficulty of the newly downloaded map!
+            setSelectedCustomMapId(parsedDifficulties[0].id);
           } else {
             throw new Error('No valid playable difficulties found inside.');
           }
@@ -553,12 +554,12 @@ export default function SongSelect({
         <div className="bg-[#08080C]/90 border border-white/5 p-6 rounded-2xl flex flex-col gap-4 shadow-xl relative overflow-hidden backdrop-blur-md">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="p-3 bg-cyan-400/5 text-cyan-400 rounded-xl border border-cyan-400/10">
+              <span className="p-3 bg-skin-accent-dim text-skin-accent rounded-xl border border-skin-accent-dim shadow-skin-accent-glow">
                 <Compass className="h-5 w-5" />
               </span>
               <div>
                 <h2 className="text-base font-black uppercase italic tracking-wider text-white">
-                  BROWSE <span className="text-cyan-400">BEATMAPS</span>
+                  BROWSE <span className="text-skin-accent">BEATMAPS</span>
                 </h2>
                 <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wider mt-0.5">
                   Select server map packs or import custom files • {mergedCustomMaps.length} total
@@ -572,7 +573,7 @@ export default function SongSelect({
                 onClick={() => setShowServerPackages(prev => !prev)}
                 className={`flex items-center gap-1.5 px-3 py-2 font-sans text-[10px] font-black uppercase tracking-wider rounded-lg border transition-all cursor-pointer ${
                   showServerPackages 
-                    ? 'bg-cyan-400/10 hover:bg-cyan-400/15 text-cyan-400 border-cyan-400/20' 
+                    ? 'bg-skin-accent-dim hover:brightness-110 text-skin-accent border border-skin-accent-dim shadow-skin-accent-glow' 
                     : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/5'
                 }`}
                 title={showServerPackages ? "Hide Cloud Beats" : "Show Cloud Beats"}
@@ -586,7 +587,7 @@ export default function SongSelect({
                 onClick={onOpenGlobalSettings}
                 className="flex items-center gap-1.5 px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 font-sans text-[10px] font-black uppercase tracking-wider rounded-lg border border-white/5 transition-all cursor-pointer"
               >
-                <Settings className="h-3.5 w-3.5 text-cyan-400" /> Settings
+                <Settings className="h-3.5 w-3.5 text-skin-accent" /> Settings
               </button>
             </div>
           </div>
@@ -599,7 +600,7 @@ export default function SongSelect({
               placeholder="Filter by title, artist, creator..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-black/40 border border-white/5 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400/40 focus:ring-1 focus:ring-cyan-500/10 transition-all"
+              className="w-full pl-10 pr-4 py-2.5 bg-black/40 border border-white/5 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-skin-accent-dim focus:ring-1 focus:ring-skin-accent-dim transition-all"
             />
           </div>
         </div>
@@ -620,19 +621,19 @@ export default function SongSelect({
                   }}
                   className={`p-3.5 rounded-xl transition-all duration-150 flex items-center justify-between gap-4 border-l-4 border-l-slate-700 ${
                     isSelected 
-                      ? 'bg-gradient-to-r from-cyan-950/20 to-indigo-950/20 border-l-cyan-400 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.05)] scale-[1.01]'
+                      ? 'bg-gradient-to-r from-skin-accent-dim to-indigo-950/10 border-l-skin-accent border border-skin-accent-dim shadow-skin-accent-glow scale-[1.01]'
                       : 'bg-[#08080C]/90 border border-white/[0.03] opacity-80 hover:opacity-100 hover:border-white/5'
                   } ${isLoadingMedia ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
                 >
                   <div className="flex items-center gap-3.5 w-full pr-1 overflow-hidden">
                     <div className={`p-2.5 rounded-lg flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-cyan-400/10 text-cyan-400' : 'bg-white/5 text-slate-500'
+                      isSelected ? 'bg-skin-accent-dim text-skin-accent' : 'bg-white/5 text-slate-500'
                     }`}>
                       {isSelected && isLoadingMedia ? (
-                        <Loader className="h-4 w-4 animate-spin text-cyan-400" />
+                        <Loader className="h-4 w-4 animate-spin text-skin-accent" />
                       ) : map.isServerMap ? (
                         !map.isCached ? (
-                          <Cloud className="h-4 w-4 text-cyan-400" />
+                           <Cloud className="h-4 w-4 text-skin-accent" />
                         ) : (
                           <Database className="h-4 w-4 text-emerald-400" />
                         )
@@ -740,8 +741,8 @@ export default function SongSelect({
           onClick={() => fileInputRef.current?.click()}
           className={`p-6 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 backdrop-blur-md ${
             isDragActive 
-              ? 'border-cyan-400 bg-cyan-950/10 shadow-inner' 
-              : 'border-white/5 hover:border-cyan-400/15 bg-[#08080C]/80 hover:bg-[#08080C]'
+              ? 'border-skin-accent bg-skin-accent-dim shadow-skin-accent-glow' 
+              : 'border-white/5 hover:border-skin-accent-dim bg-[#08080C]/80 hover:bg-[#08080C]'
           }`}
         >
           <input 
@@ -751,7 +752,7 @@ export default function SongSelect({
             onChange={handleFileSelect}
             className="hidden" 
           />
-          <Upload className={`h-7 w-7 mb-2.5 transition-all ${isDragActive ? 'text-cyan-450 animate-bounce' : 'text-slate-500'}`} />
+          <Upload className={`h-7 w-7 mb-2.5 transition-all ${isDragActive ? 'text-skin-accent animate-bounce font-black' : 'text-slate-500'}`} />
           <h4 className="text-xs font-extrabold font-sans text-slate-200 uppercase tracking-widest">DRAG & DROP .osu OR .osz FILE</h4>
           <p className="text-[9px] text-slate-550 font-mono mt-1 uppercase tracking-wider">Drag and drop standard Osu! Mania format directly</p>
         </div>
@@ -773,8 +774,8 @@ export default function SongSelect({
         <div className="bg-[#08080c]/95 border border-white/5 p-6 rounded-2xl flex flex-col gap-5 shadow-2xl backdrop-blur-md">
           {!selectedCustomMap ? (
             <div className="flex flex-col items-center justify-center text-center py-12 px-4 gap-4 opacity-80 min-h-[340px]">
-              <span className="p-4 bg-cyan-400/5 text-cyan-400 rounded-2xl border border-cyan-400/10 animate-pulse">
-                <Music className="h-8 w-8 text-cyan-400" />
+              <span className="p-4 bg-skin-accent-dim text-skin-accent rounded-2xl border border-skin-accent-dim shadow-skin-accent-glow animate-pulse">
+                <Music className="h-8 w-8 text-skin-accent" />
               </span>
               <div className="flex flex-col gap-1.5">
                 <h3 className="text-sm font-black font-sans text-white tracking-widest uppercase italic">
@@ -788,7 +789,7 @@ export default function SongSelect({
           ) : (
             <>
               <h4 className="text-[10px] text-slate-500 tracking-widest uppercase font-black flex items-center gap-1.5 border-b border-white/5 pb-3">
-                <Sliders className="h-3.5 w-3.5 text-cyan-400" /> Track Panel Config
+                <Sliders className="h-3.5 w-3.5 text-skin-accent" /> Track Panel Config
               </h4>
               
               <div className="border-b border-white/5 pb-4">
@@ -796,13 +797,13 @@ export default function SongSelect({
                   {selectedCustomMap.title}
                 </h3>
                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                  <span className="text-xs text-cyan-400 font-sans tracking-tight font-bold uppercase">
+                  <span className="text-xs text-skin-accent font-sans tracking-tight font-bold uppercase">
                     by {selectedCustomMap.artist}
                   </span>
                   {!(selectedCustomMap as any).isServerPackage && (
                     <>
                       <span className="text-slate-600 text-xs">•</span>
-                      <span className="px-1.5 py-0.5 bg-cyan-400/15 text-cyan-400 border border-cyan-400/30 rounded font-mono text-[9px] font-bold uppercase">
+                      <span className="px-1.5 py-0.5 bg-skin-accent-dim text-skin-accent border border-skin-accent-dim rounded font-mono text-[9px] font-bold uppercase">
                         {selectedCustomMap.difficulty}
                       </span>
                     </>
@@ -833,7 +834,7 @@ export default function SongSelect({
                 ) : (
                   <div className="flex flex-col gap-1 bg-black/40 p-3.5 rounded-xl border border-white/5">
                     <span className="text-[9px] text-slate-500 font-extrabold tracking-widest uppercase">KEY REQUIREMENT</span>
-                    <span className="text-[10px] font-mono text-cyan-400 font-black uppercase mt-0.5">
+                    <span className="text-[10px] font-mono text-skin-accent font-black uppercase mt-0.5">
                       {selectedCustomMap.keyCount || 4} Lanes Required (Verified mapping)
                     </span>
                   </div>
@@ -843,7 +844,7 @@ export default function SongSelect({
                 <div className="flex flex-col gap-2 bg-black/40 p-4 rounded-xl border border-white/5">
                   <div className="flex justify-between items-center text-[9px] font-extrabold tracking-widest uppercase">
                     <span className="text-slate-500">Scroll Multiplier</span>
-                    <span className="text-cyan-400 font-mono font-black">{settings.scrollSpeed}x</span>
+                    <span className="text-skin-accent font-mono font-black">{settings.scrollSpeed}x</span>
                   </div>
                   
                   <input 
@@ -853,7 +854,8 @@ export default function SongSelect({
                     step="1"
                     value={settings.scrollSpeed}
                     onChange={(e) => updateSettings({ scrollSpeed: parseInt(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
                   />
                   
                   <div className="flex justify-between font-mono text-[8px] text-slate-550 mt-1">
@@ -866,8 +868,8 @@ export default function SongSelect({
 
               {/* PROGRESS DOWNLOADER REAL-TIME PROGRESS BAR */}
               {downloadingMapId && downloadProgress && (
-                <div className="flex flex-col gap-2 p-4 bg-black/65 border border-cyan-500/20 rounded-xl shadow-lg animate-pulse">
-                  <div className="flex justify-between items-center text-[9px] font-black font-mono tracking-wider uppercase text-cyan-400">
+                <div className="flex flex-col gap-2 p-4 bg-black/65 border border-skin-accent-dim rounded-xl shadow-skin-accent-glow animate-pulse">
+                  <div className="flex justify-between items-center text-[9px] font-black font-mono tracking-wider uppercase text-skin-accent">
                     <span>Downloading Track Assets:</span>
                     <span>{downloadProgress.percentage}%</span>
                   </div>
@@ -876,7 +878,7 @@ export default function SongSelect({
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden mt-1 heading-none">
                     <div 
-                      className="bg-gradient-to-r from-cyan-400 to-indigo-500 h-full transition-all duration-100" 
+                      className="bg-skin-accent h-full transition-all duration-100 shadow-skin-accent-glow" 
                       style={{ width: `${downloadProgress.percentage}%` }}
                     />
                   </div>
@@ -888,7 +890,7 @@ export default function SongSelect({
                 id="start-play-btn"
                 disabled={isLoadingMedia || downloadingMapId !== null || !isSelectedMapReady}
                 onClick={handleStartPlay}
-                className={`w-full py-4 bg-blue-600 hover:bg-blue-550 text-white font-sans font-black text-xs rounded-xl uppercase tracking-[0.2em] italic shadow-[0_0_20px_rgba(37,99,235,0.25)] hover:shadow-[0_0_25px_rgba(37,99,235,0.4)] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                className={`w-full py-4 bg-skin-accent hover:brightness-110 text-slate-950 font-sans font-black text-xs rounded-xl uppercase tracking-[0.2em] italic shadow-skin-accent-neon active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
                   (isLoadingMedia || downloadingMapId !== null || !isSelectedMapReady) ? 'opacity-50 cursor-not-allowed saturate-50' : ''
                 }`}
               >
@@ -919,9 +921,9 @@ export default function SongSelect({
         </div>
 
         {/* SYSTEM CALIBRATION TIP */}
-        <div className="bg-[#08080C]/90 border-l-4 border-cyan-400 p-5 rounded-r-2xl shadow-xl backdrop-blur-md">
+        <div className="bg-[#08080C]/90 border-l-4 border-skin-accent p-5 rounded-r-2xl shadow-xl backdrop-blur-md">
           <div className="flex items-start gap-3.5">
-            <span className="p-2.5 bg-cyan-400/5 text-cyan-400 rounded-xl mt-0.5 border border-cyan-400/10">
+            <span className="p-2.5 bg-skin-accent-dim text-skin-accent rounded-xl mt-0.5 border border-skin-accent-dim shadow-skin-accent-glow">
               <Sliders className="h-4 w-4" />
             </span>
             <div className="flex flex-col gap-0.5">

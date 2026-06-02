@@ -96,6 +96,9 @@ export interface GameSettings {
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
   disableParticles?: boolean; // completely disable particle visual burst generator
   limitDprToOne?: boolean; // cap canvas device pixel ratio to 1x to save GPU rendering cost
+  skinId?: string; // custom osu!mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom')
+  customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
+  customSkinName?: string;
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate';

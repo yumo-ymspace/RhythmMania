@@ -1,6 +1,44 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:ital,wght@0,400;0,500;0,700;0,900;1,400;1,500;1,700;1,900&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
 @import "tailwindcss";
 
+:root {
+  --skin-accent: #00b0ff;
+  --skin-accent-rgb: 0, 176, 255;
+}
+
+/* Dynamic Skin Accent helper classes */
+.text-skin-accent {
+  color: var(--skin-accent) !important;
+}
+
+.border-skin-accent {
+  border-color: var(--skin-accent) !important;
+}
+
+.bg-skin-accent {
+  background-color: var(--skin-accent) !important;
+}
+
+.bg-skin-accent-dim {
+  background-color: rgba(var(--skin-accent-rgb), 0.15) !important;
+}
+
+.border-skin-accent-dim {
+  border-color: rgba(var(--skin-accent-rgb), 0.25) !important;
+}
+
+.shadow-skin-accent-glow {
+  box-shadow: 0 0 15px rgba(var(--skin-accent-rgb), 0.3) !important;
+}
+
+.shadow-skin-accent-neon {
+  box-shadow: 0 0 20px rgba(var(--skin-accent-rgb), 0.45) !important;
+}
+
+.neon-glow-skin-accent {
+  text-shadow: 0 0 10px rgba(var(--skin-accent-rgb), 0.5), 0 0 20px rgba(var(--skin-accent-rgb), 0.2) !important;
+}
+
 @theme {
   --font-sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;

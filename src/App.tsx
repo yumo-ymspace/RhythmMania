@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   videoOffset: 0,
   disableParticles: false,
   limitDprToOne: false,
+  skinId: 'neon',
 };
 
 export default function App() {
@@ -47,6 +48,43 @@ export default function App() {
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+
+  // Dynamically apply selected skin colors to the site theme/UI elements!
+  useEffect(() => {
+    let accentHex = '#00b0ff'; // Default Neon Cyber cyan
+
+    if (settings.skinId === 'classic-bar') {
+      accentHex = '#ef4444'; // Red DDR
+    } else if (settings.skinId === 'circles') {
+      accentHex = '#ff4081'; // Pink osu!mania
+    } else if (settings.skinId === 'cyberpunk') {
+      accentHex = '#ec4899'; // Vaporwave magenta
+    } else if (settings.skinId === 'emerald') {
+      accentHex = '#10b981'; // Acid emerald
+    } else if (settings.skinId === 'minimalist') {
+      accentHex = '#94a3b8'; // Monochrome slate
+    } else if (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors.length > 0) {
+      // Use center key color or side key color for maximum visible identity!
+      accentHex = settings.customSkinColors[2] || settings.customSkinColors[0] || '#06b6d4';
+    }
+
+    const cleanHex = accentHex.replace('#', '');
+    let r = 0, g = 176, b = 255;
+    if (cleanHex.length === 3) {
+      r = parseInt(cleanHex[0] + cleanHex[0], 16);
+      g = parseInt(cleanHex[1] + cleanHex[1], 16);
+      b = parseInt(cleanHex[2] + cleanHex[2], 16);
+    } else if (cleanHex.length === 6) {
+      r = parseInt(cleanHex.slice(0, 2), 16);
+      g = parseInt(cleanHex.slice(2, 4), 16);
+      b = parseInt(cleanHex.slice(4, 6), 16);
+    }
+
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--skin-accent', accentHex);
+      document.documentElement.style.setProperty('--skin-accent-rgb', `${r}, ${g}, ${b}`);
+    }
+  }, [settings.skinId, settings.customSkinColors]);
 
   // Autoscroll to the top of the viewport whenever a page component loads or changes
   useEffect(() => {
@@ -114,6 +152,9 @@ export default function App() {
         videoOffset: Number(updated.videoOffset !== undefined ? updated.videoOffset : 0),
         disableParticles: Boolean(updated.disableParticles),
         limitDprToOne: Boolean(updated.limitDprToOne),
+        skinId: updated.skinId || 'neon',
+        customSkinColors: updated.customSkinColors,
+        customSkinName: updated.customSkinName,
       };
 
       if (updated.bindings) {
@@ -203,14 +244,14 @@ export default function App() {
               onClick={() => setCurrentScreen('menu')}
               className="flex items-center gap-3 cursor-pointer group"
             >
-              <div className="py-1 px-2 bg-gradient-to-br from-cyan-400 to-indigo-500 rounded text-slate-950 font-black tracking-tighter text-xs">
+              <div className="py-1 px-2 bg-skin-accent rounded text-slate-950 font-black tracking-tighter text-xs shadow-skin-accent-glow">
                 RM
               </div>
               <div className="flex flex-col">
                 <h1 className="text-lg font-black tracking-tight text-white uppercase leading-none">
-                  RHYTHM<span className="text-cyan-400">MANIA</span>
+                  RHYTHM<span className="text-skin-accent">MANIA</span>
                 </h1>
-                <p className="text-[8px] text-cyan-400/60 font-mono tracking-widest leading-none mt-1">ENGINE VERSION 2.0</p>
+                <p className="text-[8px] text-skin-accent font-mono tracking-widest leading-none mt-1 opacity-75">ENGINE VERSION 2.0</p>
               </div>
             </div>
 
@@ -220,7 +261,7 @@ export default function App() {
                 onClick={() => setCurrentScreen('select')}
                 className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
                   currentScreen === 'select' 
-                    ? 'text-white border-b-2 border-cyan-400 text-shadow-sm' 
+                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -232,7 +273,7 @@ export default function App() {
                 onClick={() => setCurrentScreen('settings')}
                 className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
                   currentScreen === 'settings' 
-                    ? 'text-white border-b-2 border-cyan-400 text-shadow-sm' 
+                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -249,14 +290,14 @@ export default function App() {
           <div id="home-menu-inner" className="max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-12 py-6 w-full">
             {/* LEFT HERO PANEL */}
             <div className="flex flex-col gap-6 text-left max-w-xl">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-400/5 border border-cyan-400/20 text-cyan-400 text-[10px] font-mono tracking-wider w-fit">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-skin-accent-dim border border-skin-accent-dim text-skin-accent text-[10px] font-mono tracking-wider w-fit shadow-skin-accent-glow">
                 <Cpu className="h-3 w-3 animate-pulse" /> PROCEDURAL SCALING MATRIX ACTIVE
               </div>
               
               <div className="flex flex-col gap-3">
                 <h1 className="text-5xl md:text-6xl font-black tracking-tight text-white uppercase italic leading-[1.05]">
                   THE PREMIUM <br/>
-                  <span className="bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">RHYTHM DECK</span>
+                  <span className="bg-gradient-to-r from-skin-accent to-indigo-400 bg-clip-text text-transparent">RHYTHM DECK</span>
                 </h1>
                 <p className="text-sm text-slate-400 font-sans leading-relaxed tracking-wide">
                   Experience a precision-calibrated lane rhythm engine. Complete with customizable scroll multipliers, 2K–8K bindings, real-time .osu parser integrations, and smooth audio transitions.
@@ -267,7 +308,7 @@ export default function App() {
                 <button
                   id="launch-game-btn"
                   onClick={() => setCurrentScreen('select')}
-                  className="px-8 py-4 bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs rounded uppercase tracking-[0.2em] italic shadow-[0_0_30px_rgba(34,211,238,0.3)] hover:shadow-[0_0_35px_rgba(34,211,238,0.5)] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  className="px-8 py-4 bg-skin-accent hover:brightness-110 text-slate-950 font-black text-xs rounded uppercase tracking-[0.2em] italic shadow-skin-accent-neon active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
                   SELECT TRACK <ChevronRight className="h-4.5 w-4.5 stroke-[2.5]" />
                 </button>
@@ -277,7 +318,7 @@ export default function App() {
                   onClick={() => setCurrentScreen('settings')}
                   className="px-8 py-4 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white font-black text-xs rounded border border-white/10 uppercase tracking-widest hover:border-white/20 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <SettingsIcon className="h-4 w-4 text-cyan-400" /> CALIBRATE OFFSET
+                  <SettingsIcon className="h-4 w-4 text-skin-accent" /> CALIBRATE OFFSET
                 </button>
               </div>
             </div>
@@ -286,18 +327,18 @@ export default function App() {
             <div className="relative flex items-center justify-center w-full max-w-sm lg:max-w-md">
               <div className="relative p-10 bg-[#08080b]/90 rounded-3xl border border-white/5 shadow-2xl flex items-center justify-center w-full aspect-square max-w-[340px]">
                 {/* CYBER SONIC PORTAL SPIN */}
-                <div className="absolute inset-4 rounded-full border border-dashed border-cyan-400/20 animate-spin" style={{ animationDuration: '40s' }} />
+                <div className="absolute inset-4 rounded-full border border-dashed border-skin-accent-dim animate-spin" style={{ animationDuration: '40s' }} />
                 <div className="absolute inset-8 rounded-full border border-dashed border-indigo-500/20 animate-spin" style={{ animationDuration: '24s', animationDirection: 'reverse' }} />
-                <div className="absolute inset-1 w-full h-full bg-cyan-500/5 blur-[50px] rounded-full" />
+                <div className="absolute inset-1 w-full h-full bg-skin-accent-dim blur-[50px] rounded-full" />
                 
                 {/* FLOATING ABSTRACT LANE INDICATORS */}
-                <div className="absolute top-10 left-5 h-20 w-1 bg-gradient-to-b from-cyan-400 to-transparent opacity-60 rounded-full" />
+                <div className="absolute top-10 left-5 h-20 w-1 bg-gradient-to-b from-skin-accent to-transparent opacity-60 rounded-full" />
                 <div className="absolute bottom-10 right-5 h-20 w-1 bg-gradient-to-t from-indigo-500 to-transparent opacity-60 rounded-full" />
                 
-                <div className="p-10 bg-[#0c0c12]/95 rounded-full border border-white/10 shadow-[inner_0_0_30px_rgba(255,255,255,0.02)] relative flex items-center justify-center w-[180px] h-[180px] group hover:border-cyan-400/30 transition-all duration-500">
+                <div className="p-10 bg-[#0c0c12]/95 rounded-full border border-white/10 shadow-[inner_0_0_30px_rgba(255,255,255,0.02)] relative flex items-center justify-center w-[180px] h-[180px] group hover:border-skin-accent-dim transition-all duration-500">
                   <Disc className="h-28 w-28 text-slate-800 animate-spin group-hover:text-slate-700 transition" style={{ animationDuration: '8s' }} />
                   <span className="absolute h-12 w-12 bg-black rounded-full border border-white/10 flex items-center justify-center shadow-2xl">
-                    <Music className="h-5 w-5 text-cyan-400" />
+                    <Music className="h-5 w-5 text-skin-accent" />
                   </span>
                 </div>
               </div>
@@ -408,7 +449,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.3.12</span>
+            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.4.0</span>
             <span className="flex items-center gap-1 opacity-75">
               Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
             </span>

@@ -25,8 +25,8 @@ export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
       className="absolute top-0 left-0 right-0 z-40 pointer-events-none flex items-center justify-between px-6 py-5 bg-gradient-to-b from-[#050510]/80 to-transparent backdrop-blur-[1px]"
       style={{ zIndex: 40 }}
     >
-      {/* Top Left Header Controls */}
-      <div className="flex items-center gap-2.5 pointer-events-auto">
+      {/* Top Left Header Controls (Hidden on mobile of standard view to prevent clutter, as mobile controls are rendered at the bottom) */}
+      <div className="hidden md:flex items-center gap-2.5 pointer-events-auto">
         <button
           id="back-btn"
           onClick={(e) => {
@@ -49,6 +49,21 @@ export const PlayZoneOverlay: React.FC<PlayZoneOverlayProps> = ({
           {isFocusMode ? 'Normal View' : 'Focus Play'}
         </button>
       </div>
+
+      {/* Floating circular close button for mobile focus mode */}
+      {isFocusMode && (
+        <div className="md:hidden flex items-center pointer-events-auto">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFocus();
+            }}
+            className="flex items-center justify-center text-cyan-400 hover:text-white bg-[#08080C]/80 font-sans text-[10px] font-extrabold uppercase tracking-wider px-3.5 py-1.5 rounded-full border border-white/10 active:bg-slate-900 cursor-pointer shadow-lg"
+          >
+            ✕ Exit Focus
+          </button>
+        </div>
+      )}
 
       {/* Top Right Score & Accuracy HUD */}
       <div className="flex items-center gap-6 select-none">
