@@ -13,6 +13,11 @@ import { executeTeardown } from '../utils/gameplayTeardown';
 import { TouchInputAdapter } from '../utils/touchInputAdapter';
 import { FullscreenManager } from '../utils/fullscreenManager';
 import { GameplayMediaRegistry } from '../utils/mediaRegistry';
+import JSZip from 'jszip';
+import { RobustZipResolver } from '../utils/zipResolver';
+import { AssetLifecycleManager } from '../utils/assetLifecycle';
+import { storageManager } from '../utils/storageManager';
+import { TempMemoryCache } from '../utils/tempMemoryCache';
 
 export interface ColumnStyle {
   width: number;
@@ -506,6 +511,62 @@ export default function GameplayCanvas({
     setIsAudioLoaded(false);
     
     const loadBgAudio = async () => {
+      // Dynamically resolve missing beatmap media from local zip archive if necessary
+      const mapWithPkg = beatmap as any;
+      if (mapWithPkg.packageId && (!beatmap.audioUrl || !beatmap.bgUrl || (mapWithPkg.videoFilename && !beatmap.videoUrl))) {
+        try {
+          let zipBuffer: ArrayBuffer | Blob | null = TempMemoryCache.get(mapWithPkg.packageId);
+          if (!zipBuffer) {
+            zipBuffer = await storageManager.getPackage(mapWithPkg.packageId);
+          }
+          if (zipBuffer) {
+            const zip = await JSZip.loadAsync(zipBuffer);
+            const resolver = new RobustZipResolver(zip);
+            const audioFilename = mapWithPkg.audioFilename || '';
+            const videoFilename = mapWithPkg.videoFilename || '';
+            const bgFilename = mapWithPkg.bgFilename || '';
+
+            let parsedAudioUrl = beatmap.audioUrl || '';
+            let parsedVideoUrl = beatmap.videoUrl || '';
+            let parsedBgUrl = beatmap.bgUrl || '';
+
+            if (audioFilename && !parsedAudioUrl) {
+              const file = resolver.findFile(audioFilename);
+              if (file) {
+                const b = await file.async('blob');
+                parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
+                beatmap.audioUrl = parsedAudioUrl;
+              }
+            }
+            if (videoFilename && !parsedVideoUrl) {
+              const file = resolver.findFile(videoFilename);
+              if (file) {
+                const b = await file.async('blob');
+                parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
+                beatmap.videoUrl = parsedVideoUrl;
+              }
+            }
+            if (bgFilename && !parsedBgUrl) {
+              const file = resolver.findFile(bgFilename);
+              if (file) {
+                const b = await file.async('blob');
+                parsedBgUrl = AssetLifecycleManager.registerBlob(b);
+                beatmap.bgUrl = parsedBgUrl;
+              }
+            }
+
+            // Update LRU memory cache
+            storageManager.lruMediaCache.put(beatmap.id, {
+              audioUrl: parsedAudioUrl,
+              videoUrl: parsedVideoUrl,
+              bgUrl: parsedBgUrl
+            });
+          }
+        } catch (mediaErr) {
+          console.error('Failed to dynamically resolve missing beatmap media from assets archive:', mediaErr);
+        }
+      }
+
       // Direct loading
       mainAudio.init();
       mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
@@ -1645,6 +1706,34 @@ export default function GameplayCanvas({
   }, [beatmap, settings, isPaused, showCountdown]);
 
   // Pause / Resume Handlers
+  const pauseGameplay = () => {
+    if (showCountdown > 0 || scoreStateRef.current.failed || isPaused) return;
+    setIsPaused(true);
+    isPlayingRef.current = false;
+    mainAudio.pause();
+    if (videoRef.current) {
+      try { videoRef.current.pause(); } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        pauseGameplay();
+      }
+    };
+    const handleBlur = () => {
+      pauseGameplay();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [isPaused, showCountdown]);
+
   const togglePause = () => {
     if (showCountdown > 0 || scoreStateRef.current.failed) return;
     

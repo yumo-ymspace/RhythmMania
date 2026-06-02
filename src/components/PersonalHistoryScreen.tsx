@@ -42,6 +42,8 @@ export default function PersonalHistoryScreen({
   const [searchTerm, setSearchTerm] = useState('');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
 
+  const maxScore = history.length > 0 ? Math.max(...history.map(r => r.score)) : 0;
+
   // Filter history records by search term
   const filteredHistory = history.filter(record => {
     const titleMatch = record.beatmapTitle.toLowerCase().includes(searchTerm.toLowerCase());
@@ -281,6 +283,13 @@ export default function PersonalHistoryScreen({
                 <span className="font-bold text-cyan-400 flex items-center gap-1 leading-none">
                   <Flame className="h-3.5 w-3.5 stroke-[2.5]" />
                   {history.filter(r => r.grade === 'SS' || r.grade === 'S').length}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium font-sans">Highest Score</span>
+                <span className="font-extrabold text-indigo-400">
+                  {history.length > 0 ? maxScore.toLocaleString() : "Play a beatmap first"}
                 </span>
               </div>
 
