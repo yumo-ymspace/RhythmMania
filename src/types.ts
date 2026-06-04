@@ -28,7 +28,6 @@ export interface BeatmapMetadata {
   bpm: number;
   creator: string;
   difficulty: string;
-  stars: number;
   keyCount: number;
   duration: number; // in seconds
   audioUrl?: string;
@@ -119,6 +118,9 @@ export interface GameSettings {
   receptorStyle?: 'tactile' | 'square' | 'minimal' | 'translucent';
   noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
   receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
+  judgementOpacity?: number; // 0.0 to 1.0 (opacity for judgement text)
+  judgementSize?: number; // 0.5 to 1.5 (font size scaling multiplier)
+  laneSeparatorOpacity?: number; // 0.0 to 1.0 (opacity for lane divider lines)
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

@@ -436,112 +436,7 @@ export default function SettingsScreen({
             )}
           </div>
 
-          {/* ADVANCED PLAYFIELD SKINS STYLE GRAPHICS */}
-          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
-            <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Sliders className="h-4 w-4 text-skin-accent" /> Aesthetic Style Tweaks
-            </h3>
 
-            <p className="text-slate-400 text-xs leading-normal -mt-2">
-              Transform target receptors and falling notes. Customize corner rounding, transparency, and structure to build your ultimate gaming surface.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Note style & shape */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Falling Note Style</span>
-                
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] text-slate-400 font-medium">Corner Rounding / Shape Preset</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'rounded', name: 'Rounded Rect' },
-                      { id: 'square', name: 'Sharp Square' },
-                      { id: 'circle', name: 'Classic Circle' },
-                      { id: 'pill', name: 'Elastic Pill' },
-                    ].map((ns) => (
-                      <button
-                        key={ns.id}
-                        type="button"
-                        onClick={() => updateSettings({ noteStyle: ns.id as any })}
-                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
-                          (settings.noteStyle || 'rounded') === ns.id 
-                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
-                            : 'border-white/5 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {ns.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold">
-                    <span className="text-slate-350">Note Translucency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0.1" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.noteOpacity ?? 1}
-                    onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-
-              {/* Receptor style & shape */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Target Receptor Key Style</span>
-                
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] text-slate-400 font-medium font-sans">Receptor Appearance Structure</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'tactile', name: 'Tactile Glass' },
-                      { id: 'square', name: 'Sharp Square' },
-                      { id: 'minimal', name: 'Piano Segment' },
-                      { id: 'translucent', name: 'Transparent Glow' },
-                    ].map((rc) => (
-                      <button
-                        key={rc.id}
-                        type="button"
-                        onClick={() => updateSettings({ receptorStyle: rc.id as any })}
-                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
-                          (settings.receptorStyle || 'tactile') === rc.id 
-                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
-                            : 'border-white/5 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {rc.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold">
-                    <span className="text-slate-350">Key Receptor Translucency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0.1" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.receptorOpacity ?? 1}
-                    onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
           
           {/* DECIBEL SLIDERS */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
@@ -921,6 +816,269 @@ export default function SettingsScreen({
             >
               <RefreshCw className="h-3.5 w-3.5" /> Restore Defaults
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ADVANCED PLAYFIELD SKINS STYLE GRAPHICS */}
+      <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md w-full">
+        <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
+          <Sliders className="h-4 w-4 text-skin-accent" /> Aesthetic Style Tweaks
+        </h3>
+
+        <p className="text-slate-400 text-xs leading-normal -mt-2">
+          Transform target receptors and falling notes. Customize corner rounding, transparency, and structure to build your ultimate gaming surface.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Controls Column 1 & 2 */}
+          <div className="lg:col-span-2 flex flex-col gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Note style & shape */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Falling Note Style</span>
+                
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] text-slate-400 font-medium font-sans">Corner Rounding / Shape Preset</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'rounded', name: 'Rounded Rect' },
+                      { id: 'square', name: 'Sharp Square' },
+                      { id: 'circle', name: 'Classic Circle' },
+                      { id: 'pill', name: 'Elastic Pill' },
+                    ].map((ns) => (
+                      <button
+                        key={ns.id}
+                        type="button"
+                        onClick={() => updateSettings({ noteStyle: ns.id as any })}
+                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                          (settings.noteStyle || 'rounded') === ns.id 
+                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                            : 'border-white/5 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {ns.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Note Translucency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.1" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.noteOpacity ?? 1}
+                    onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Receptor style & shape */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Target Receptor Key Style</span>
+                
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] text-slate-400 font-medium font-sans">Receptor Appearance Structure</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: 'tactile', name: 'Tactile Glass' },
+                      { id: 'square', name: 'Sharp Square' },
+                      { id: 'minimal', name: 'Piano Segment' },
+                      { id: 'translucent', name: 'Transparent Glow' },
+                    ].map((rc) => (
+                      <button
+                        key={rc.id}
+                        type="button"
+                        onClick={() => updateSettings({ receptorStyle: rc.id as any })}
+                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                          (settings.receptorStyle || 'tactile') === rc.id 
+                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                            : 'border-white/5 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {rc.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Key Receptor Translucency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.1" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.receptorOpacity ?? 1}
+                    onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Performance Indicators (Judgement Popups) Transparency & Scaling */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Performance Indicators</span>
+                
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Indicator Transparency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-tight">Controls visibility of "PERFECT", "MARVELOUS" & combos blocking the center.</p>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.judgementOpacity ?? 1}
+                    onChange={(e) => updateSettings({ judgementOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Indicator Size / Scale</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementSize ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.5" 
+                    max="1.5" 
+                    step="0.05"
+                    value={settings.judgementSize ?? 1}
+                    onChange={(e) => updateSettings({ judgementSize: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Lane Decoration Options */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Playfield Deck Structure</span>
+                
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Lane Separator Transparency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.laneSeparatorOpacity ?? 0.30) * 100)}%</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-tight">Sets clarity of lane boundary columns drawn background rails.</p>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.laneSeparatorOpacity ?? 0.30}
+                    onChange={(e) => updateSettings({ laneSeparatorOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-350">Deck Background Dimming</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.backgroundDim ?? 0.60) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.backgroundDim ?? 0.60}
+                    onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* LIVE PLAYFIELD LANE STYLE PREVIEW */}
+          <div className="flex flex-col gap-3 p-4 bg-gradient-to-b from-black/55 to-black/25 border border-white/5 rounded-xl justify-between h-auto min-h-[310px]">
+            <div className="flex justify-between items-center pb-2 border-b border-white/5">
+              <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Live Style Preview</span>
+              <span className="text-[9px] text-slate-500 animate-pulse bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase font-bold">Active</span>
+            </div>
+
+            <div className="relative flex-1 flex flex-col items-center justify-center py-4 bg-slate-950/80 rounded-lg overflow-hidden border border-white/5 h-[190px]">
+              {/* Separators container */}
+              <div className="absolute inset-y-0 left-6 border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
+              <div className="absolute inset-y-0 right-6 border-r border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
+
+              {/* Stage Background Dim tint */}
+              <div 
+                className="absolute inset-0 bg-black pointer-events-none transition-all duration-150" 
+                style={{ opacity: settings.backgroundDim ?? 0.60 }}
+              />
+
+              {/* Falling Note Render Preview */}
+              <div className="absolute top-4 z-10 flex flex-col items-center select-none pointer-events-none">
+                <div 
+                  className={`h-4 bg-sky-400 shadow-lg transition-all duration-150 ${
+                    (settings.noteStyle || 'rounded') === 'rounded' ? 'w-10 rounded-md border border-white/30' :
+                    (settings.noteStyle || 'rounded') === 'square' ? 'w-10 rounded-none border border-white/30' :
+                    (settings.noteStyle || 'rounded') === 'circle' ? 'w-5 h-5 rounded-full border border-white/30' :
+                    'w-10 rounded-full border border-white/30'
+                  }`}
+                  style={{ opacity: settings.noteOpacity ?? 1 }}
+                />
+                <span className="text-[7px] text-slate-500 mt-1 font-mono">Falling Note</span>
+              </div>
+
+              {/* Performance Indicator Judgement text Overlay */}
+              <div 
+                className="absolute top-[60px] z-20 flex flex-col items-center select-none pointer-events-none transition-all duration-150"
+                style={{ 
+                  opacity: settings.judgementOpacity ?? 1.0,
+                  transform: `scale(${(settings.judgementSize ?? 1.0) * 0.75})` 
+                }}
+              >
+                <span className="text-cyan-400 font-black tracking-widest text-xs drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] [text-shadow:0_0_8px_rgba(34,211,238,0.6)]">PERFECT</span>
+                <span className="text-[14px] font-black tracking-tight text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] -mt-1">142</span>
+              </div>
+
+              {/* Target Receptor Key Render Preview */}
+              <div className="absolute bottom-4 z-10 flex flex-col items-center">
+                <div 
+                  className={`h-6 flex items-center justify-center transition-all duration-150 ${
+                    (settings.receptorStyle || 'tactile') === 'tactile' ? 'w-10 border border-cyan-400/80 bg-slate-900/90 rounded-md shadow-md text-[8px]' :
+                    (settings.receptorStyle || 'tactile') === 'square' ? 'w-10 border-2 border-indigo-500 bg-slate-950 rounded-none text-[8px]' :
+                    (settings.receptorStyle || 'tactile') === 'minimal' ? 'w-10 h-2 bg-slate-100/30 border border-slate-100/50 rounded-xs text-[6px]' :
+                    'w-8 border border-white/40 bg-white/5 rounded-lg text-[8px]'
+                  }`}
+                  style={{ 
+                    opacity: settings.receptorOpacity ?? 1,
+                    boxShadow: (settings.receptorStyle || 'tactile') === 'translucent' ? '0 0 10px rgba(255,255,255,0.1)' : undefined
+                  }}
+                >
+                  <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
+                </div>
+                <span className="text-[7px] text-slate-500 mt-1 font-mono">Receptor Key</span>
+              </div>
+            </div>
+
+            <div className="text-[9px] text-slate-400 leading-tight text-center px-1">
+              Adjust sliders above to preview how roundings, indicators, and transparencies map to the real rhythm field.
+            </div>
           </div>
         </div>
       </div>

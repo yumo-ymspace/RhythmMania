@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.4.2
+**HIGH DENSITY MATRIX** · v0.4.3
 
 A precision mania-style rhythm game that runs entirely in the browser.
 Load your own `.osu` maps, tune your offsets, and compete for perfect accuracy.
@@ -46,7 +46,7 @@ Everything is rendered on an HTML Canvas with a Web Audio API timing engine and 
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Bundled server map**: *Odo* by Ado, ships in `public/beatmaps/`
+- **Bundled server map**: Bundled maps, ships in `public/beatmaps/`
 - **Procedural beatmap engine** — generates deterministic, seed-locked beatmaps on the fly; supports stairs, trills, chords, and hold patterns scaled to a 1.0–10.0 star target
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 
@@ -113,6 +113,7 @@ src/
 ├── index.css                      # Global base styles
 │
 ├── components/
+│   ├── PersonalHistoryScreen.tsx  # Gameplay history browser and replay system
 │   ├── GameplayCanvas.tsx         # Main game loop, Canvas renderer, input handler
 │   ├── SongSelect.tsx             # Song/difficulty browser, .osz importer
 │   ├── SettingsScreen.tsx         # Key bindings, offsets, calibration metronome
@@ -128,7 +129,10 @@ src/
 ├── utils/
 │   ├── beatmapParser.ts           # .osu file parser, BPM calculator, star estimator
 │   ├── storageManager.ts          # IndexedDB wrapper + LRU blob cache
+│   ├── fullscreenManager.ts       # Cross-browser fullscreen API wrapper
 │   ├── zipResolver.ts             # 3-phase case-insensitive .osz asset resolver
+│   ├── mediaRegistry.ts           # Centralized registry for media assets
+│   ├── tempMemoryCache.ts         # Temporary in-memory cache for frequently accessed assets
 │   ├── videoSyncController.ts     # PLL-based audio/video drift correction
 │   ├── touchInputAdapter.ts       # Touch-to-lane mapping with slide support
 │   ├── assetLifecycle.ts          # Blob URL creation/revocation tracking

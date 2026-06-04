@@ -1202,7 +1202,7 @@ export default function GameplayCanvas({
         const colW = colStyles[i].width;
 
         // Subtle lane background separators
-        ctx.strokeStyle = 'rgba(71,85,105,0.2)'; // slate-600 with low opacity
+        ctx.strokeStyle = `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(xPos, 0);
@@ -1229,7 +1229,7 @@ export default function GameplayCanvas({
       }
 
       // Last border outline
-      ctx.strokeStyle = 'rgba(71,85,105,0.4)';
+      ctx.strokeStyle = `rgba(71,85,105,${(settings.laneSeparatorOpacity ?? 0.30) * 1.5})`;
       ctx.strokeRect(0, 0, width, height);
 
       // 2. DRAW NOTE PATH CONNECTORS (HOLD NOTE CLIPS AND EXTENSIONS)
@@ -1514,31 +1514,7 @@ export default function GameplayCanvas({
         ctx.save();
         ctx.globalAlpha = settings.receptorOpacity ?? 1.0;
 
-        if (isFocusMode) {
-          // ==================== PIANO TILES STYLE ====================
-          // Minimalist, high-performance target bar segments at receptorY with no clutter (no dots, no letters)
-          const rx = xPos + 1;
-          const ry = receptorY - 5;
-          const rw = colW - 2;
-          const rh = 10;
-
-          // Segment background fill
-          ctx.fillStyle = isPressed 
-            ? 'rgba(255, 255, 255, 0.9)' 
-            : hexToRgba(rcColor, 0.15);
-          
-          ctx.beginPath();
-          ctx.roundRect(rx, ry, rw, rh, 3);
-          ctx.fill();
-
-          // Outer high-contrast frame
-          ctx.strokeStyle = isPressed 
-            ? '#ffffff' 
-            : hexToRgba(rcColor, 0.35);
-          ctx.lineWidth = isPressed ? 2.5 : 1.2;
-          ctx.stroke();
-
-        } else {
+        {
           // Standard or selected receptor style block
           const rStyle = settings.receptorStyle || 'tactile';
           
@@ -1631,7 +1607,7 @@ export default function GameplayCanvas({
 
           // Draw binding character labels underneath each receptor button (PC and Mobile standard layout)
           const layoutKeys = settings.bindings[keyCount];
-          if (layoutKeys && layoutKeys[i]) {
+          if (!isFocusMode && layoutKeys && layoutKeys[i]) {
             ctx.font = '700 11px font-mono, JetBrains Mono, monospace';
             ctx.fillStyle = isPressed ? '#ffffff' : '#94a3b8';
             ctx.textAlign = 'center';
@@ -1935,7 +1911,13 @@ export default function GameplayCanvas({
             <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
 
             {/* DYNAMIC HIGH-PERFORMANCE DOM COMBO & JUDGEMENT POPUPS */}
-            <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center select-none z-10 font-sans">
+            <div 
+              style={{ 
+                opacity: settings.judgementOpacity ?? 1.0,
+                transform: `scale(${settings.judgementSize ?? 1.0})`
+              }}
+              className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center select-none z-10 font-sans transition-transform duration-150"
+            >
               {/* Combo Visualizer */}
               {uiCombo > 4 && (
                 <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">

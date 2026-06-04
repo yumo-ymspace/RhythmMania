@@ -45,6 +45,9 @@ const DEFAULT_SETTINGS: GameSettings = {
   receptorStyle: 'tactile',
   noteOpacity: 1.0,
   receptorOpacity: 1.0,
+  judgementOpacity: 1.0,
+  judgementSize: 1.0,
+  laneSeparatorOpacity: 0.30,
 };
 
 export default function App() {
@@ -244,6 +247,9 @@ export default function App() {
         receptorStyle: updated.receptorStyle || 'tactile',
         noteOpacity: updated.noteOpacity !== undefined ? Number(updated.noteOpacity) : 1.0,
         receptorOpacity: updated.receptorOpacity !== undefined ? Number(updated.receptorOpacity) : 1.0,
+        judgementOpacity: updated.judgementOpacity !== undefined ? Number(updated.judgementOpacity) : 1.0,
+        judgementSize: updated.judgementSize !== undefined ? Number(updated.judgementSize) : 1.0,
+        laneSeparatorOpacity: updated.laneSeparatorOpacity !== undefined ? Number(updated.laneSeparatorOpacity) : 0.30,
       };
 
       if (updated.bindings) {
@@ -611,7 +617,7 @@ export default function App() {
       {currentScreen !== 'play' && (
         <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
           <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.4.2</span>
+            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK v0.4.3</span>
             <span className="flex items-center gap-1 opacity-75">
               Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
             </span>

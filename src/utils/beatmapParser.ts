@@ -334,9 +334,6 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   // Calculate duration-weighted dominant BPM
   const bpm = calculateDominantBpm(timingPoints, songDurationMs);
 
-  // Star difficulty rating assessment based on strain-based exponential decay formula
-  const stars = estimateStarDifficulty(notes, finalKeyCount);
-
   return {
     id: customId,
     title,
@@ -349,7 +346,6 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
     notes,
     hpDrainRate,
     overallDifficulty,
-    stars,
     videoStartTime: media.videoStartTime,
   };
 }

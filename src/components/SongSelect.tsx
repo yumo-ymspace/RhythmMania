@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
-import { Search, Upload, Sliders, Play, Settings, Compass, Info, Trash2, Loader, Cloud, CloudOff, Database, FileText, Sparkles, Music } from 'lucide-react';
+import { Search, Upload, Sliders, Play, Settings, Compass, Info, Trash2, Loader, Cloud, CloudOff, Database, FileText, Sparkles, Music, ChevronDown, ChevronUp, Star, Check } from 'lucide-react';
 import { Beatmap, GameSettings } from '../types';
 import { parseOsuBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
@@ -34,6 +34,7 @@ export default function SongSelect({
 }: SongSelectProps) {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCustomMapId, setSelectedCustomMapId] = useState<string>('');
+  const [manualExpandedSongKey, setManualExpandedSongKey] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
@@ -215,7 +216,6 @@ export default function SongSelect({
             isCached: false,
             bpm: 180,
             duration: 120,
-            stars: parseFloat(s.difficulty.replace('★', '')) || 5.0,
             keyCount: s.keyCount || 4,
             notes: [],
             hpDrainRate: 8,
@@ -239,6 +239,75 @@ export default function SongSelect({
     map.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     map.artist.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Group the maps by normalized artist & title (osu! style)
+  const songGroups = React.useMemo(() => {
+    const groupsMap = new Map<string, {
+      songKey: string;
+      title: string;
+      artist: string;
+      creator?: string;
+      isServerPackage?: boolean;
+      packageId?: string;
+      oszUrl?: string;
+      bgUrl?: string;
+      difficultiesSummary?: string[];
+      maps: typeof filteredCustomMaps;
+    }>();
+
+    filteredCustomMaps.forEach((map) => {
+      const mapTitle = map.title || 'Untitled';
+      const mapArtist = map.artist || 'Unknown';
+      const songKey = `${mapArtist.toLowerCase().trim()} - ${mapTitle.toLowerCase().trim()}`;
+      
+      let group = groupsMap.get(songKey);
+      if (!group) {
+        group = {
+          songKey,
+          title: mapTitle,
+          artist: mapArtist,
+          creator: map.creator || (map as any).creator,
+          isServerPackage: !!(map as any).isServerPackage,
+          packageId: (map as any).packageId,
+          oszUrl: (map as any).oszUrl,
+          bgUrl: map.bgUrl,
+          difficultiesSummary: (map as any).difficultiesSummary || [],
+          maps: []
+        };
+        groupsMap.set(songKey, group);
+      }
+      group.maps.push(map);
+    });
+
+    return Array.from(groupsMap.values());
+  }, [filteredCustomMaps]);
+
+  // Determine active dynamic expansion (selected difficulty song)
+  const activeSongKey = React.useMemo(() => {
+    const selected = filteredCustomMaps.find(m => m.id === selectedCustomMapId);
+    if (!selected || (selected as any).isServerPackage) return '';
+    return `${(selected.artist || 'Unknown').toLowerCase().trim()} - ${(selected.title || 'Untitled').toLowerCase().trim()}`;
+  }, [selectedCustomMapId, filteredCustomMaps]);
+
+  const expandedSongKey = manualExpandedSongKey !== null ? manualExpandedSongKey : activeSongKey;
+
+  const handleSelectGroup = (group: any) => {
+    if (group.isServerPackage) {
+      if (group.maps.length > 0) {
+        handleSelectCustomMap(group.maps[0]);
+      }
+      return;
+    }
+    if (expandedSongKey === group.songKey) {
+      setManualExpandedSongKey('');
+    } else {
+      setManualExpandedSongKey(group.songKey);
+      // Autofocus first map inside that group (loads preview immediately)
+      if (group.maps.length > 0) {
+        handleSelectCustomMap(group.maps[0]);
+      }
+    }
+  };
 
   const selectedCustomMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId) || null;
 
@@ -605,126 +674,225 @@ export default function SongSelect({
           </div>
         </div>
 
-        {/* COMPACT BEATMAP LIST */}
+        {/* COMPACT BEATMAP LIST WITH OSU-LIKE SONG GROUPS & DIFFICULTY CORNER DROPDOWNS */}
         <div className="flex-1 max-h-[500px] overflow-y-auto pr-1 flex flex-col gap-2.5">
-          {filteredCustomMaps.length > 0 ? (
-            filteredCustomMaps.map((map) => {
-              const isSelected = selectedCustomMapId === map.id;
-              const isConfirming = deleteConfirmId === map.id;
-              return (
-                <div
-                  id={`custom-map-card-${map.id}`}
-                  key={map.id}
-                  onClick={() => {
-                    if (isLoadingMedia) return;
-                    handleSelectCustomMap(map);
-                  }}
-                  className={`p-3.5 rounded-xl transition-all duration-150 flex items-center justify-between gap-4 border-l-4 border-l-slate-700 ${
-                    isSelected 
-                      ? 'bg-gradient-to-r from-skin-accent-dim to-indigo-950/10 border-l-skin-accent border border-skin-accent-dim shadow-skin-accent-glow scale-[1.01]'
-                      : 'bg-[#08080C]/90 border border-white/[0.03] opacity-80 hover:opacity-100 hover:border-white/5'
-                  } ${isLoadingMedia ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
-                >
-                  <div className="flex items-center gap-3.5 w-full pr-1 overflow-hidden">
-                    <div className={`p-2.5 rounded-lg flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-skin-accent-dim text-skin-accent' : 'bg-white/5 text-slate-500'
-                    }`}>
-                      {isSelected && isLoadingMedia ? (
-                        <Loader className="h-4 w-4 animate-spin text-skin-accent" />
-                      ) : map.isServerMap ? (
-                        !map.isCached ? (
-                           <Cloud className="h-4 w-4 text-skin-accent" />
-                        ) : (
-                          <Database className="h-4 w-4 text-emerald-400" />
-                        )
-                      ) : (
-                        <FileText className="h-4 w-4 text-amber-500/80" />
-                      )}
-                    </div>
-                    
-                    <div className="overflow-hidden w-full">
-                      <h4 className="font-extrabold font-sans text-xs text-white tracking-tight flex items-center flex-wrap gap-1 uppercase">
-                        <span className="truncate max-w-[70%]">{map.title}</span>
-                        {(map as any).originalKeyCount && (
-                          <span className="px-1 py-0.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-[8px] font-sans font-black tracking-widest uppercase rounded">
-                            [Mod 4K]
-                          </span>
-                        )}
-                        {!map.isServerPackage && (
-                          <span className="text-cyan-400 text-[10px] lowercase normal-case font-semibold shrink-0">[{map.difficulty}]</span>
-                        )}
-                      </h4>
-                      <p className="text-[10px] text-slate-400 font-sans block truncate mt-0.5">{map.artist}</p>
-                    </div>
-                  </div>
+          {songGroups.length > 0 ? (
+            songGroups.map((group) => {
+              const isGroupExpanded = expandedSongKey === group.songKey;
+              
+              // Count how many keys are represented in the group (e.g. 4K, 7K)
+              const keysSet = new Set(group.maps.map(m => m.keyCount));
+              const keysLabel = Array.from(keysSet).map(k => `${k}K`).join(' / ');
 
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="flex flex-col items-end gap-1">
-                      {map.isServerPackage ? (
-                        <span className="px-2 py-0.5 bg-cyan-400/5 text-cyan-400 text-[8px] font-mono rounded uppercase tracking-wider border border-cyan-400/10">
-                          CLOUD PACK
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 bg-white/5 text-slate-400 text-[8px] font-mono rounded uppercase tracking-wider border border-white/[0.03]">
-                          {map.keyCount} KEY
-                        </span>
-                      )}
-                      
-                      <div className="flex gap-1.5 items-center font-mono text-[9px] mt-0.5">
-                        {map.isServerPackage ? (
-                          <span className="text-cyan-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                            <Sparkles className="h-2.5 w-2.5" /> MULTI DIFFS
-                          </span>
+              // Check if any map inside is the selected map
+              const hasActiveMap = group.maps.some(m => m.id === selectedCustomMapId);
+
+              return (
+                <div 
+                  key={group.songKey}
+                  className="flex flex-col gap-1 transition-all"
+                >
+                  {/* GROUP CARD HEADER - Click to Expand / Select First Diff */}
+                  <div
+                    onClick={() => handleSelectGroup(group)}
+                    className={`p-3 rounded-xl flex items-center justify-between gap-3.5 border transition-all relative overflow-hidden backdrop-blur-md cursor-pointer ${
+                      isGroupExpanded
+                        ? 'bg-gradient-to-r from-slate-900/90 to-[#0e0e15]/90 border-indigo-500/25 shadow-sm'
+                        : hasActiveMap
+                          ? 'bg-gradient-to-r from-indigo-950/20 to-[#08080c]/90 border-skin-accent-dim/40 hover:border-skin-accent-dim/60 shadow-sm'
+                          : 'bg-[#08080C]/90 border-white/[0.03] hover:border-white/10 hover:bg-slate-950/90 opacity-90'
+                    }`}
+                  >
+                    {/* Background image tint subtle glow just like premium interfaces */}
+                    {group.bgUrl && (
+                      <div 
+                        className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.035] pointer-events-none scale-105 select-none blur-sm"
+                        style={{ backgroundImage: `url(${group.bgUrl})` }}
+                      />
+                    )}
+
+                    <div className="flex items-center gap-3 w-full pr-1 overflow-hidden pointer-events-none select-none">
+                      {/* Song thumbnail art */}
+                      <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-900 border border-white/5 flex items-center justify-center relative">
+                        {group.bgUrl ? (
+                          <img 
+                            src={group.bgUrl} 
+                            alt={group.title} 
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
                         ) : (
-                          <>
-                            <span className="text-rose-450 font-bold uppercase border border-rose-500/10 bg-rose-500/5 px-1.5 py-0.5 rounded text-[8px] tracking-wide inline-block max-w-[80px] truncate" title={map.difficulty}>
-                              {map.difficulty}
-                            </span>
-                            <span className="text-slate-600">•</span>
-                            <span className="text-slate-400">{map.bpm} BPM</span>
-                          </>
+                          <Music className="h-4 w-4 text-indigo-400/75" />
                         )}
+                        {/* Server/Cloud Pack Badge integrated */}
+                        {group.isServerPackage && (
+                          <div className="absolute inset-0 bg-cyan-950/40 flex items-center justify-center">
+                            <Cloud className="h-3.5 w-3.5 text-cyan-400" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="overflow-hidden w-full">
+                        <span className="text-[9px] text-[#8e99ef] font-extrabold uppercase font-mono tracking-wider block truncate max-w-[90%]">
+                          {group.artist || 'Unknown Artist'}
+                        </span>
+                        <h4 className="font-extrabold font-sans text-xs text-white tracking-tight -mt-0.5 truncate max-w-[95%]">
+                          {group.title}
+                        </h4>
+                        
+                        <div className="flex gap-2 items-center text-[9px] text-slate-500 mt-1 font-mono leading-none">
+                          <span className={`font-bold px-1.5 py-0.5 border rounded uppercase tracking-wide text-[8px] ${
+                            group.isServerPackage 
+                              ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' 
+                              : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/15'
+                          }`}>
+                            {group.isServerPackage 
+                              ? (group.difficultiesSummary?.length || 1) 
+                              : group.maps.length} {((group.isServerPackage ? group.difficultiesSummary?.length : group.maps.length) || 1) === 1 ? 'difficulty' : 'difficulties'}
+                          </span>
+                          {!group.isServerPackage && (
+                            <>
+                              <span className="text-slate-700">•</span>
+                              <span className="text-slate-400 font-bold">{keysLabel}</span>
+                            </>
+                          )}
+                          {group.creator && (
+                            <>
+                              <span className="text-slate-700">•</span>
+                              <span className="text-slate-500 truncate max-w-[120px]">by {group.creator}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* TWO STEP SAFE DELETION */}
-                    <div className="flex items-center justify-center relative pointer-events-auto z-10 shrink-0">
-                      {!map.isServerPackage && (isConfirming ? (
-                        <div className="flex gap-1 items-center bg-rose-950/90 border border-rose-500/30 text-[8px] uppercase font-bold text-white px-2 py-1 rounded-lg shadow-lg">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onDeleteCustomMap) onDeleteCustomMap(map.id);
-                              setDeleteConfirmId(null);
-                            }}
-                            className="bg-rose-500 hover:bg-rose-450 text-black font-black rounded px-2 py-0.5 cursor-pointer transition"
-                          >
-                            YES
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteConfirmId(null);
-                            }}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-black rounded px-2 py-0.5 cursor-pointer transition"
-                          >
-                            NO
-                          </button>
-                        </div>
+                    {/* Right expand visual indicator */}
+                    <div className="flex items-center gap-2 shrink-0 animate-fade-in-slow">
+                      {group.isServerPackage ? (
+                        <span className="px-1.5 py-0.5 bg-cyan-400/5 border border-cyan-400/10 text-cyan-300 text-[8px] font-mono rounded font-black tracking-widest uppercase shrink-0">
+                          CLOUD
+                        </span>
+                      ) : isGroupExpanded ? (
+                        <ChevronUp className="h-4 w-4 text-indigo-400" />
                       ) : (
-                        <button
-                          title="Delete Custom Beatmap"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirmId(map.id);
-                          }}
-                          className="p-2 rounded-lg bg-white/5 border border-white/5 text-slate-400 hover:text-red-400 hover:bg-rose-500/10 hover:border-red-500/10 transition-all"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      ))}
+                        <ChevronDown className="h-4 w-4 text-slate-505" />
+                      )}
                     </div>
                   </div>
+
+                  {/* DIFFICULTY LEVEL SUB-ROWS (VISIBLE WHEN EXPANDED) */}
+                  {isGroupExpanded && !group.isServerPackage && (
+                    <div className="mt-1 ml-4 border-l border-indigo-500/20 pl-3 flex flex-col gap-1.5 select-none animate-fade-in-slow">
+                      {group.maps.map((map) => {
+                        const isSelected = selectedCustomMapId === map.id;
+                        const isConfirming = deleteConfirmId === map.id;
+
+                        return (
+                          <div
+                            id={`custom-map-card-${map.id}`}
+                            key={map.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isLoadingMedia) return;
+                              handleSelectCustomMap(map);
+                            }}
+                            className={`p-2.5 rounded-lg transition-all duration-150 flex items-center justify-between gap-3 border ${
+                              isSelected 
+                                ? 'bg-gradient-to-r from-skin-accent-dim/35 to-indigo-950/15 border-skin-accent/50 shadow-skin-accent-glow'
+                                : 'bg-[#050508]/85 border-white/[0.02] hover:bg-[#0c0c14]/90 opacity-90'
+                            } ${isLoadingMedia ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Sync and media availability type indicators */}
+                              <div className={`p-1.5 rounded-md flex items-center justify-center shrink-0 ${
+                                isSelected ? 'bg-skin-accent-dim/50 text-skin-accent' : 'bg-white/5 text-slate-500'
+                              }`}>
+                                {isSelected && isLoadingMedia ? (
+                                  <Loader className="h-3 w-3 animate-spin text-skin-accent" />
+                                ) : map.isServerMap ? (
+                                  !map.isCached ? (
+                                    <Cloud className="h-3 w-3 text-skin-accent" />
+                                  ) : (
+                                    <Database className="h-3 w-3 text-emerald-400" />
+                                  )
+                                ) : (
+                                  <FileText className="h-3 w-3 text-amber-500/80" />
+                                )}
+                              </div>
+
+                              <div className="min-w-0 flex-1 flex items-center gap-2">
+                                <span className="font-extrabold text-[11px] text-white font-sans tracking-tight truncate leading-none">
+                                  {map.difficulty || 'Normal'}
+                                </span>
+                                {(map as any).originalKeyCount && (
+                                  <span className="px-1 py-0.5 bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 text-[7px] font-sans font-black tracking-widest uppercase rounded leading-none shrink-0">
+                                    [Mod 4K]
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Center features & specs metrics */}
+                            <div className="flex items-center gap-3 shrink-0">
+                              {map.isServerPackage ? (
+                                <span className="px-1.5 py-0.5 bg-cyan-400/5 text-cyan-300 text-[7px] font-mono rounded uppercase tracking-wider border border-cyan-400/10 shrink-0 leading-none">
+                                  CLOUD
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 bg-white/5 text-slate-400 text-[7px] font-mono rounded uppercase tracking-wider border border-white/[0.02] shrink-0 leading-none">
+                                  {map.keyCount} KEY
+                                </span>
+                              )}
+
+                              {!map.isServerPackage && map.bpm && (
+                                <span className="text-[10px] text-slate-500 font-mono font-semibold shrink-0">
+                                  {map.bpm} BPM
+                                </span>
+                              )}
+
+                              {/* Two-step prompt for deletion */}
+                              <div className="flex items-center justify-center relative pointer-events-auto z-20 shrink-0">
+                                {!map.isServerPackage && (isConfirming ? (
+                                  <div className="flex gap-1 items-center bg-rose-950/95 border border-rose-500/30 text-[8px] uppercase font-bold text-white px-2 py-1 rounded-md shadow-lg">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onDeleteCustomMap) onDeleteCustomMap(map.id);
+                                        setDeleteConfirmId(null);
+                                      }}
+                                      className="bg-rose-550 hover:bg-rose-450 text-black font-black rounded px-1.5 py-0.5 cursor-pointer transition leading-none"
+                                    >
+                                      YES
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDeleteConfirmId(null);
+                                      }}
+                                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-black rounded px-1.5 py-0.5 cursor-pointer transition leading-none"
+                                    >
+                                      NO
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    title="Delete Custom Beatmap"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteConfirmId(map.id);
+                                    }}
+                                    className="p-1.5 rounded bg-white/5 border border-white/5 text-slate-500 hover:text-red-400 hover:bg-rose-500/10 hover:border-red-500/10 transition-all cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })

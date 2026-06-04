@@ -208,7 +208,6 @@ export function generateProceduralBeatmap(
     artist: song.artist,
     creator: 'Beatmap Engine',
     difficulty: difficultyMultiplier < 3.0 ? 'Easy' : (difficultyMultiplier < 5.0 ? 'Normal' : (difficultyMultiplier < 7.0 ? 'Hard' : 'Expert')),
-    stars: parseFloat(difficultyMultiplier.toFixed(1)),
     bpm,
     keyCount,
     duration: durationSec,
