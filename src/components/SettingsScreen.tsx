@@ -785,7 +785,7 @@ export default function SettingsScreen({
             Click on any keyboard slot block, then type any letter on your hardware keyboard to bind that key to the respective column.
           </p>
 
-          <div className="flex flex-col gap-4 max-h-[380px] overflow-y-auto pr-1">
+          <div className="flex flex-col gap-4">
             {[2, 3, 4, 5, 6, 7, 8].map((num) => {
               const columns = settings.bindings[num] || [];
               return (
@@ -1068,27 +1068,42 @@ export default function SettingsScreen({
                   <span className="text-[12px] font-black tracking-tight text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] -mt-1">142</span>
                 </div>
 
-                {/* Bottom Row of 4 Proportional Key Receptors */}
-                <div className="absolute bottom-2 left-0 right-0 flex px-1 gap-1 z-10">
+                 {/* Bottom Row of 4 Proportional Key Receptors */}
+                <div className="absolute bottom-2 left-0 right-0 flex px-1 gap-1 z-10 items-end">
                   {[1, 2, 3, 4].map((col) => {
                     const isLaneActive = col === 3;
+                    
+                    const styleId = settings.receptorStyle || 'tactile';
+                    let dimensionClasses = '';
+                    let styleClasses = '';
+                    
+                    if (styleId === 'minimal') {
+                      dimensionClasses = 'w-[38px] h-[10px]';
+                      styleClasses = 'bg-slate-100/30 border border-slate-100/50 rounded-sm text-[6px]';
+                    } else if (styleId === 'square') {
+                      dimensionClasses = 'w-[34px] h-[28px]';
+                      styleClasses = 'p-0.5 border-2 border-indigo-500 bg-slate-950 rounded-none text-[8px]';
+                    } else if (styleId === 'translucent') {
+                      dimensionClasses = 'w-[30px] h-[28px]';
+                      styleClasses = 'border border-white/40 bg-white/5 rounded-lg text-[8px]';
+                    } else { // tactile/default
+                      dimensionClasses = 'w-[30px] h-[28px]';
+                      styleClasses = 'border border-cyan-400/80 bg-slate-900/90 rounded-md shadow-md text-[8px]';
+                    }
+                    
                     return (
-                      <div 
-                        key={col}
-                        className={`h-6 flex items-center justify-center transition-all duration-150 flex-1 ${
-                          (settings.receptorStyle || 'tactile') === 'tactile' ? 'border border-cyan-400/80 bg-slate-900/90 rounded-md shadow-md text-[8px]' :
-                          (settings.receptorStyle || 'tactile') === 'square' ? 'p-0.5 border-2 border-indigo-500 bg-slate-950 rounded-none text-[8px]' :
-                          (settings.receptorStyle || 'tactile') === 'minimal' ? 'h-2 bg-slate-100/30 border border-slate-100/50 rounded shadow-sm text-[6px]' :
-                          'border border-white/40 bg-white/5 rounded-lg text-[8px]'
-                        }`}
-                        style={{ 
-                          opacity: settings.receptorOpacity ?? 1,
-                          boxShadow: (settings.receptorStyle || 'tactile') === 'translucent' ? '0 0 10px rgba(255,255,255,0.1)' : undefined
-                        }}
-                      >
-                        {isLaneActive && (
-                          <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
-                        )}
+                      <div key={col} className="flex-1 flex justify-center items-end">
+                        <div 
+                          className={`${dimensionClasses} ${styleClasses} flex items-center justify-center transition-all duration-150`}
+                          style={{ 
+                            opacity: settings.receptorOpacity ?? 1,
+                            boxShadow: styleId === 'translucent' ? '0 0 10px rgba(255,255,255,0.1)' : undefined
+                          }}
+                        >
+                          {isLaneActive && (
+                            <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
+                          )}
+                        </div>
                       </div>
                     );
                   })}

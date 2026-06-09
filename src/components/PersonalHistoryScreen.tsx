@@ -284,14 +284,6 @@ export default function PersonalHistoryScreen({
                 <span className="text-slate-400 font-medium">Plays Recorded</span>
                 <span className="font-extrabold text-white text-sm">{history.length}</span>
               </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 font-medium font-sans">High Scores</span>
-                <span className="font-bold text-cyan-400 flex items-center gap-1 leading-none">
-                  <Flame className="h-3.5 w-3.5 stroke-[2.5]" />
-                  {history.filter(r => r.grade === 'SS' || r.grade === 'S').length}
-                </span>
-              </div>
 
               <div className="flex justify-between items-center">
                 <span className="text-slate-400 font-medium font-sans">Highest Score</span>
