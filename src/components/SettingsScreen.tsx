@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Keyboard, Sliders, Volume2, RefreshCw, Gauge, Zap, Palette, UploadCloud, Check, FileText } from 'lucide-react';
+import { ChevronLeft, Keyboard, Sliders, Volume2, RefreshCw, Gauge, Zap, Palette, UploadCloud, Check, FileText, Plus, Minus } from 'lucide-react';
 import { GameSettings, KeyBindings } from '../types';
 
 interface SettingsScreenProps {
@@ -38,6 +38,13 @@ export default function SettingsScreen({
 
   const [dragOver, setDragOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isCircleActive = settings.playfieldStyle === 'circle' || 
+                         settings.skinId === 'circles' || 
+                         settings.skinId === 'glassy-spheres' || 
+                         settings.skinId === 'hollow-rings';
+
+  const playfieldStyle = isCircleActive ? 'circle' : 'square';
 
   const processSkinIniAndColors = (txt: string, filename: string) => {
     const lines = txt.split(/\r?\n/);
@@ -266,7 +273,7 @@ export default function SettingsScreen({
   };
 
   return (
-    <div id="settings-screen-container" className="flex flex-col gap-6 w-full max-w-6xl mx-auto h-full p-2 lg:p-4 text-slate-100 pb-12">
+    <div id="settings-screen-container" className="flex flex-col gap-6 w-full max-w-6xl mx-auto h-auto p-2 lg:p-4 text-slate-100 pb-12">
       
       {/* HEADER CONTROLS BANNER */}
       <div className="flex justify-between items-center bg-[#08080C]/90 border border-white/5 p-4 rounded-2xl shadow-xl backdrop-blur-md">
@@ -289,6 +296,607 @@ export default function SettingsScreen({
         </button>
       </div>
 
+      {/* CONSOLIDATED AESTHETIC STYLE AND SKIN TWEAKS BOX */}
+      <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
+          <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5">
+            <Sliders className="h-4 w-4 text-skin-accent" /> Aesthetic Style and Skin Tweaks
+          </h3>
+        </div>
+
+        <p className="text-slate-400 text-xs leading-normal -mt-2">
+          Transform target receptors and falling notes. Toggle your global playfield style, adjust corner rounding, change transparencies, sizing scalers, or select round styles.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Controls Column 1 & 2 */}
+          <div className="lg:col-span-2 flex flex-col gap-5">
+            
+            {/* Core Playfield Style Mode Toggle */}
+            <div className="bg-black/20 border border-white/5 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5 max-w-md">
+                <span className="text-[9px] text-[#22d3ee] font-extrabold tracking-wider uppercase font-mono">Core Playfield Style Mode</span>
+                <span className="text-xs font-bold text-white uppercase tracking-tight font-sans">Select your Key Type</span>
+              </div>
+
+              <div className="flex bg-black/45 p-1 rounded-xl border border-white/5 shrink-0 w-full sm:w-auto">
+                 <button
+                  type="button"
+                  onClick={() => {
+                    updateSettings({ playfieldStyle: 'square' });
+                  }}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                    playfieldStyle === 'square'
+                      ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-extrabold shadow-[0_0_15px_rgba(99,102,241,0.4)] border border-indigo-400/20'
+                      : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  <span className="text-xs">■</span> Rectangular Keys
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateSettings({ playfieldStyle: 'circle' });
+                  }}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                    playfieldStyle === 'circle'
+                      ? 'bg-gradient-to-r from-cyan-600 to-teal-600 text-white font-extrabold shadow-[0_0_15px_rgba(34,211,238,0.4)] border border-cyan-400/20'
+                      : 'border border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  }`}
+                >
+                  <span className="text-xs">●</span> Circular Keys
+                </button>
+              </div>
+            </div>
+
+            {/* SQUARE MODE CODE or CIRCLE MODE CODE */}
+            {playfieldStyle === 'square' ? (
+              /* SQUARE MODE CUSTOMIZATIONS */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                {/* Note style & shape */}
+                <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                  <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Falling Note Style</span>
+                  
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] text-slate-400 font-medium font-sans">Corner Rounding / Shape Preset</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'rounded', name: 'Rounded Rect' },
+                        { id: 'square', name: 'Sharp Square' },
+                        { id: 'circle', name: 'Classic Circle' },
+                        { id: 'pill', name: 'Elastic Pill' },
+                      ].map((ns) => (
+                        <button
+                          key={ns.id}
+                          type="button"
+                          onClick={() => updateSettings({ noteStyle: ns.id as any })}
+                          className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                            (settings.noteStyle || 'rounded') === ns.id 
+                              ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                              : 'border-white/5 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {ns.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 mt-2">
+                    <div className="flex justify-between text-[10px] font-bold font-sans">
+                      <span className="text-slate-355">Note Translucency</span>
+                      <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.1" 
+                      max="1" 
+                      step="0.05"
+                      value={settings.noteOpacity ?? 1}
+                      onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
+                      className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      style={{ accentColor: 'var(--skin-accent)' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Receptor style & shape */}
+                <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                  <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Target Receptor Key Style</span>
+                  
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] text-slate-400 font-medium font-sans">Receptor Appearance Structure</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'tactile', name: 'Tactile Glass' },
+                        { id: 'square', name: 'Sharp Square' },
+                        { id: 'minimal', name: 'Piano Segment' },
+                        { id: 'translucent', name: 'Transparent Glow' },
+                      ].map((rc) => (
+                        <button
+                          key={rc.id}
+                          type="button"
+                          onClick={() => updateSettings({ receptorStyle: rc.id as any })}
+                          className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
+                            (settings.receptorStyle || 'tactile') === rc.id 
+                              ? 'border-skin-accent text-white shadow-skin-accent-glow' 
+                              : 'border-white/5 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {rc.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 mt-2">
+                    <div className="flex justify-between text-[10px] font-bold font-sans">
+                      <span className="text-slate-355">Key Receptor Translucency</span>
+                      <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.1" 
+                      max="1" 
+                      step="0.05"
+                      value={settings.receptorOpacity ?? 1}
+                      onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
+                      className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                      style={{ accentColor: 'var(--skin-accent)' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* CIRCLE MODE CUSTOMIZATIONS */
+              <div className="flex flex-col gap-4 animate-fade-in">
+                {/* Circle style selection */}
+                <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-cyan-400 font-extrabold tracking-wider uppercase font-mono">Circle Style Preset</span>
+                    <span className="text-[8px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded uppercase font-bold">Standard Specialties</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal -mt-1">
+                    Select a core rendering engine for round layouts: classic filled beads, glossy 3D spheres, or hollow dashed rings.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { id: 'circles', name: 'osu!mania Circles', desc: 'Beautiful round keys & round pill notes.' },
+                      { id: 'glassy-spheres', name: '3D Glassy Spheres', desc: 'Glossy 3D glass spheres with specular highlights & active glows.' },
+                      { id: 'hollow-rings', name: 'Retro Hollow Rings', desc: 'Classic hollow rings lighting up with flat round keys.' },
+                    ].map((sk) => {
+                      const activeStyle = settings.circleRenderStyle || 'circles';
+                      const activeSkin = activeStyle === sk.id;
+                      return (
+                        <button
+                          key={sk.id}
+                          type="button"
+                          onClick={() => updateSettings({ circleRenderStyle: sk.id as any })}
+                          className={`flex flex-col gap-1.5 p-3 text-left bg-black/45 hover:bg-[#11111a]/85 border rounded-xl cursor-pointer transition relative group ${
+                            activeSkin 
+                              ? 'border-skin-accent shadow-skin-accent-glow text-white' 
+                              : 'border-white/5 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 justify-between">
+                            <span className="text-[10px] font-black tracking-tight">{sk.name}</span>
+                            <div className="flex gap-1 items-center shrink-0">
+                              <span className="w-2 h-2 rounded-full shadow-[0_0_5px_var(--skin-accent)]" style={{ backgroundColor: 'var(--skin-accent)' }} />
+                            </div>
+                          </div>
+                          <span className="text-[9px] text-slate-400 leading-tight">
+                            {sk.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Circle Sizing & Scaling */}
+                  <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                    <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Circle Size & Scale Tuning</span>
+                    
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <div className="flex justify-between text-[10px] font-bold font-sans">
+                        <span className="text-slate-300">Hitbox Receptor Size</span>
+                        <span className="font-mono text-skin-accent">{Math.round((settings.circleSize ?? 1.0) * 100)}%</span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">Scale target receptors size independently.</p>
+                      <input 
+                        type="range" 
+                        min="0.5" 
+                        max="1.5" 
+                        step="0.05"
+                        value={settings.circleSize ?? 1.0}
+                        onChange={(e) => updateSettings({ circleSize: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                        style={{ accentColor: 'var(--skin-accent)' }}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 mt-2">
+                      <div className="flex justify-between text-[10px] font-bold font-sans">
+                        <span className="text-slate-300">Falling Note Size</span>
+                        <span className="font-mono text-skin-accent">{Math.round((settings.noteSizeMultiplier ?? 1.0) * 100)}%</span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">Scale falling note circle size independently.</p>
+                      <input 
+                        type="range" 
+                        min="0.5" 
+                        max="1.5" 
+                        step="0.05"
+                        value={settings.noteSizeMultiplier ?? 1.0}
+                        onChange={(e) => updateSettings({ noteSizeMultiplier: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                        style={{ accentColor: 'var(--skin-accent)' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Circle Transparencies */}
+                  <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                    <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Circle Transparencies</span>
+                    
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <div className="flex justify-between text-[10px] font-bold font-sans">
+                        <span className="text-slate-300">Note Transparency</span>
+                        <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">Adjust visibility of circular notes on the falling track.</p>
+                      <input 
+                        type="range" 
+                        min="0.1" 
+                        max="1" 
+                        step="0.05"
+                        value={settings.noteOpacity ?? 1}
+                        onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                        style={{ accentColor: 'var(--skin-accent)' }}
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 mt-2">
+                      <div className="flex justify-between text-[10px] font-bold font-sans">
+                        <span className="text-slate-300">Receptor Transparency</span>
+                        <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-tight">Adjust visibility of circular receptors at the playline target.</p>
+                      <input 
+                        type="range" 
+                        min="0.1" 
+                        max="1" 
+                        step="0.05"
+                        value={settings.receptorOpacity ?? 1}
+                        onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                        style={{ accentColor: 'var(--skin-accent)' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* UNIFIED LOWER DECK CONFIGURATIONS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Performance Indicators (Judgement Popups) Transparency & Scaling */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Performance Indicators</span>
+                
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-355">Indicator Transparency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementOpacity ?? 1) * 100)}%</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-tight">Controls visibility of "PERFECT", "MARVELOUS" & combos blocking the center.</p>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.judgementOpacity ?? 1}
+                    onChange={(e) => updateSettings({ judgementOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-355">Indicator Size / Scale</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementSize ?? 1) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0.5" 
+                    max="1.5" 
+                    step="0.05"
+                    value={settings.judgementSize ?? 1}
+                    onChange={(e) => updateSettings({ judgementSize: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Lane Decoration Options */}
+              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
+                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Playfield Deck Structure</span>
+                
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-355">Lane Separator Transparency</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.laneSeparatorOpacity ?? 0.30) * 100)}%</span>
+                  </div>
+                  <p className="text-[9px] text-slate-500 leading-tight">Sets clarity of lane boundary columns drawn background rails.</p>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.laneSeparatorOpacity ?? 0.30}
+                    onChange={(e) => updateSettings({ laneSeparatorOpacity: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <div className="flex justify-between text-[10px] font-bold font-sans">
+                    <span className="text-slate-355">Deck Background Dimming</span>
+                    <span className="font-mono text-skin-accent">{Math.round((settings.backgroundDim ?? 0.60) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={settings.backgroundDim ?? 0.60}
+                    onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
+                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                    style={{ accentColor: 'var(--skin-accent)' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* LIVE PLAYFIELD LANE STYLE PREVIEW */}
+          <div className={`flex flex-col gap-3 p-4 bg-gradient-to-b from-black/55 to-black/25 border border-white/5 rounded-xl justify-between h-auto ${
+            playfieldStyle === 'circle' ? 'min-h-[225px]' : 'min-h-[310px]'
+          }`}>
+            <div className="flex justify-between items-center pb-2 border-b border-white/5">
+              <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Live Style Preview</span>
+              <span className="text-[9px] text-slate-500 animate-pulse bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase font-bold">Active</span>
+            </div>
+
+            <div className={`relative flex-1 flex flex-col items-center justify-center py-4 bg-slate-950/80 rounded-lg overflow-hidden border border-white/5 ${
+              playfieldStyle === 'circle' ? 'h-[143px]' : 'h-[190px]'
+            }`}>
+              {/* 4-Lanes Playfield Track Container */}
+              <div className="relative w-[180px] h-full border-l border-r border-slate-800 transition-all flex flex-col justify-between">
+                {/* 3 Lane separator lines dividing the 4 lanes */}
+                <div className="absolute inset-y-0 left-[25%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
+                <div className="absolute inset-y-0 left-[50%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
+                <div className="absolute inset-y-0 left-[75%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
+
+                {/* Stage Background Dim tint */}
+                <div 
+                  className="absolute inset-0 bg-black pointer-events-none transition-all duration-150" 
+                  style={{ opacity: settings.backgroundDim ?? 0.60 }}
+                />
+
+                {/* Simulated Falling Notes at 75%, 50%, and 25% heights in different lanes */}
+                {[
+                  { lane: 0, top: '15%' }, // Lane 1 (0-25%), 75%+ high
+                  { lane: 3, top: '45%' }, // Lane 4 (75-100%), 50% high
+                  { lane: 2, top: '70%' }  // Lane 3 (50-75%), 25% high (heading to the active receptor)
+                ].map((n, idx) => {
+                  return (
+                    <div 
+                      key={idx}
+                      className="absolute transition-all duration-150 flex flex-col items-center select-none pointer-events-none"
+                      style={{ left: `${n.lane * 25}%`, width: '25%', top: n.top }}
+                    >
+                      {playfieldStyle === 'circle' ? (
+                        (() => {
+                          const effectiveStyle = settings.circleRenderStyle || 'circles';
+                          if (effectiveStyle === 'glassy-spheres') {
+                            return (
+                              <div 
+                                className="rounded-full border border-white/80 relative shadow-md transition-all"
+                                style={{ 
+                                  opacity: settings.noteOpacity ?? 0.9,
+                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  backgroundImage: 'radial-gradient(circle at 35% 35%, #ffffff 0%, var(--skin-accent) 45%, #050510 100%)',
+                                  boxShadow: '0 0 10px var(--skin-accent)'
+                                }}
+                              >
+                                <div className="absolute top-[2px] left-[3px] w-2.5 h-[5px] bg-white/70 rounded-full rotate-[-15deg] scale-[0.6]" />
+                              </div>
+                            );
+                          } else if (effectiveStyle === 'hollow-rings') {
+                            return (
+                              <div 
+                                className="rounded-full border-2 border-white shadow-md transition-all animate-pulse"
+                                style={{ 
+                                  opacity: settings.noteOpacity ?? 0.9,
+                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  backgroundColor: 'var(--skin-accent)'
+                                }}
+                              />
+                            );
+                          } else {
+                            return (
+                              <div 
+                                className="rounded-full border border-white/60 relative shrink-0 transition-all"
+                                style={{ 
+                                  opacity: settings.noteOpacity ?? 1,
+                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  backgroundImage: 'radial-gradient(circle at 35% 35%, #ffffff 0%, var(--skin-accent) 65%, #000000 100%)'
+                                }}
+                              />
+                            );
+                          }
+                        })()
+                      ) : (
+                        <div 
+                          className={`h-4.5 shadow-lg border border-white/30 transition-all duration-150 w-[85%] ${
+                            (settings.noteStyle || 'rounded') === 'rounded' ? 'rounded-md' :
+                            (settings.noteStyle || 'rounded') === 'square' ? 'rounded-none' :
+                            'rounded-full'
+                          }`}
+                          style={{ 
+                            opacity: settings.noteOpacity ?? 1,
+                            backgroundColor: 'var(--skin-accent)',
+                            boxShadow: '0 0 10px rgba(var(--skin-accent-rgb), 0.5)'
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Performance Indicator Judgement text Overlay (Centered across playfield) */}
+                <div 
+                  className="absolute left-0 right-0 z-20 flex flex-col items-center select-none pointer-events-none transition-all duration-150"
+                  style={{ 
+                    top: playfieldStyle === 'circle' ? '30px' : '48px',
+                    opacity: settings.judgementOpacity ?? 1.0,
+                    transform: `scale(${(settings.judgementSize ?? 1.0) * 0.75})` 
+                  }}
+                >
+                  <span className="text-cyan-400 font-extrabold tracking-widest text-[10px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] [text-shadow:0_0_8px_rgba(34,211,238,0.6)]">PERFECT</span>
+                  <span className="text-[12px] font-black tracking-tight text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] -mt-1">142</span>
+                </div>
+
+                 {/* Bottom Row of 4 Proportional Key Receptors */}
+                <div className="absolute bottom-2 left-0 right-0 flex z-10 items-end h-[45px]">
+                  {[1, 2, 3, 4].map((col) => {
+                    const isLaneActive = col === 3;
+                    let dimensionClasses = '';
+                    let styleClasses = '';
+                    let children = null;
+                    let activeStyles = {};
+
+                    if (playfieldStyle === 'circle') {
+                      const effectiveStyle = settings.circleRenderStyle || 'circles';
+                      if (effectiveStyle === 'glassy-spheres') {
+                        dimensionClasses = 'rounded-full';
+                        styleClasses = isLaneActive 
+                          ? 'border-2' 
+                          : 'border-2 border-slate-500 bg-slate-900/60';
+                        activeStyles = isLaneActive 
+                          ? { 
+                              borderColor: 'var(--skin-accent)', 
+                              backgroundColor: 'rgba(var(--skin-accent-rgb), 0.4)', 
+                              boxShadow: '0 0 12px var(--skin-accent)',
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            }
+                          : {
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            };
+                        children = isLaneActive && (
+                          <div className="relative w-4 h-4 rounded-full bg-gradient-to-t via-white/50 to-white/90" style={{ backgroundColor: 'var(--skin-accent)', boxShadow: '0 0 8px var(--skin-accent)' }}>
+                            <div className="absolute top-[1.5px] left-[2.5px] w-2 h-1 bg-white/60 rounded-full animate-pulse" />
+                          </div>
+                        );
+                      } else if (effectiveStyle === 'hollow-rings') {
+                        dimensionClasses = 'rounded-full';
+                        styleClasses = isLaneActive 
+                          ? 'border-3 border-white' 
+                          : 'border border-dashed border-slate-400 bg-transparent';
+                        activeStyles = isLaneActive
+                          ? {
+                              backgroundColor: 'var(--skin-accent)',
+                              boxShadow: '0 0 10px rgba(var(--skin-accent-rgb), 0.5)',
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            }
+                          : {
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            };
+                        children = isLaneActive && (
+                          <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                        );
+                      } else {
+                        dimensionClasses = 'rounded-full';
+                        styleClasses = isLaneActive 
+                          ? 'border-2 border-white' 
+                          : 'border border-slate-500 bg-slate-900/60';
+                        activeStyles = isLaneActive
+                          ? {
+                              backgroundColor: 'var(--skin-accent)',
+                              boxShadow: '0 0 8px var(--skin-accent)',
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            }
+                          : {
+                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                            };
+                        children = isLaneActive && (
+                          <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                        );
+                      }
+                    } else {
+                      const styleId = settings.receptorStyle || 'tactile';
+                      if (styleId === 'minimal') {
+                        dimensionClasses = 'w-[90%] h-[10px]';
+                        styleClasses = 'bg-slate-100/30 border border-slate-100/50 rounded-sm text-[6px]';
+                      } else if (styleId === 'square') {
+                        dimensionClasses = 'w-[80%] h-[16px]';
+                        styleClasses = 'p-0.5 border-2 bg-slate-950 rounded-none text-[8px]';
+                        activeStyles = isLaneActive ? { borderColor: 'var(--skin-accent)' } : {};
+                      } else if (styleId === 'translucent') {
+                        dimensionClasses = 'w-[75%] h-[16px]';
+                        styleClasses = 'border border-white/40 bg-white/5 rounded-lg text-[8px]';
+                        activeStyles = isLaneActive ? { boxShadow: '0 0 10px var(--skin-accent)', borderColor: 'var(--skin-accent)' } : {};
+                      } else { // tactile/default
+                        dimensionClasses = 'w-[75%] h-[16px]';
+                        styleClasses = 'border bg-slate-900/90 rounded-md shadow-md text-[8px]';
+                        activeStyles = isLaneActive 
+                          ? { borderColor: 'var(--skin-accent)', boxShadow: '0 0 12px var(--skin-accent)' } 
+                          : { borderColor: 'rgba(255, 255, 255, 0.2)' };
+                      }
+                      children = isLaneActive && (
+                        <div className="w-1.5 h-1.5 rounded-full animate-ping" style={{ backgroundColor: 'var(--skin-accent)' }} />
+                      );
+                    }
+
+                    return (
+                      <div key={col} className="flex-1 flex justify-center items-end">
+                        <div 
+                          className={`${dimensionClasses} ${styleClasses} flex items-center justify-center transition-all duration-150`}
+                          style={{ 
+                            opacity: settings.receptorOpacity ?? 1,
+                            ...activeStyles
+                          }}
+                        >
+                          {children}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[9px] text-slate-400 leading-tight text-center px-1">
+              Adjust sliders above to preview how roundings, indicators, and transparencies map to the real rhythm field.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* LEFT PANEL: DECIBELS / DIM PANEL PREFERENCES */}
@@ -297,7 +905,7 @@ export default function SettingsScreen({
           {/* OSU!MANIA GAME SKINS SELECTION */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-              <Palette className="h-4 w-4 text-skin-accent" /> Game Skin Customization
+              <Palette className="h-4 w-4 text-skin-accent" /> Game Colour Customization
             </h3>
 
             <p className="text-slate-400 text-xs leading-normal -mt-2">
@@ -308,7 +916,6 @@ export default function SettingsScreen({
               {[
                 { id: 'neon', name: 'Neon Cyber (Default)', desc: 'Neon flows and styled blue keycaps.', color: '#00b0ff', colorsBox: ['#00b0ff', '#eceff1'] },
                 { id: 'classic-bar', name: 'DDR Retro Bar', desc: 'Rigid high-contrast DDR-style flat notes.', color: '#ef4444', colorsBox: ['#ef4444', '#facc15'] },
-                { id: 'circles', name: 'osu!mania Circles', desc: 'Beautiful round keys & round pill notes.', color: '#3b82f6', colorsBox: ['#3b82f6', '#ec4899'] },
                 { id: 'cyberpunk', name: 'Vaporwave Neon', desc: 'Fluorescent magenta, yellow, and deep purple.', color: '#ec4899', colorsBox: ['#ec4899', '#facc15'] },
                 { id: 'emerald', name: 'Acid Emerald', desc: 'Acid toxic green tracks and emerald glows.', color: '#10b981', colorsBox: ['#10b981', '#34d399'] },
                 { id: 'minimalist', name: 'Monochrome Plain', desc: 'Plain flat grays & high-speed reading lanes.', color: '#ffffff', colorsBox: ['#ffffff', '#64748b'] },
@@ -823,297 +1430,6 @@ export default function SettingsScreen({
             >
               <RefreshCw className="h-3.5 w-3.5" /> Restore Defaults
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ADVANCED PLAYFIELD SKINS STYLE GRAPHICS */}
-      <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md w-full">
-        <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
-          <Sliders className="h-4 w-4 text-skin-accent" /> Aesthetic Style Tweaks
-        </h3>
-
-        <p className="text-slate-400 text-xs leading-normal -mt-2">
-          Transform target receptors and falling notes. Customize corner rounding, transparency, and structure to build your ultimate gaming surface.
-        </p>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Controls Column 1 & 2 */}
-          <div className="lg:col-span-2 flex flex-col gap-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Note style & shape */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Falling Note Style</span>
-                
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] text-slate-400 font-medium font-sans">Corner Rounding / Shape Preset</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'rounded', name: 'Rounded Rect' },
-                      { id: 'square', name: 'Sharp Square' },
-                      { id: 'circle', name: 'Classic Circle' },
-                      { id: 'pill', name: 'Elastic Pill' },
-                    ].map((ns) => (
-                      <button
-                        key={ns.id}
-                        type="button"
-                        onClick={() => updateSettings({ noteStyle: ns.id as any })}
-                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
-                          (settings.noteStyle || 'rounded') === ns.id 
-                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
-                            : 'border-white/5 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {ns.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Note Translucency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.noteOpacity ?? 1) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0.1" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.noteOpacity ?? 1}
-                    onChange={(e) => updateSettings({ noteOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-
-              {/* Receptor style & shape */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Target Receptor Key Style</span>
-                
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] text-slate-400 font-medium font-sans">Receptor Appearance Structure</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: 'tactile', name: 'Tactile Glass' },
-                      { id: 'square', name: 'Sharp Square' },
-                      { id: 'minimal', name: 'Piano Segment' },
-                      { id: 'translucent', name: 'Transparent Glow' },
-                    ].map((rc) => (
-                      <button
-                        key={rc.id}
-                        type="button"
-                        onClick={() => updateSettings({ receptorStyle: rc.id as any })}
-                        className={`py-1.5 px-2 bg-black/45 hover:bg-[#11111a]/85 border text-[10px] uppercase font-black tracking-wide rounded-lg cursor-pointer transition ${
-                          (settings.receptorStyle || 'tactile') === rc.id 
-                            ? 'border-skin-accent text-white shadow-skin-accent-glow' 
-                            : 'border-white/5 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {rc.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Key Receptor Translucency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.receptorOpacity ?? 1) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0.1" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.receptorOpacity ?? 1}
-                    onChange={(e) => updateSettings({ receptorOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Performance Indicators (Judgement Popups) Transparency & Scaling */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Performance Indicators</span>
-                
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Indicator Transparency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementOpacity ?? 1) * 100)}%</span>
-                  </div>
-                  <p className="text-[9px] text-slate-500 leading-tight">Controls visibility of "PERFECT", "MARVELOUS" & combos blocking the center.</p>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.judgementOpacity ?? 1}
-                    onChange={(e) => updateSettings({ judgementOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Indicator Size / Scale</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.judgementSize ?? 1) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0.5" 
-                    max="1.5" 
-                    step="0.05"
-                    value={settings.judgementSize ?? 1}
-                    onChange={(e) => updateSettings({ judgementSize: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-
-              {/* Lane Decoration Options */}
-              <div className="flex flex-col gap-3 p-4 bg-black/35 border border-white/5 rounded-xl">
-                <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Playfield Deck Structure</span>
-                
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Lane Separator Transparency</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.laneSeparatorOpacity ?? 0.30) * 100)}%</span>
-                  </div>
-                  <p className="text-[9px] text-slate-500 leading-tight">Sets clarity of lane boundary columns drawn background rails.</p>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.laneSeparatorOpacity ?? 0.30}
-                    onChange={(e) => updateSettings({ laneSeparatorOpacity: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer mt-0.5"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5 mt-2">
-                  <div className="flex justify-between text-[10px] font-bold font-sans">
-                    <span className="text-slate-350">Deck Background Dimming</span>
-                    <span className="font-mono text-skin-accent">{Math.round((settings.backgroundDim ?? 0.60) * 100)}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="1" 
-                    step="0.05"
-                    value={settings.backgroundDim ?? 0.60}
-                    onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
-                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                    style={{ accentColor: 'var(--skin-accent)' }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* LIVE PLAYFIELD LANE STYLE PREVIEW */}
-          <div className="flex flex-col gap-3 p-4 bg-gradient-to-b from-black/55 to-black/25 border border-white/5 rounded-xl justify-between h-auto min-h-[310px]">
-            <div className="flex justify-between items-center pb-2 border-b border-white/5">
-              <span className="text-[10px] text-indigo-400 font-extrabold tracking-wider uppercase font-mono">Live Style Preview</span>
-              <span className="text-[9px] text-slate-500 animate-pulse bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded uppercase font-bold">Active</span>
-            </div>
-
-            <div className="relative flex-1 flex flex-col items-center justify-center py-4 bg-slate-950/80 rounded-lg overflow-hidden border border-white/5 h-[190px]">
-              {/* 4-Lanes Playfield Track Container */}
-              <div className="relative w-[180px] h-full border-l border-r border-slate-800 transition-all flex flex-col justify-between">
-                {/* 3 Lane separator lines dividing the 4 lanes */}
-                <div className="absolute inset-y-0 left-[25%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
-                <div className="absolute inset-y-0 left-[50%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
-                <div className="absolute inset-y-0 left-[75%] border-l border-dashed transition-colors duration-150" style={{ borderColor: `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})` }} />
-
-                {/* Stage Background Dim tint */}
-                <div 
-                  className="absolute inset-0 bg-black pointer-events-none transition-all duration-150" 
-                  style={{ opacity: settings.backgroundDim ?? 0.60 }}
-                />
-
-                {/* Falling Note Render Preview in Lane 2 */}
-                <div 
-                  className="absolute top-4 transition-all duration-150 flex flex-col items-center select-none pointer-events-none"
-                  style={{ left: '25%', width: '25%' }}
-                >
-                  <div 
-                    className={`h-4.5 shadow-lg transition-all duration-150 w-[85%] ${
-                      (settings.noteStyle || 'rounded') === 'rounded' ? 'rounded-md border border-white/30 bg-sky-400' :
-                      (settings.noteStyle || 'rounded') === 'square' ? 'rounded-none border border-white/30 bg-sky-400' :
-                      (settings.noteStyle || 'rounded') === 'circle' ? 'h-5 w-5 rounded-full border border-white/30 bg-sky-450' :
-                      'rounded-full border border-white/30 bg-sky-400'
-                    }`}
-                    style={{ opacity: settings.noteOpacity ?? 1 }}
-                  />
-                </div>
-
-                {/* Performance Indicator Judgement text Overlay (Centered across playfield) */}
-                <div 
-                  className="absolute top-[48px] left-0 right-0 z-20 flex flex-col items-center select-none pointer-events-none transition-all duration-150"
-                  style={{ 
-                    opacity: settings.judgementOpacity ?? 1.0,
-                    transform: `scale(${(settings.judgementSize ?? 1.0) * 0.75})` 
-                  }}
-                >
-                  <span className="text-cyan-400 font-extrabold tracking-widest text-[10px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] [text-shadow:0_0_8px_rgba(34,211,238,0.6)]">PERFECT</span>
-                  <span className="text-[12px] font-black tracking-tight text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] -mt-1">142</span>
-                </div>
-
-                 {/* Bottom Row of 4 Proportional Key Receptors */}
-                <div className="absolute bottom-2 left-0 right-0 flex px-1 gap-1 z-10 items-end">
-                  {[1, 2, 3, 4].map((col) => {
-                    const isLaneActive = col === 3;
-                    
-                    const styleId = settings.receptorStyle || 'tactile';
-                    let dimensionClasses = '';
-                    let styleClasses = '';
-                    
-                    if (styleId === 'minimal') {
-                      dimensionClasses = 'w-[38px] h-[10px]';
-                      styleClasses = 'bg-slate-100/30 border border-slate-100/50 rounded-sm text-[6px]';
-                    } else if (styleId === 'square') {
-                      dimensionClasses = 'w-[34px] h-[28px]';
-                      styleClasses = 'p-0.5 border-2 border-indigo-500 bg-slate-950 rounded-none text-[8px]';
-                    } else if (styleId === 'translucent') {
-                      dimensionClasses = 'w-[30px] h-[28px]';
-                      styleClasses = 'border border-white/40 bg-white/5 rounded-lg text-[8px]';
-                    } else { // tactile/default
-                      dimensionClasses = 'w-[30px] h-[28px]';
-                      styleClasses = 'border border-cyan-400/80 bg-slate-900/90 rounded-md shadow-md text-[8px]';
-                    }
-                    
-                    return (
-                      <div key={col} className="flex-1 flex justify-center items-end">
-                        <div 
-                          className={`${dimensionClasses} ${styleClasses} flex items-center justify-center transition-all duration-150`}
-                          style={{ 
-                            opacity: settings.receptorOpacity ?? 1,
-                            boxShadow: styleId === 'translucent' ? '0 0 10px rgba(255,255,255,0.1)' : undefined
-                          }}
-                        >
-                          {isLaneActive && (
-                            <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping" />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="text-[9px] text-slate-400 leading-tight text-center px-1">
-              Adjust sliders above to preview how roundings, indicators, and transparencies map to the real rhythm field.
-            </div>
           </div>
         </div>
       </div>

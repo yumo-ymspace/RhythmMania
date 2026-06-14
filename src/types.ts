@@ -118,13 +118,17 @@ export interface GameSettings {
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
   disableParticles?: boolean; // completely disable particle visual burst generator
   limitDprToOne?: boolean; // cap canvas device pixel ratio to 1x to save GPU rendering cost
-  skinId?: string; // custom osu!mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom')
+  skinId?: string; // custom osu!mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings')
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
   noteStyle?: 'rounded' | 'square' | 'circle' | 'pill';
   receptorStyle?: 'tactile' | 'square' | 'minimal' | 'translucent';
   noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
   receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
+  circleSize?: number; // scale multiplier for circle skin notes (0.5 to 1.5)
+  noteSizeMultiplier?: number; // separate multiplier for falling notes
+  playfieldStyle?: 'square' | 'circle';
+  circleRenderStyle?: 'circles' | 'glassy-spheres' | 'hollow-rings';
   judgementOpacity?: number; // 0.0 to 1.0 (opacity for judgement text)
   judgementSize?: number; // 0.5 to 1.5 (font size scaling multiplier)
   laneSeparatorOpacity?: number; // 0.0 to 1.0 (opacity for lane divider lines)

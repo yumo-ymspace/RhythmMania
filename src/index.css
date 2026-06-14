@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:ital,wght@0,400;0,500;0,700;0,900;1,400;1,500;1,700;1,900&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
 @import "tailwindcss";
 
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto !important;
+  background-color: #050508;
+}
+
 :root {
   --skin-accent: #00b0ff;
   --skin-accent-rgb: 0, 176, 255;

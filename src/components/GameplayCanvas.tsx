@@ -102,6 +102,20 @@ export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: st
       accent: '#cbd5e1', // grey slate
       cyan: '#64748b' // dark slate
     };
+  } else if (skinId === 'glassy-spheres') {
+    colors = {
+      blue: '#0284c7', // rich glassy ocean blue
+      white: '#ec4899', // polished glassy rose
+      accent: '#eab308', // glossy cyber gold yellow
+      cyan: '#06b6d4' // rich glassy cyan
+    };
+  } else if (skinId === 'hollow-rings') {
+    colors = {
+      blue: '#3b82f6', // picture blue
+      white: '#c084fc', // picture purple
+      accent: '#f43f5e', // picture red/pink
+      cyan: '#14b8a6' // picture teal
+    };
   }
 
   for (let i = 0; i < keyCount; i++) {
@@ -1340,12 +1354,16 @@ export default function GameplayCanvas({
             
             ctx.beginPath();
             const nStyle = settings.noteStyle || 'rounded';
+            const isCircleMode = settings.playfieldStyle === 'circle' || 
+                                 settings.skinId === 'circles' || 
+                                 settings.skinId === 'glassy-spheres' || 
+                                 settings.skinId === 'hollow-rings';
             if (nStyle === 'square') {
               ctx.rect(rx, ry, rw, rh);
             } else if (nStyle === 'circle' || nStyle === 'pill') {
               ctx.roundRect(rx, ry, rw, rh, rw / 2);
             } else {
-              if (settings.skinId === 'circles') {
+              if (isCircleMode) {
                 ctx.roundRect(rx, ry, rw, rh, rw / 2); // Pill-style capsules
               } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
                 ctx.rect(rx, ry, rw, rh); // Pure flat rectangles
@@ -1453,24 +1471,98 @@ export default function GameplayCanvas({
           // Authentic white target stripe
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
-        } else if (settings.skinId === 'circles') {
-          grad.addColorStop(0, '#ffffff');
-          grad.addColorStop(0.25, noteStroke);
-          grad.addColorStop(0.55, noteFill);
-          grad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1.5;
+        } else if (settings.playfieldStyle === 'circle' || settings.skinId === 'circles' || settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') {
+          const effectiveStyle = settings.circleRenderStyle || 
+                                 ((settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') 
+                                   ? settings.skinId 
+                                   : 'circles');
+          
+          if (effectiveStyle === 'glassy-spheres') {
+            const cx = rx + rw / 2;
+            const cy = ry + rh / 2;
+            const r = (Math.min(rw - 2, 28) / 2) * (settings.noteSizeMultiplier ?? 1.0);
 
-          drawNoteShape(rh / 2);
-          ctx.fill();
-          ctx.stroke();
+            const sphereColor = colStyles[n.column].color;
 
-          // Dynamic center bead glow
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(rx + rw / 2, ry + rh / 2, rh * 0.25, 0, Math.PI * 2);
-          ctx.fill();
+            ctx.shadowColor = sphereColor;
+            ctx.shadowBlur = 8;
+            
+            const sphereGrad = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, 0, cx, cy, r);
+            sphereGrad.addColorStop(0, '#ffffff');
+            sphereGrad.addColorStop(0.25, hexToRgba(sphereColor, 0.9)); 
+            sphereGrad.addColorStop(0.8, hexToRgba(sphereColor, 0.55));
+            sphereGrad.addColorStop(1, '#050510');
+            
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = sphereGrad;
+            ctx.fill();
+            
+            ctx.shadowBlur = 0;
+
+            const sheenGrad = ctx.createLinearGradient(cx, cy - r * 0.8, cx, cy);
+            sheenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.7)');
+            sheenGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+            
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(cx - r * 0.1, cy - r * 0.35, r * 0.5, r * 0.25, -Math.PI / 8, 0, Math.PI * 2);
+            ctx.fillStyle = sheenGrad;
+            ctx.fill();
+            ctx.restore();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.stroke();
+          } else if (effectiveStyle === 'hollow-rings') {
+            const cx = rx + rw / 2;
+            const cy = ry + rh / 2;
+            const r = (Math.min(rw - 2, 28) / 2) * (settings.noteSizeMultiplier ?? 1.0);
+
+            const noteColor = colStyles[n.column].color;
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = noteColor;
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.fill();
+          } else {
+            // Default osu!mania Circles
+            const cx = rx + rw / 2;
+            const cy = ry + rh / 2;
+            const r = (Math.min(rw - 2, 24) / 2) * (settings.noteSizeMultiplier ?? 1.0);
+
+            const circleGrad = ctx.createRadialGradient(cx - r * 0.15, cy - r * 0.15, 0, cx, cy, r);
+            circleGrad.addColorStop(0, '#ffffff');
+            circleGrad.addColorStop(0.25, noteStroke);
+            circleGrad.addColorStop(0.6, noteFill);
+            circleGrad.addColorStop(1, 'rgba(0,0,0,0.85)');
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fillStyle = circleGrad;
+            ctx.fill();
+
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
+
+            // Dynamic center bead glow
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
+            ctx.fill();
+          }
         } else {
           // Default Neon and Cyberpunk flows
           grad.addColorStop(0, noteStroke);
@@ -1553,7 +1645,118 @@ export default function GameplayCanvas({
           // Standard or selected receptor style block
           const rStyle = settings.receptorStyle || 'tactile';
           
-          if (rStyle === 'minimal') {
+          const isCircleMode = settings.playfieldStyle === 'circle' || 
+                               settings.skinId === 'circles' || 
+                               settings.skinId === 'glassy-spheres' || 
+                               settings.skinId === 'hollow-rings';
+
+          if (isCircleMode) {
+            const effectiveStyle = settings.circleRenderStyle || 
+                                   ((settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') 
+                                     ? settings.skinId 
+                                     : 'circles');
+            
+            const cx = xPos + colW / 2;
+            const cy = receptorY;
+            const r = (Math.min(colW - 8, 28) / 2) * (settings.circleSize ?? 1.0);
+
+            if (effectiveStyle === 'glassy-spheres') {
+              if (isPressed) {
+                const bloomGrad = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+                bloomGrad.addColorStop(0, '#ffffff');
+                bloomGrad.addColorStop(0.3, hexToRgba(rcColor, 0.9));
+                bloomGrad.addColorStop(0.8, hexToRgba(rcColor, 0.4));
+                bloomGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = bloomGrad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
+              } else {
+                const baseGrad = ctx.createRadialGradient(cx - r*0.1, cy - r*0.1, 1, cx, cy, r);
+                baseGrad.addColorStop(0, '#1e293b');
+                baseGrad.addColorStop(0.7, '#0f172a');
+                baseGrad.addColorStop(1, '#020617');
+                ctx.fillStyle = baseGrad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
+              }
+            } else if (effectiveStyle === 'hollow-rings') {
+              if (isPressed) {
+                ctx.fillStyle = rcColor;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 0.35, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.setLineDash([4, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.15)';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+              }
+            } else {
+              // Classic circles
+              if (isPressed) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.fillStyle = rcColor;
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Feedback inner bead
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.strokeStyle = hexToRgba(rcColor, 0.7);
+                ctx.lineWidth = 1.8;
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Physical center small indicator
+                ctx.fillStyle = hexToRgba(rcColor, 0.4);
+                ctx.beginPath();
+                ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+              }
+            }
+          } else if (rStyle === 'minimal') {
             // ==================== PIANO SEGMENT STYLE ====================
             const rx = xPos + 1;
             const ry = receptorY - 5;

@@ -62,6 +62,10 @@ const DEFAULT_SETTINGS: GameSettings = {
   judgementOpacity: 1.0,
   judgementSize: 1.0,
   laneSeparatorOpacity: 0.30,
+  circleSize: 1.0,
+  noteSizeMultiplier: 1.0,
+  playfieldStyle: 'square',
+  circleRenderStyle: 'circles',
 };
 
 export default function App() {
@@ -264,6 +268,10 @@ export default function App() {
         judgementOpacity: updated.judgementOpacity !== undefined ? Number(updated.judgementOpacity) : 1.0,
         judgementSize: updated.judgementSize !== undefined ? Number(updated.judgementSize) : 1.0,
         laneSeparatorOpacity: updated.laneSeparatorOpacity !== undefined ? Number(updated.laneSeparatorOpacity) : 0.30,
+        circleSize: updated.circleSize !== undefined ? Number(updated.circleSize) : 1.0,
+        noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Number(updated.noteSizeMultiplier) : 1.0,
+        playfieldStyle: updated.playfieldStyle || 'square',
+        circleRenderStyle: updated.circleRenderStyle || 'circles',
       };
 
       if (updated.bindings) {
