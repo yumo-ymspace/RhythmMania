@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize } from 'lucide-react';
+import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
 import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame } from '../types';
 import { VideoSyncController } from '../utils/videoSyncController';
@@ -212,6 +212,8 @@ export default function GameplayCanvas({
     if (node) {
       try {
         node.load();
+        node.pause();
+        node.currentTime = 0;
       } catch (err) {
         console.warn('Error inside video registration player:', err);
       }
@@ -359,10 +361,13 @@ export default function GameplayCanvas({
   const [uiJudgement, setUiJudgement] = useState<{ text: string; color: string; time: number } | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [showCountdown, setShowCountdown] = useState<number>(0);
+  const [unpauseCountdown, setUnpauseCountdown] = useState<number>(0);
 
   // Active inputs trace
   const keysPressedRef = useRef<boolean[]>([]);
   const activeColumnsRef = useRef<boolean[]>([]);
+  const hasKeyPressedOnceRef = useRef<boolean[]>([]);
+  const progressBarRef = useRef<HTMLDivElement>(null);
   
   // Dynamic visual visualizers
   const particlesRef = useRef<Particle[]>([]);
@@ -374,9 +379,15 @@ export default function GameplayCanvas({
 
   // Hit error timing logs
   const hitErrorTicksRef = useRef<HitErrorTick[]>([]);
+  const countdownStartTimeRef = useRef<number | null>(null);
 
   const [loadingAudioProgress, setLoadingAudioProgress] = useState<number>(0);
   const [isAudioLoaded, setIsAudioLoaded] = useState<boolean>(false);
+
+  // Custom pre-play stage states
+  const [isPrePlay, setIsPrePlay] = useState<boolean>(true);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
 
   // PIPELINE DIAGNOSTICS & DECODING FALLBACK STATES
   const [isPlayingFallback, setIsPlayingFallback] = useState<boolean>(false);
@@ -455,7 +466,7 @@ export default function GameplayCanvas({
   const badJudg = judgementWindows.find(w => w.type === 'bad') || judgementWindows[4];
   const missJudg = judgementWindows.find(w => w.type === 'miss') || judgementWindows[judgementWindows.length - 1];
 
-  const initializeGameplay = () => {
+  const initializeGameplay = (runCountdown: boolean = false) => {
     // Deep copy notes from the beatmap, ensuring gameplay properties reset
     notesRef.current = beatmap.notes.map(note => ({
       ...note,
@@ -471,6 +482,7 @@ export default function GameplayCanvas({
     keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
     activeColumnsRef.current = new Array(beatmap.keyCount).fill(false);
     laneGlowRef.current = new Array(beatmap.keyCount).fill(0);
+    hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
     
     // Reset score tracking
     scoreStateRef.current = {
@@ -532,8 +544,11 @@ export default function GameplayCanvas({
       console.warn('Silent fallback for scroll transition bounds:', scrollErr);
     }
 
-    // Direct count down before launching music
-    setShowCountdown(3);
+    if (runCountdown) {
+      setShowCountdown(3);
+    } else {
+      setShowCountdown(0);
+    }
   };
 
   // Initialize and load track
@@ -659,11 +674,22 @@ export default function GameplayCanvas({
         } catch (e) {}
       }
     };
-  }, [beatmap, settings]);
+  }, [beatmap]);
+
+  // Handle immediate sync of volume and offset values
+  useEffect(() => {
+    if (isAudioLoaded) {
+      mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
+      mainAudio.setOffset(settings.audioOffset);
+    }
+  }, [isAudioLoaded, settings.musicVolume, settings.hitsoundVolume, settings.audioOffset]);
 
   // Handle countdown intervals
   useEffect(() => {
     if (showCountdown > 0) {
+      if (showCountdown === 3) {
+        countdownStartTimeRef.current = performance.now();
+      }
       const t = setTimeout(() => {
         setShowCountdown(prev => {
           if (prev === 1) {
@@ -683,6 +709,30 @@ export default function GameplayCanvas({
     }
   }, [showCountdown]);
 
+  // Handle unpause countdown intervals
+  useEffect(() => {
+    if (unpauseCountdown > 0) {
+      const t = setTimeout(() => {
+        setUnpauseCountdown(prev => {
+          if (prev === 1) {
+            // Unpause visual systems
+            lastProcessedReplayTimeRef.current = -1;
+            setIsPaused(false);
+            isPlayingRef.current = true;
+            mainAudio.play(beatmap.bpm, settings.audioOffset);
+            if (videoRef.current) {
+              videoRef.current.play().catch(err => {
+                console.warn('Video failed to play on resume:', err instanceof Error ? err.message : String(err));
+              });
+            }
+          }
+          return prev - 1;
+        });
+      }, 1000); // Actual 1-second countdown ticks to give the player optimal physical recovery window
+      return () => clearTimeout(t);
+    }
+  }, [unpauseCountdown]);
+
   // Unified Keyboard processing & Multi-Touch Input Adapter
   useEffect(() => {
     const keyLayout = settings.bindings[beatmap.keyCount] || [];
@@ -690,11 +740,14 @@ export default function GameplayCanvas({
     
     // Abstract virtual key trigger handlers to share state updates cleanly between physical keys and screen tactile touches
     const virtualKeyDown = (colIndex: number) => {
-      if (showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
+      if (isPrePlay || showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
       if (colIndex >= 0 && colIndex < beatmap.keyCount && !keysPressedRef.current[colIndex]) {
         keysPressedRef.current[colIndex] = true;
         activeColumnsRef.current[colIndex] = true;
         laneGlowRef.current[colIndex] = 1.0;
+        if (hasKeyPressedOnceRef.current) {
+          hasKeyPressedOnceRef.current[colIndex] = true;
+        }
         
         mainAudio.playHitsound();
         triggerHitEvent(colIndex);
@@ -709,7 +762,7 @@ export default function GameplayCanvas({
     };
 
     const virtualKeyUp = (colIndex: number) => {
-      if (showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
+      if (isPrePlay || showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
       if (colIndex >= 0 && colIndex < beatmap.keyCount) {
         keysPressedRef.current[colIndex] = false;
         activeColumnsRef.current[colIndex] = false;
@@ -729,8 +782,25 @@ export default function GameplayCanvas({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       
+      if (isPrePlay) {
+        if (showSettingsModal || showInfoModal) return;
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          setIsPrePlay(false);
+          setShowCountdown(3);
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onBack();
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (showCountdown > 0 || unpauseCountdown > 0) {
+          return; // Ignore / disable Escape key during active countdowns
+        }
         if (isFocusMode) {
           // Programmatically exit focus mode which triggers the fullscreen change listener to exit and pause
           FullscreenManager.exitFocusMode();
@@ -815,7 +885,7 @@ export default function GameplayCanvas({
       }
       touchAdapter?.reset();
     };
-  }, [beatmap, settings, isPaused, showCountdown, isFocusMode]);
+  }, [beatmap, settings, isPaused, showCountdown, isFocusMode, isPrePlay, showSettingsModal, showInfoModal, unpauseCountdown]);
 
   // Judgement scoring evaluator
   const triggerHitEvent = (colIndex: number) => {
@@ -1141,34 +1211,28 @@ export default function GameplayCanvas({
       ctx.fillStyle = `rgba(0, 0, 0, ${shieldDim})`; // solid black playfield shield
       ctx.fillRect(0, 0, width, height);
 
-      // Render countdown overlays
-      if (showCountdown > 0) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(5,5,5,0.75)';
-        ctx.fillRect(0, 0, width, height);
-        
-        ctx.font = '700 96px system-ui, -apple-system';
-        ctx.fillStyle = '#f8fafc';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Pulse effects on numbers
-        const clockBeat = (Date.now() % 700) / 700;
-        const countScale = 1.0 + Math.sin(clockBeat * Math.PI) * 0.15;
-        
-        ctx.translate(width / 2, height / 2);
-        ctx.scale(countScale, countScale);
-        ctx.fillText(showCountdown.toString(), 0, 0);
-        ctx.restore();
-      }
-
       // Smoothly slide the rendering offset towards the actual audioOffset to prevent note visual teleportations mid-flight:
       smoothOffsetRef.current += (settings.audioOffset - smoothOffsetRef.current) * 0.08;
 
       const rawSongTime = mainAudio.getCurrentTimeMs();
       const offsetDiff = settings.audioOffset - smoothOffsetRef.current;
-      const songTime = rawSongTime + offsetDiff;
+      let songTime = rawSongTime + offsetDiff;
+
+      // Enable smooth visual note scrolling during the pre-song countdown period so first notes arrive in tempo
+      if (showCountdown > 0 && countdownStartTimeRef.current !== null) {
+        const elapsed = performance.now() - countdownStartTimeRef.current;
+        // The total countdown ticks count to 3 * 700ms = 2100ms
+        songTime = -2100 + elapsed;
+      }
+
       audioTimeRef.current = songTime;
+
+      // Update progress bar
+      if (progressBarRef.current) {
+        const totalDurationMs = beatmap.duration * 1000;
+        const progressPercent = totalDurationMs > 0 ? Math.min(100, Math.max(0, (songTime / totalDurationMs) * 100)) : 0;
+        progressBarRef.current.style.width = `${progressPercent}%`;
+      }
 
       // Replay simulation playback
       if (replayData && replayData.length > 0 && isPlayingRef.current && !isPaused && showCountdown === 0) {
@@ -1187,6 +1251,9 @@ export default function GameplayCanvas({
                   keysPressedRef.current[col] = true;
                   activeColumnsRef.current[col] = true;
                   laneGlowRef.current[col] = 1.0;
+                  if (hasKeyPressedOnceRef.current) {
+                    hasKeyPressedOnceRef.current[col] = true;
+                  }
                   mainAudio.playHitsound();
                   triggerHitEvent(col);
                 } else if (wasPressed && !isCurrentlyPressed) {
@@ -1496,7 +1563,7 @@ export default function GameplayCanvas({
           if (effectiveStyle === 'glassy-spheres') {
             const cx = rx + rw / 2;
             const cy = ry + rh / 2;
-            const r = (Math.min(rw - 2, 28) / 2) * (settings.noteSizeMultiplier ?? 1.0);
+            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
 
             const sphereColor = colStyles[n.column].color;
 
@@ -1535,7 +1602,7 @@ export default function GameplayCanvas({
           } else if (effectiveStyle === 'hollow-rings') {
             const cx = rx + rw / 2;
             const cy = ry + rh / 2;
-            const r = (Math.min(rw - 2, 28) / 2) * (settings.noteSizeMultiplier ?? 1.0);
+            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
 
             const noteColor = colStyles[n.column].color;
 
@@ -1556,7 +1623,7 @@ export default function GameplayCanvas({
             // Default osu!mania Circles
             const cx = rx + rw / 2;
             const cy = ry + rh / 2;
-            const r = (Math.min(rw - 2, 24) / 2) * (settings.noteSizeMultiplier ?? 1.0);
+            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
 
             const circleGrad = ctx.createRadialGradient(cx - r * 0.15, cy - r * 0.15, 0, cx, cy, r);
             circleGrad.addColorStop(0, '#ffffff');
@@ -1674,7 +1741,7 @@ export default function GameplayCanvas({
             
             const cx = xPos + colW / 2;
             const cy = receptorY;
-            const r = (Math.min(colW - 8, 28) / 2) * (settings.circleSize ?? 1.0);
+            const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
 
             if (effectiveStyle === 'glassy-spheres') {
               if (isPressed) {
@@ -1861,14 +1928,16 @@ export default function GameplayCanvas({
 
           // Draw binding character labels underneath each receptor button (PC and Mobile standard layout)
           const layoutKeys = settings.bindings[keyCount];
-          if (!isFocusMode && layoutKeys && layoutKeys[i]) {
-            ctx.font = '700 11px font-mono, JetBrains Mono, monospace';
-            ctx.fillStyle = isPressed ? '#ffffff' : '#94a3b8';
+          const hasPressed = hasKeyPressedOnceRef.current && hasKeyPressedOnceRef.current[i];
+          if (!hasPressed && layoutKeys && layoutKeys[i]) {
+            ctx.font = '900 22px system-ui, -apple-system, sans-serif';
+            ctx.fillStyle = isPressed ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.25)';
             ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             ctx.fillText(
               layoutKeys[i].toUpperCase(), 
               xPos + colW / 2, 
-              settings.upsurfaceNoteMode ? receptorY - 22 : receptorY + 28
+              settings.upsurfaceNoteMode ? receptorY + 50 : receptorY - 50
             );
           }
         }
@@ -2043,7 +2112,9 @@ export default function GameplayCanvas({
 
   // Pause / Resume Handlers
   const pauseGameplay = () => {
-    if (showCountdown > 0 || scoreStateRef.current.failed || isPaused) return;
+    if (showCountdown > 0 || scoreStateRef.current.failed) return;
+    setUnpauseCountdown(0); // Safely cancel any active recovery countdown on window focus loss/tab change
+    if (isPaused) return;
     setIsPaused(true);
     isPlayingRef.current = false;
     mainAudio.pause();
@@ -2071,18 +2142,11 @@ export default function GameplayCanvas({
   }, [isPaused, showCountdown]);
 
   const togglePause = () => {
-    if (showCountdown > 0 || scoreStateRef.current.failed) return;
-    
+    if (showCountdown > 0 || unpauseCountdown > 0 || scoreStateRef.current.failed) return;
+
     if (isPaused) {
-      lastProcessedReplayTimeRef.current = -1;
-      setIsPaused(false);
-      isPlayingRef.current = true;
-      mainAudio.play(beatmap.bpm, settings.audioOffset);
-      if (videoRef.current) {
-        videoRef.current.play().catch(err => {
-          console.warn('Video failed to play on resume:', err instanceof Error ? err.message : String(err));
-        });
-      }
+      // Start recovery countdown instead of starting immediately
+      setUnpauseCountdown(3);
     } else {
       setIsPaused(true);
       isPlayingRef.current = false;
@@ -2095,7 +2159,8 @@ export default function GameplayCanvas({
 
   const restartMap = () => {
     mainAudio.stop();
-    initializeGameplay();
+    setIsPrePlay(true);
+    initializeGameplay(false);
   };
 
   // Safe loader state checking
@@ -2122,18 +2187,389 @@ export default function GameplayCanvas({
     );
   }
 
+  const handleStartGameplay = () => {
+    setIsPrePlay(false);
+    setShowCountdown(3);
+  };
+
   return (
     <div 
       id="gameplay-container" 
-      className={`flex flex-col lg:flex-row gap-6 w-full mx-auto h-full transition-all duration-300 ${
-        isFocusMode ? 'max-w-none justify-center items-center h-screen bg-[#050508] p-0 gap-0' : 'max-w-7xl p-2 lg:p-4'
-      }`}
+      className="w-full h-screen max-w-none bg-[#050508] p-0 flex flex-col justify-between overflow-hidden relative select-none animate-fade-in"
     >
+      {/* PRE-PLAY STAGE OVERLAY */}
+      {isPrePlay && (
+        <div 
+          className="absolute inset-0 z-50 bg-[#050508]/85 backdrop-blur-md flex flex-col justify-between p-6 select-none animate-fade-in"
+          style={{ borderRadius: '0px' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Top Row: Navigation and Fullscreen Controls */}
+          <div className="w-full flex justify-between items-center z-10">
+            <div className="flex items-center bg-[#10101a]/95 p-1.5 rounded-xl border border-white/10 shadow-xl gap-1">
+              <button
+                id="preplay-home-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBack();
+                }}
+                className="flex items-center justify-center p-2.5 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
+                title="Return to selection"
+              >
+                <Home className="h-5 w-5" />
+              </button>
+              
+              <button
+                id="preplay-fullscreen-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleFocus();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 active:scale-95 text-xs font-black uppercase tracking-wider transition-all cursor-pointer border-l border-white/10 pl-3"
+                title="Toggle Fullscreen"
+              >
+                <Maximize className="h-4 w-4" />
+                <span>Full</span>
+              </button>
+            </div>
+
+            <div className="text-right">
+              <span className="text-[9px] text-zinc-500 font-mono tracking-widest font-black uppercase">PRE-PLAY ENGINE STAGE</span>
+            </div>
+          </div>
+
+          {/* Middle Row: Start and Calibration popups */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-10 max-w-lg mx-auto w-full">
+            {/* Beatmap details snippet */}
+            <div className="text-center space-y-2">
+              <span className="px-3 py-1 bg-cyan-950/40 text-cyan-400 font-mono text-xs font-bold rounded-full border border-cyan-500/20 shadow-sm shadow-cyan-500/5">
+                {beatmap.keyCount}K Mode
+              </span>
+              <h2 className="text-3xl md:text-4xl font-extrabold font-sans text-slate-100 tracking-tight leading-tight mt-2">{beatmap.title}</h2>
+              <p className="text-sm font-sans text-slate-400 font-normal">by {beatmap.artist}</p>
+            </div>
+
+            {/* Core Buttons Layout: Left Gear, Center Large Play, Right Info */}
+            <div className="flex items-center justify-center gap-6 md:gap-8 w-full">
+              {/* Settings button */}
+              <button
+                id="preplay-settings-link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowSettingsModal(true);
+                }}
+                className="p-5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-full border border-white/5 transition-all active:scale-95 cursor-pointer flex items-center justify-center shadow-2xl"
+                title="Adjust settings"
+              >
+                <Settings className="h-6 w-6" />
+              </button>
+
+              {/* Start Game Button */}
+              <button
+                id="preplay-start-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartGameplay();
+                }}
+                className="flex items-center justify-center gap-4 px-12 py-5 bg-slate-800 hover:bg-slate-750 text-white rounded-xl border border-white/10 transition-all active:scale-95 cursor-pointer shadow-xl hover:shadow-[0_0_30px_rgba(255,255,255,0.07)]"
+              >
+                <Play className="h-6 w-6 fill-current text-white" />
+                <span className="font-sans font-black text-lg tracking-wider uppercase">Start</span>
+              </button>
+
+              {/* Beatmap metadata button */}
+              <button
+                id="preplay-info-link"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowInfoModal(true);
+                }}
+                className="p-5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-full border border-white/5 transition-all active:scale-95 cursor-pointer flex items-center justify-center shadow-2xl"
+                title="View map details"
+              >
+                <Info className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Tap instruction */}
+            <div className="text-zinc-500 font-mono text-[10px] tracking-widest text-center uppercase">
+              PRESS SPACEBAR OR ENTER TO BEGIN PERFORMANCE
+            </div>
+          </div>
+
+          {/* Bottom info */}
+          <div className="w-full flex justify-between text-[10px] text-zinc-500 font-mono px-2">
+            <span>BPM: {beatmap.bpm}</span>
+            <span>DIFFICULTY: {beatmap.difficulty}</span>
+          </div>
+
+          {/* INSTANT SETTINGS MODAL POPUP */}
+          {showSettingsModal && (
+            <div 
+              className="fixed inset-0 z-55 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSettingsModal(false);
+              }}
+            >
+              <div 
+                className="bg-[#0f0f1c] border border-white/10 rounded-2xl p-6 shadow-2xl max-w-sm w-full space-y-5 animate-scale-up"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="h-4 w-4 text-cyan-400" />
+                    <span className="font-sans font-bold text-slate-200 uppercase tracking-wider text-xs">CALIBRATION ROOM</span>
+                  </div>
+                  <button 
+                    onClick={() => setShowSettingsModal(false)}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4 font-sans text-xs text-left">
+                  {/* Scroll speed */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Scroll Speed</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">{settings.scrollSpeed}x</span>
+                    </div>
+                    <input 
+                      type="range" min="5" max="40" step="1"
+                      value={settings.scrollSpeed} 
+                      onChange={(e) => updateSettings?.({ scrollSpeed: Number(e.target.value) })}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Audio latency offset */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400 font-sans">
+                      <span>Audio Offset / Latency</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">
+                        {settings.audioOffset > 0 ? `+${settings.audioOffset}` : settings.audioOffset}ms
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => updateSettings?.({ audioOffset: Math.max(-500, settings.audioOffset - 5) })}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
+                      >
+                        -5
+                      </button>
+                      <input 
+                        type="range" min="-300" max="300" step="5"
+                        value={settings.audioOffset} 
+                        onChange={(e) => updateSettings?.({ audioOffset: Number(e.target.value) })}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        onTouchMove={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="flex-1 accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                      <button 
+                        onClick={() => updateSettings?.({ audioOffset: Math.min(500, settings.audioOffset + 5) })}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
+                      >
+                        +5
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lane Background Dim */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Background Shield Dim</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">{Math.round((settings.backgroundDim ?? 0.60) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={settings.backgroundDim ?? 0.60} 
+                      onChange={(e) => updateSettings?.({ backgroundDim: Number(e.target.value) })}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Music Volume */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Music Volume</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">{Math.round((settings.musicVolume ?? 0.75) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={settings.musicVolume} 
+                      onChange={(e) => updateSettings?.({ musicVolume: Number(e.target.value) })}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Hitsound Volume */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Hitsound Volume</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">{Math.round((settings.hitsoundVolume ?? 0.60) * 100)}%</span>
+                    </div>
+                    <input 
+                      type="range" min="0" max="1" step="0.05"
+                      value={settings.hitsoundVolume} 
+                      onChange={(e) => updateSettings?.({ hitsoundVolume: Number(e.target.value) })}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Playfield Width */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Lane Playfield Width</span>
+                      <span className="font-mono text-cyan-400 font-extrabold">{settings.playfieldWidthPercent ?? 40}%</span>
+                    </div>
+                    <input 
+                      type="range" min="20" max="50" step="1"
+                      value={settings.playfieldWidthPercent ?? 40} 
+                      onChange={(e) => updateSettings?.({ playfieldWidthPercent: Number(e.target.value) })}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onTouchMove={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Upsurface note mode */}
+                  <div className="pt-2 flex justify-between items-center border-t border-white/5">
+                    <span className="text-slate-400">Scroll Direction</span>
+                    <button
+                      onClick={() => updateSettings?.({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
+                      className={`px-3 py-1 text-[10px] font-bold font-mono tracking-wider rounded uppercase border transition cursor-pointer ${
+                        settings.upsurfaceNoteMode 
+                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.3)]' 
+                          : 'bg-slate-900 text-slate-400 border-white/5 hover:text-white animate-pulse'
+                      }`}
+                    >
+                      {settings.upsurfaceNoteMode ? 'Upward Scroll' : 'Downward Scroll'}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowSettingsModal(false)}
+                  className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black uppercase tracking-wider text-[10px] rounded-xl transition cursor-pointer"
+                >
+                  Confirm calibrators
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* BEATMAP INFO POPUP */}
+          {showInfoModal && (
+            <div 
+              className="fixed inset-0 z-55 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowInfoModal(false);
+              }}
+            >
+              <div 
+                className="bg-[#0f0f1c] border border-white/10 rounded-2xl p-6 shadow-2xl max-w-sm w-full space-y-5 animate-scale-up"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Info className="h-4 w-4 text-cyan-400" />
+                    <span className="font-sans font-bold text-slate-200 uppercase tracking-wider text-xs">BEATMAP METRICS</span>
+                  </div>
+                  <button 
+                    onClick={() => setShowInfoModal(false)}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-2.5 font-sans text-xs text-left">
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg">
+                    <span className="text-slate-400">Song Title</span>
+                    <span className="text-slate-100 font-bold max-w-[170px] truncate" title={beatmap.title}>
+                      {beatmap.title}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg">
+                    <span className="text-slate-400">Artist Name</span>
+                    <span className="text-slate-100 font-bold max-w-[170px] truncate" title={beatmap.artist}>
+                      {beatmap.artist}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
+                    <span className="text-slate-400 font-sans">BPM Clock Rate</span>
+                    <span className="text-cyan-400 font-black">{beatmap.bpm} BPM</span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
+                    <span className="text-slate-400 font-sans">Song Length</span>
+                    <span className="text-slate-100 font-bold">
+                      {Math.floor(beatmap.duration / 60)}m {Math.floor(beatmap.duration % 60)}s
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
+                    <span className="text-slate-400 font-sans">Creator</span>
+                    <span className="text-slate-200 font-bold">{beatmap.creator}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
+                    <span className="text-slate-400 font-sans">HP Drain Intensity</span>
+                    <span className="text-right flex items-center gap-1.5">
+                      <span className="text-amber-400 font-black">{beatmap.hpDrainRate}/10</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center bg-[#050510] border border-white/5 px-3 py-1.5 rounded-lg font-mono">
+                    <span className="text-slate-400 font-sans">Overall Accuracy Window</span>
+                    <span className="text-right flex items-center gap-1.5">
+                      <span className="text-cyan-400 font-black">{beatmap.overallDifficulty}/10</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowInfoModal(false)}
+                  className="w-full py-2.5 bg-slate-900 border border-white/5 text-slate-300 hover:text-white font-bold uppercase tracking-wider text-[10px] rounded-xl transition cursor-pointer"
+                >
+                  Dismiss metrics
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 1. PRIMARY GAMEPLAY HIGH-PERFORMANCE CANVAS VIEWPORT */}
       <div 
-        className={`flex-1 flex flex-col items-center relative bg-slate-950 transition-all duration-300 ${
-          isFocusMode ? 'w-full max-w-4xl h-screen rounded-none border-none shadow-none' : 'rounded-2xl border border-slate-800/80 h-[calc(100vh-170px)] min-h-[500px] lg:h-[750px] shadow-2xl'
-        }`}
+        className="flex-1 w-full h-full flex flex-col items-center relative bg-slate-950 overflow-hidden text-slate-100"
       >
         {/* FLOATING REAL-TIME CALIBRATION HUD TOAST */}
         {showOffsetNotification && (
@@ -2181,15 +2617,124 @@ export default function GameplayCanvas({
             </div>
           </div>
         )}
-        {/* TOP STATUS BAR: DYNAMIC HIGH-CONTRAST ACCURACY / CONTROLS (z-40 overlay) */}
-        <PlayZoneOverlay
-          onExit={handleExit}
-          onToggleFocus={handleToggleFocus}
-          isFocusMode={isFocusMode}
-          score={uiScore}
-          accuracy={scoreStateRef.current.accuracy}
-          isReplay={!!replayData}
-        />
+
+        {/* TOP STATUS BAR: DYNAMIC HIGH-CONTRAST FLOATING CONTROLS (z-40 overlay) */}
+        {!isPrePlay && (
+          <div className="absolute top-5 left-6 z-40 flex items-center gap-2 pointer-events-auto select-none">
+            {/* Quit/Exit button */}
+            <button
+              onClick={handleExit}
+              className="flex items-center justify-center p-2.5 bg-slate-900/80 hover:bg-rose-950/20 text-slate-400 hover:text-rose-400 rounded-xl border border-white/5 hover:border-rose-500/10 transition active:scale-95 cursor-pointer shadow-lg"
+              title="Quit Performance"
+            >
+              <Home className="h-4 w-4" />
+            </button>
+
+            {/* Fullscreen button */}
+            <button
+              onClick={handleToggleFocus}
+              className="flex items-center justify-center p-2.5 bg-slate-900/80 hover:bg-cyan-950/15 text-slate-400 hover:text-cyan-400 rounded-xl border border-white/5 hover:border-cyan-500/10 transition active:scale-95 cursor-pointer shadow-lg"
+              title="Toggle Fullscreen"
+            >
+              <Maximize className="h-4 w-4" />
+            </button>
+
+            {/* Pause button */}
+            <button
+              onClick={togglePause}
+              className="flex items-center justify-center p-2.5 bg-slate-900/80 hover:bg-slate-800/80 text-slate-400 hover:text-white rounded-xl border border-white/5 transition active:scale-95 cursor-pointer shadow-lg"
+              title={isPaused ? "Resume" : "Pause"}
+            >
+              {isPaused ? <Play className="h-4 w-4 fill-current animate-pulse" /> : <Pause className="h-4 w-4 fill-current" />}
+            </button>
+
+            {/* Replay Cinematic indicator */}
+            {!!replayData && (
+              <div className="ml-3 flex items-center gap-2 bg-cyan-950/70 border border-cyan-400/40 text-cyan-400 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(34,211,238,0.25)] text-[10px] font-extrabold uppercase tracking-[0.2em]">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                <span>REPLAY</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* GET READY COUNTDOWN OVERLAY */}
+        {showCountdown > 0 && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#050508]/85 pointer-events-none select-none animate-fade-in font-sans">
+            <div className="text-4xl md:text-5xl font-black text-white tracking-widest uppercase mb-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] animate-pulse">
+              Get Ready...
+            </div>
+            <div className="text-6xl md:text-8xl font-black text-cyan-400 drop-shadow-[0_4px_16px_rgba(34,211,238,0.5)]">
+              {showCountdown}
+            </div>
+          </div>
+        )}
+
+        {/* UNPAUSE RESUME RECOVERY COUNTDOWN OVERLAY */}
+        {unpauseCountdown > 0 && (
+          <div className="absolute inset-0 z-45 flex items-center justify-center bg-black/45 select-none pointer-events-none animate-fade-in">
+            <div className="relative flex items-center justify-center">
+              {/* Glowing, high-performance circular tick HUD */}
+              <svg className="w-40 h-40 transform -rotate-90">
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="64"
+                  className="stroke-slate-800"
+                  strokeWidth="5"
+                  fill="transparent"
+                />
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="64"
+                  stroke="#f59e0b"
+                  className="stroke-amber-500 unpause-circle-animation"
+                  strokeWidth="7"
+                  fill="transparent"
+                  strokeDasharray="402.12"
+                  strokeLinecap="round"
+                  style={{
+                    filter: 'drop-shadow(0 0 10px rgba(245, 158, 11, 0.65))',
+                  }}
+                />
+              </svg>
+              {/* Countdown Tick Value */}
+              <div className="absolute font-sans font-[900] text-5xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
+                {unpauseCountdown}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SONG TIMING PROGRESS BAR */}
+        {!isPrePlay && (
+          <div 
+            className={`absolute left-0 right-0 z-35 bg-white/5 ${
+              settings.progressBarTop ? 'top-0 h-1.5' : 'bottom-0 h-1.5'
+            }`}
+          >
+            <div 
+              ref={progressBarRef}
+              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_8px_rgba(34,211,238,0.7)]"
+              style={{ width: '0%' }}
+            />
+          </div>
+        )}
+
+        {/* FLOATING ACCURACY AND SCORE (Bottom Left) */}
+        {!isPrePlay && (
+          <div className="absolute left-6 bottom-8 z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ACCURACY</span>
+            <span className="text-2xl md:text-3xl font-black text-cyan-400 font-mono tracking-tight leading-none mb-1">
+              {scoreStateRef.current.accuracy.toFixed(2)}%
+            </span>
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-2">SCORE</span>
+            <span className="text-3xl md:text-4xl font-extrabold text-white font-mono tracking-tighter leading-none">
+              {uiScore.toLocaleString('en-US', { minimumIntegerDigits: 7, useGrouping: false })}
+            </span>
+          </div>
+        )}
 
         {/* PLAY HIGHWAY HERO BOX */}
         <div 
@@ -2247,25 +2792,29 @@ export default function GameplayCanvas({
             />
           )}
 
-          {/* DECOUPLED LEFT SIDE HIGH-PERFORMANCE HEALTH RECEPTACLE (z-index: 30) */}
-          <div id="left-gut-health" className="absolute left-4 top-24 bottom-24 z-30 w-3 bg-slate-900/60 rounded-full overflow-hidden border border-slate-800 flex flex-col justify-end shadow-inner">
-            <div 
-              className={`w-full transition-all duration-100 rounded-full shadow-[0_0_12px_rgba(34,211,238,0.6)] ${
-                uiHp > 35 ? 'bg-gradient-to-t from-cyan-500 to-blue-400' : 'bg-gradient-to-t from-red-600 to-rose-400'
-              }`}
-              style={{ height: `${uiHp}%` }}
-            />
-          </div>
-
           <div 
             ref={containerRef} 
             className="h-full relative transition-all duration-205 z-20 playfield-chassis-container" 
             style={{ 
-              width: '100%', 
-              maxWidth: isFocusMode ? '100%' : `${beatmap.keyCount * (beatmap.keyCount > 6 ? 53 : 60)}px`,
-              minWidth: '240px'
+              width: `${settings.playfieldWidthPercent ?? 40}%`, 
+              minWidth: '280px',
+              maxWidth: '100%'
             }}
           >
+            {/* DECOUPLED RIGHT SIDE HIGH-PERFORMANCE HEALTH RECEPTACLE (z-index: 30) */}
+            <div 
+              id="right-gut-health" 
+              className="absolute top-24 bottom-24 z-30 w-3 bg-slate-900/60 rounded-full overflow-hidden border border-slate-800 flex flex-col justify-end shadow-inner"
+              style={{ left: 'calc(100% + 16px)' }}
+            >
+              <div 
+                className={`w-full transition-all duration-100 rounded-full shadow-[0_0_12px_rgba(34,211,238,0.6)] ${
+                  uiHp > 35 ? 'bg-gradient-to-t from-cyan-500 to-blue-400' : 'bg-gradient-to-t from-red-600 to-rose-400'
+                }`}
+                style={{ height: `${uiHp}%` }}
+              />
+            </div>
+
             {/* PIANO TILES ACTIVE TOUCH ZONE BOUNDARY INDICATOR (Invisible / Logical Only) */}
 
             <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
@@ -2337,7 +2886,7 @@ export default function GameplayCanvas({
           )}
 
           {/* PAUSED DRAWER CARD */}
-          {isPaused && (
+          {isPaused && unpauseCountdown === 0 && (
             <div id="game-paused-overlay" className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
               <h2 className="text-4xl font-extrabold font-sans tracking-tight text-slate-100 mb-2">GAME PAUSED</h2>
               <p className="text-sm text-slate-400 font-mono tracking-wider mb-8">
@@ -2370,126 +2919,7 @@ export default function GameplayCanvas({
             </div>
           )}
         </div>
-        
-        {/* BOTTOM ACTIVE METADATA STRIP */}
-        <div className="w-full px-6 py-4 bg-slate-900/60 border-t border-slate-900 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="px-2.5 py-1 bg-cyan-950/50 text-cyan-400 font-mono font-bold text-xs rounded-md border border-cyan-900/40">
-              {beatmap.keyCount}K Mode
-            </span>
-            <span className="text-sm font-bold text-slate-200 tracking-tight block max-w-[150px] md:max-w-xs truncate">
-              {beatmap.title}
-            </span>
-            <span className="text-xs text-slate-500 font-sans block truncate max-w-[140px]">
-              - {beatmap.artist}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button 
-              id="pause-toggle-btn"
-              onClick={togglePause}
-              className="p-2 text-slate-400 hover:text-slate-100 bg-slate-900 hover:bg-slate-800 rounded-lg border border-slate-800 transition cursor-pointer"
-            >
-              {isPaused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4 fill-current" />}
-            </button>
-          </div>
-        </div>
-
-        {/* MOBILE ONLY ADDITIONAL CONTROLS BAR */}
-        {!isFocusMode && (
-          <div className="w-full md:hidden flex items-center justify-between gap-3 px-6 pb-4 pt-1 bg-slate-900/60 border-t border-slate-950/40 select-none">
-            <button
-              id="mobile-quit-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleExit();
-              }}
-              className="flex-1 flex items-center justify-center text-rose-400 hover:text-rose-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-rose-500/10 cursor-pointer active:bg-rose-950/30"
-            >
-              ✕ Quit Performance
-            </button>
-            <button
-              id="mobile-focus-toggle-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleFocus();
-              }}
-              className="flex-1 flex items-center justify-center text-cyan-400 hover:text-cyan-350 font-sans text-xs font-bold uppercase tracking-wider py-2.5 bg-slate-950 rounded-xl border border-cyan-500/10 cursor-pointer active:bg-cyan-950/25"
-            >
-              {isFocusMode ? 'Normal View' : 'Focus Play'}
-            </button>
-          </div>
-        )}
       </div>
-
-      {/* 2. LATENCY HUD / MAP SPECS DASHBOARD */}
-      {!isFocusMode && (
-        <div id="gameplay-sidebar" className="w-full lg:w-80 flex flex-col gap-5 animate-fade-in">
-          
-          {/* INTENSIVE MAP OVERVIEW CARD */}
-          <div className="bg-slate-950 border border-slate-850 p-5 rounded-2xl flex flex-col gap-4">
-            <h4 className="text-xs text-slate-505 tracking-widest uppercase font-bold">LANE CALIBRATORS</h4>
-            
-            <div className="flex flex-col gap-3 font-mono text-xs">
-              <div className="flex justify-between items-center bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-900">
-                <span className="text-slate-400 font-sans">Scroll Speed</span>
-                <span className="font-bold text-slate-100">SpeedMultiplier // {settings.scrollSpeed}x</span>
-              </div>
-              
-              <div className="flex justify-between items-center bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-900">
-                <span className="text-slate-400 font-sans">Input Buffer</span>
-                <span className="font-bold text-slate-100">Delta-time Polled</span>
-              </div>
-
-              <div className="flex justify-between items-center bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-900">
-                <span className="text-slate-400 font-sans">Audio Latency</span>
-                <span className="font-bold text-cyan-400">{settings.audioOffset} ms</span>
-              </div>
-              
-              <div className="flex justify-between items-center bg-[#0d0d12] px-3 py-2 rounded-lg border border-slate-900">
-                <span className="text-slate-400 font-sans">Difficulty Limit</span>
-                <span className="font-bold text-amber-400">OD // {beatmap.overallDifficulty}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* TIMING WINDOWS DIAGRAM PANEL */}
-          <div className="bg-slate-950 border border-slate-850 p-5 rounded-2xl flex-1 flex flex-col gap-4">
-            <h4 className="text-xs text-slate-505 tracking-widest uppercase font-bold">TIMING WINDOW TACTICS</h4>
-            <p className="text-xs text-slate-400 leading-relaxed font-sans">
-              Lower Overall Difficulty (OD) widens judgement parameters. Perfect and Marvelous ratios preserve your HP.
-            </p>
-
-            <div className="flex flex-col gap-2.5">
-              {judgementWindows.map((wind) => {
-                // Extract hits counts from score states
-                let count = 0;
-                const state = scoreStateRef.current;
-                if (wind.type === 'marvelous') count = state.marvelousCount;
-                else if (wind.type === 'perfect') count = state.perfectCount;
-                else if (wind.type === 'great') count = state.greatCount;
-                else if (wind.type === 'good') count = state.goodCount;
-                else if (wind.type === 'bad') count = state.badCount;
-                else if (wind.type === 'miss') count = state.missCount;
-
-                return (
-                  <div key={wind.type} className="flex items-center justify-between border-b border-slate-900/50 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: wind.color }} />
-                      <span className="text-[11px] font-extrabold font-sans" style={{ color: wind.color }}>{wind.name}</span>
-                    </div>
-                    <div className="flex items-center gap-3 font-mono text-[11px]">
-                      <span className="text-slate-500">±{wind.windowMs}ms</span>
-                      <span className="font-bold text-slate-200">{count}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
-  );;
+  );
 }

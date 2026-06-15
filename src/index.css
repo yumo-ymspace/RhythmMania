@@ -1,12 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:ital,wght@0,400;0,500;0,700;0,900;1,400;1,500;1,700;1,900&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap');
 @import "tailwindcss";
 
-html, body {
+html {
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto !important;
+  height: 100%;
+  overflow: hidden;
   background-color: #050508;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: #050508;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 :root {
@@ -100,6 +116,20 @@ html, body {
   touch-action: none !important;
   -webkit-user-select: none !important;
   user-select: none !important;
+}
+
+/* Unpause recovery countdown circle animation */
+@keyframes unpause-countdown-drain {
+  from {
+    stroke-dashoffset: 0px;
+  }
+  to {
+    stroke-dashoffset: 402.12px;
+  }
+}
+
+.unpause-circle-animation {
+  animation: unpause-countdown-drain 3s linear forwards !important;
 }
 
 /* Portrait orientation overrides for mobile adaptation */

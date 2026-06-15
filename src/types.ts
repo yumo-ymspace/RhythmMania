@@ -132,6 +132,8 @@ export interface GameSettings {
   judgementOpacity?: number; // 0.0 to 1.0 (opacity for judgement text)
   judgementSize?: number; // 0.5 to 1.5 (font size scaling multiplier)
   laneSeparatorOpacity?: number; // 0.0 to 1.0 (opacity for lane divider lines)
+  progressBarTop?: boolean; // progress bar position setting (top vs bottom)
+  playfieldWidthPercent?: number; // width of lanes as percent of screen width (33 to 50)
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

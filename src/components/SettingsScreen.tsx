@@ -709,8 +709,8 @@ export default function SettingsScreen({
                                 className="rounded-full border border-white/80 relative shadow-md transition-all"
                                 style={{ 
                                   opacity: settings.noteOpacity ?? 0.9,
-                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
-                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  width: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
                                   backgroundImage: 'radial-gradient(circle at 35% 35%, #ffffff 0%, var(--skin-accent) 45%, #050510 100%)',
                                   boxShadow: '0 0 10px var(--skin-accent)'
                                 }}
@@ -724,8 +724,8 @@ export default function SettingsScreen({
                                 className="rounded-full border-2 border-white shadow-md transition-all animate-pulse"
                                 style={{ 
                                   opacity: settings.noteOpacity ?? 0.9,
-                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
-                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  width: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
                                   backgroundColor: 'var(--skin-accent)'
                                 }}
                               />
@@ -736,8 +736,8 @@ export default function SettingsScreen({
                                 className="rounded-full border border-white/60 relative shrink-0 transition-all"
                                 style={{ 
                                   opacity: settings.noteOpacity ?? 1,
-                                  width: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
-                                  height: `${28 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  width: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
+                                  height: `${30 * (settings.noteSizeMultiplier ?? 1.0)}px`,
                                   backgroundImage: 'radial-gradient(circle at 35% 35%, #ffffff 0%, var(--skin-accent) 65%, #000000 100%)'
                                 }}
                               />
@@ -796,12 +796,12 @@ export default function SettingsScreen({
                               borderColor: 'var(--skin-accent)', 
                               backgroundColor: 'rgba(var(--skin-accent-rgb), 0.4)', 
                               boxShadow: '0 0 12px var(--skin-accent)',
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             }
                           : {
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             };
                         children = isLaneActive && (
                           <div className="relative w-4 h-4 rounded-full bg-gradient-to-t via-white/50 to-white/90" style={{ backgroundColor: 'var(--skin-accent)', boxShadow: '0 0 8px var(--skin-accent)' }}>
@@ -817,12 +817,12 @@ export default function SettingsScreen({
                           ? {
                               backgroundColor: 'var(--skin-accent)',
                               boxShadow: '0 0 10px rgba(var(--skin-accent-rgb), 0.5)',
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             }
                           : {
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             };
                         children = isLaneActive && (
                           <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
@@ -836,12 +836,12 @@ export default function SettingsScreen({
                           ? {
                               backgroundColor: 'var(--skin-accent)',
                               boxShadow: '0 0 8px var(--skin-accent)',
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             }
                           : {
-                              width: `${28 * (settings.circleSize ?? 1.0)}px`, 
-                              height: `${28 * (settings.circleSize ?? 1.0)}px`
+                              width: `${30 * (settings.circleSize ?? 1.0)}px`, 
+                              height: `${30 * (settings.circleSize ?? 1.0)}px`
                             };
                         children = isLaneActive && (
                           <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
@@ -1212,6 +1212,47 @@ export default function SettingsScreen({
                 step="0.05"
                 value={settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60}
                 onChange={(e) => updateSettings({ backgroundDim: parseFloat(e.target.value) })}
+                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                style={{ accentColor: 'var(--skin-accent)' }}
+              />
+            </div>
+
+            {/* PROGRESS BAR EDGE POSITION */}
+            <div className="flex items-center justify-between py-2 text-xs font-sans border-t border-white/5 pt-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-slate-200">Progress Bar Edge</span>
+                <span className="text-slate-500 text-[10px]">Position song timing progress bar at the top vs. bottom of screen</span>
+              </div>
+              
+              <button
+                id="progress-bar-edge-btn"
+                onClick={() => updateSettings({ progressBarTop: !settings.progressBarTop })}
+                className={`px-3 py-1.5 font-mono font-bold text-[10px] rounded-lg border transition cursor-pointer ${
+                  settings.progressBarTop 
+                    ? 'bg-skin-accent-dim text-skin-accent border-skin-accent-dim shadow-skin-accent-glow' 
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
+                }`}
+              >
+                {settings.progressBarTop ? 'TOP OF SCREEN' : 'BOTTOM OF SCREEN'}
+              </button>
+            </div>
+
+            {/* LANE PLAYFIELD WIDTH */}
+            <div className="flex flex-col gap-2 mt-2 border-t border-white/5 pt-3">
+              <div className="flex justify-between text-xs font-bold font-sans">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-slate-200">Lane Playfield Width</span>
+                  <span className="text-slate-500 text-[10px] font-normal">Scale width of lanes as percent of screen width (20% to 50%)</span>
+                </div>
+                <span className="font-mono text-skin-accent">{settings.playfieldWidthPercent ?? 40}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="20" 
+                max="50" 
+                step="1"
+                value={settings.playfieldWidthPercent ?? 40}
+                onChange={(e) => updateSettings({ playfieldWidthPercent: parseInt(e.target.value) })}
                 className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                 style={{ accentColor: 'var(--skin-accent)' }}
               />

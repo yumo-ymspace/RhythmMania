@@ -281,8 +281,12 @@ export class AudioEngine {
     
     // Linear interpolation based on high-resolution system clock since last block update
     const elapsedSinceLastUpdate = (now - this.lastSystemTime) / 1000;
-    // Cap interpolation step size to 50ms to prevent runaway visual drifts on background pauses / frame drops
-    const interpolatedAudioTime = this.lastAudioTime + Math.min(elapsedSinceLastUpdate, 0.05);
+    
+    // Allow generous interpolation (up to 500ms) during the first 1.5 seconds of playback to absorb Web Audio thread start lag,
+    // then settle into standard 50ms drift protection once fully synchronized.
+    const isStartupSec = (currentAudioTime - this.startTime) < 1.5;
+    const maxInterpolation = isStartupSec ? 0.50 : 0.05;
+    const interpolatedAudioTime = this.lastAudioTime + Math.min(elapsedSinceLastUpdate, maxInterpolation);
     
     const rawElapsed = (interpolatedAudioTime - this.startTime) * 1000;
     // Apply calibration offset

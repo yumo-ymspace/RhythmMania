@@ -66,6 +66,8 @@ const DEFAULT_SETTINGS: GameSettings = {
   noteSizeMultiplier: 1.0,
   playfieldStyle: 'square',
   circleRenderStyle: 'circles',
+  playfieldWidthPercent: 40,
+  progressBarTop: false,
 };
 
 export default function App() {
@@ -200,8 +202,27 @@ export default function App() {
   }, [settings.skinId, settings.customSkinColors]);
 
   // Autoscroll to the top of the viewport whenever a page component loads or changes
+  // Lock body overflow on gameplay screen to prevent any unwanted scrolling context
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
+    document.getElementById('application-container')?.scrollTo({ top: 0, behavior: 'auto' });
+    if (currentScreen === 'play') {
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100vh';
+      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.style.height = '100vh';
+    } else {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    };
   }, [currentScreen]);
 
   useEffect(() => {
@@ -279,6 +300,8 @@ export default function App() {
         noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Number(updated.noteSizeMultiplier) : 1.0,
         playfieldStyle: updated.playfieldStyle || 'square',
         circleRenderStyle: updated.circleRenderStyle || 'circles',
+        playfieldWidthPercent: updated.playfieldWidthPercent !== undefined ? Number(updated.playfieldWidthPercent) : 40,
+        progressBarTop: updated.progressBarTop !== undefined ? Boolean(updated.progressBarTop) : false,
       };
 
       if (updated.bindings) {
@@ -407,14 +430,16 @@ export default function App() {
   return (
     <div 
       id="application-container" 
-      className="min-h-screen bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative overflow-x-hidden"
+      className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative ${
+        currentScreen === 'play' ? 'h-screen overflow-hidden' : 'h-screen overflow-y-auto overflow-x-hidden'
+      }`}
     >
-      {/* GLOWING TECH GRADIENTS BACKDROP */}
-      <div className="absolute top-[-300px] left-1/4 w-[600px] h-[600px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-100px] right-10 w-[500px] h-[500px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
-      
-      {/* GRID OVERLAY ACCENT */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+      {/* GLOWING TECH GRADIENTS BACKDROP & GRID OVERLAY (CONTAINED TO PREVENT DOUBLE SCROLLBARS AND SPACE LEAKS UNDER THE FOOTER) */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-300px] left-1/4 w-[600px] h-[600px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-100px] right-10 w-[500px] h-[500px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+      </div>
 
       {/* 1. MASTER HEADER */}
       {currentScreen !== 'play' && (
@@ -457,7 +482,7 @@ export default function App() {
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                System Latency
+                System Settings
               </button>
 
               <button
