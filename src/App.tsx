@@ -149,6 +149,13 @@ export default function App() {
     // Look up the beatmap in our selection
     const targetMap = [...customMaps].find(m => m.id === record.beatmapId);
     if (targetMap) {
+      // Apply unpacked blob cache URLs to targetMap so replay can play back audio & video perfectly!
+      const cached = storageManager.lruMediaCache.get(targetMap.id);
+      if (cached) {
+        targetMap.audioUrl = cached.audioUrl || targetMap.audioUrl;
+        targetMap.videoUrl = cached.videoUrl || targetMap.videoUrl;
+        targetMap.bgUrl = cached.bgUrl || targetMap.bgUrl;
+      }
       setSelectedBeatmap(targetMap);
       setActiveReplayFrames(record.replayFrames);
       setCurrentScreen('play');
@@ -386,9 +393,7 @@ export default function App() {
       });
     }
 
-    // Clear spectator frames to restore normal play state
-    setActiveReplayFrames(null);
-
+    // Do NOT clear spectator frames here so that the results selection knows we are in replay mode
     setScoreState(finalScore);
     setCurrentScreen('results');
   };
@@ -622,9 +627,15 @@ export default function App() {
                       }
                     }
                   } catch (e) {}
+                  const returnScreen = activeReplayFrames ? 'history' : 'select';
                   setActiveReplayFrames(null);
+                  if (selectedBeatmap) {
+                    if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
+                    if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
+                    if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
+                  }
                   setSelectedBeatmap(null);
-                  setCurrentScreen('select');
+                  setCurrentScreen(returnScreen);
                 }}
                 replayData={activeReplayFrames}
               />
@@ -654,9 +665,15 @@ export default function App() {
                       }
                     }
                   } catch (e) {}
+                  const returnScreen = activeReplayFrames ? 'history' : 'select';
                   setActiveReplayFrames(null);
+                  if (selectedBeatmap) {
+                    if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
+                    if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
+                    if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
+                  }
                   setSelectedBeatmap(null);
-                  setCurrentScreen('select');
+                  setCurrentScreen(returnScreen);
                 }}
               />
             </motion.div>

@@ -542,6 +542,22 @@ export default function GameplayCanvas({
     setIsAudioLoaded(false);
     
     const loadBgAudio = async () => {
+      // Clear stale mutated blob URLs if they are not in the active media cache
+      try {
+        const cached = storageManager.lruMediaCache.get(beatmap.id);
+        if (!cached) {
+          if (beatmap.audioUrl?.startsWith('blob:')) beatmap.audioUrl = '';
+          if (beatmap.videoUrl?.startsWith('blob:')) beatmap.videoUrl = '';
+          if (beatmap.bgUrl?.startsWith('blob:')) beatmap.bgUrl = '';
+        } else {
+          beatmap.audioUrl = cached.audioUrl || beatmap.audioUrl;
+          beatmap.videoUrl = cached.videoUrl || beatmap.videoUrl;
+          beatmap.bgUrl = cached.bgUrl || beatmap.bgUrl;
+        }
+      } catch (err) {
+        console.warn('Failed validating current cache refs inside play canvas:', err);
+      }
+
       // Dynamically resolve missing beatmap media from local zip archive if necessary
       const mapWithPkg = beatmap as any;
       if (mapWithPkg.packageId && (!beatmap.audioUrl || !beatmap.bgUrl || (mapWithPkg.videoFilename && !beatmap.videoUrl))) {

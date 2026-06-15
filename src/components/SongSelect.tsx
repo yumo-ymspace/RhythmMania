@@ -19,6 +19,7 @@ import { RobustZipResolver } from '../utils/zipResolver';
 import { AssetLifecycleManager } from '../utils/assetLifecycle';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
+import { unpackBeatmap } from '../utils/unpackHelper';
 
 interface SongSelectProps {
   settings: GameSettings;
@@ -97,87 +98,7 @@ export default function SongSelect({
     if (mapWithPkg.packageId) {
       setIsLoadingMedia(true);
       try {
-        const cachedInside = storageManager.lruMediaCache.get(map.id);
-        if (cachedInside) {
-          map.audioUrl = cachedInside.audioUrl || map.audioUrl;
-          map.videoUrl = cachedInside.videoUrl || map.videoUrl;
-          map.bgUrl = cachedInside.bgUrl || map.bgUrl;
-          return;
-        }
-
-        let zipBuffer: ArrayBuffer | Blob | null = TempMemoryCache.get(mapWithPkg.packageId);
-        if (!zipBuffer) {
-          zipBuffer = await storageManager.getPackage(mapWithPkg.packageId);
-        }
-
-        if (zipBuffer) {
-          const zip = await JSZip.loadAsync(zipBuffer);
-          const resolver = new RobustZipResolver(zip);
-          const audioFilename = mapWithPkg.audioFilename || '';
-          const videoFilename = mapWithPkg.videoFilename || '';
-          const bgFilename = mapWithPkg.bgFilename || '';
-
-          let parsedAudioUrl = '';
-          let parsedVideoUrl = '';
-          let parsedBgUrl = '';
-
-          if (audioFilename) {
-            const file = resolver.findFile(audioFilename);
-            if (file) {
-              const b = await file.async('blob');
-              parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-          if (videoFilename) {
-            const file = resolver.findFile(videoFilename);
-            if (file) {
-              const b = await file.async('blob');
-              parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-
-          if (!parsedAudioUrl) {
-            const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg', '.wav']) || resolver.findFallbackByExtensions(['.mp3', '.ogg', '.wav'])?.file;
-            if (fallbackObj) {
-              const b = await fallbackObj.async('blob');
-              parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-          if (!parsedVideoUrl) {
-            const fallbackObj = await resolver.findLargestFileByExtensions(['.mp4', '.webm', '.avi', '.mkv']) || resolver.findFallbackByExtensions(['.mp4', '.webm', '.avi'])?.file;
-            if (fallbackObj) {
-              const b = await fallbackObj.async('blob');
-              parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-
-          if (!parsedVideoUrl && bgFilename) {
-            const file = resolver.findFile(bgFilename);
-            if (file) {
-              const b = await file.async('blob');
-              parsedBgUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-          if (!parsedVideoUrl && !parsedBgUrl) {
-            const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
-            if (fallbackObj) {
-              const b = await fallbackObj.async('blob');
-              parsedBgUrl = AssetLifecycleManager.registerBlob(b);
-            }
-          }
-
-          storageManager.lruMediaCache.put(map.id, {
-            audioUrl: parsedAudioUrl,
-            videoUrl: parsedVideoUrl,
-            bgUrl: parsedBgUrl
-          });
-
-          if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
-          if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
-          if (parsedBgUrl) map.bgUrl = parsedBgUrl;
-
-          TempMemoryCache.remove(mapWithPkg.packageId);
-        }
+        await unpackBeatmap(map);
       } catch (err) {
         console.error('Error unpacking file media:', err instanceof Error ? err.message : String(err));
       } finally {
