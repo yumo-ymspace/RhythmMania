@@ -1,27 +1,5 @@
 [
   {
-    "id": "server_kaibutsu",
-    "title": "Kaibutsu(TV Size)",
-    "artist": "YOASOBI",
-    "creator": "Official",
-    "difficulty": "★",
-    "keyCount": 4,
-    "oszUrl": "/beatmaps/YOASOBI - Kaibutsu (TV Size).osz",
-    "hash": "d13a9a1a4c9b",
-    "difficultiesSummary": ["gokugohan12468's Easy", "Wanpachi's Normal", "Hard", "Beast", "Addy's Extra", "PikA's Insane ft.Kuro", "Syoko's Expert"]
-  },
-  {
-    "id": "server_odo",
-    "title": "Odo",
-    "artist": "Ado",
-    "creator": "Official",
-    "difficulty": "★",
-    "keyCount": 4,
-    "oszUrl": "/beatmaps/Ado - Odo.osz",
-    "hash": "d13a9a1a4c9b",
-    "difficultiesSummary": ["Normal", "Hard", "K.O.", "Kyutei's Insane", "Lobelia's Expert"]
-  },
-  {
     "id": "server_mach_roger",
     "title": "Mach Roger",
     "artist": "MYUKKE.",
@@ -31,5 +9,38 @@
     "oszUrl": "/beatmaps/MYUKKE. - Mach Roger.osz",
     "hash": "d13a9a1a4c9b",
     "difficultiesSummary": ["Easy", "Normal", "Py's Hard", "Insane", "Maharaja"]
+  },
+  {
+    "id": "server_brain_power",
+    "title": "Brain Power",
+    "artist": "NOMA",
+    "creator": "Akasha-",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/NOMA - Brain Power.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["Chicken's 4K BASIC", "Starry's 4K NOVICE", "Avalon's 4K ADVANCED", "Lirai's 4K EXHAUST", "Spy's 4K INFINITE", "SY's 4K OVERDRIVE", "Arzen's 7K BASIC", "ZZH's 7K NOVICE", "R1's 7K ADVANCED", "7K EXHAUST", "Pew's 7K INFINITE", "CS x _KB's 7K OVERDRIVE"]
+  },
+  {
+    "id": "server_conflict",
+    "title": "Conflict",
+    "artist": "siromaru + cranky",
+    "creator": "shizehao",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/siromaru + cranky - conflict.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["[4K] Easy", "[4K] YuEast's Normal", "[4K] Advanced", "[4K] Sanae's Hard", "[4K] SZH + Seiran's Insane"]
+  },
+  {
+    "id": "server_freedom_dive",
+    "title": "FREEDOM DiVE",
+    "artist": "xi",
+    "creator": "razlteh",
+    "difficulty": "★",
+    "keyCount": 4,
+    "oszUrl": "/beatmaps/xi - FREEDOM DiVE.osz",
+    "hash": "d13a9a1a4c9b",
+    "difficultiesSummary": ["4K Normal", "4K Hyper", "4K Another", "Fullerene's 4K DIMENSIONS", "Dain's 7K Light", "Blocko's 7K Normal", "Tear's 7K Hyper", "Blocko's 7K Another", "Blocko's 7K Black Another"]
   }
 ]
