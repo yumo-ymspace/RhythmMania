@@ -23,13 +23,13 @@ export interface ParsedMediaPaths {
  * Hardened parser utilizing robust regexes to cleanly extract filenames
  * under any casing, negative offsets, spacing variations and quotes.
  */
-export function parseMediaPaths(osuFileContent: string): ParsedMediaPaths {
+export function parseMediaPaths(beatmapFileContent: string): ParsedMediaPaths {
   let audioFilename = '';
   let videoFilename: string | null = null;
   let bgFilename: string | null = null;
   let videoStartTime = 0;
 
-  const lines = osuFileContent.split(/\r?\n/);
+  const lines = beatmapFileContent.split(/\r?\n/);
   
   // Video regex: Matches Video, offset, "filename" (quotes, spacing & offsets optional)
   const videoRegex = /^\s*Video\s*,\s*(-?\d+)\s*,\s*"?([^"\r\n]+)"?/i;
@@ -63,9 +63,9 @@ export function parseMediaPaths(osuFileContent: string): ParsedMediaPaths {
 }
 
 /**
- * Parses raw text from a standard .osu mania beatmap or creates general fallback structures
+ * Parses raw text from a standard mania beatmap or creates general fallback structures
  */
-export function parseOsuBeatmap(content: string, customId: string): Beatmap {
+export function parseBeatmap(content: string, customId: string): Beatmap {
   const lines = content.split(/\r?\n/);
   
   let title = 'Unknown Title';
@@ -75,11 +75,12 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   let keyCount = 4; // CircleSize (standard header detection)
   let overallDifficulty = 8;
   let hpDrainRate = 8;
-  let mode = 0; // Default to 0 (osu! standard)
+  let mode = 0; // Default to 0 (standard)
   let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
   
   const rawNotes: Array<{
     x: number;
+    y: number;
     time: number;
     typeBit: number;
     extra: string;
@@ -161,19 +162,21 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
         }
       }
     } else if (inHitObjects) {
-      // osu! hitobject format: x,y,time,type,hitSound,addition/endTime
+      // hitobject format: x,y,time,type,hitSound,addition/endTime
       const parts = line.split(',');
       if (parts.length >= 5) {
         const x = parseInt(parts[0], 10);
+        const y = parseInt(parts[1], 10);
         const time = parseInt(parts[2], 10);
         const typeBit = parseInt(parts[3], 10);
         const extra = parts[5] || '';
         // Slider slides are at parts[6], pixelLength at parts[7]
         const slides = parts[6] ? parseInt(parts[6], 10) : 1;
         const pixelLength = parts[7] ? parseFloat(parts[7]) : 0;
-        if (!isNaN(x) && !isNaN(time)) {
+        if (!isNaN(x) && !isNaN(y) && !isNaN(time)) {
           rawNotes.push({
             x,
+            y,
             time,
             typeBit,
             extra,
@@ -212,21 +215,21 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
   let finalKeyCount = keyCount;
 
   if (mode === 0) {
-    // Mode 0 (standard osu!): convert Circle Size to a playable key count from 4 to 7
+    // Mode 0 (standard mode): convert Circle Size to a playable key count from 4 to 7
     finalKeyCount = Math.max(4, Math.min(7, Math.round(keyCount)));
     // Clear clusteredX for standard mode to force standard formula conversion
     clusteredX.length = 0;
   } else {
-    // Prefer the detected count of unique columns if is between 2 and 8 and:
+    // Prefer the detected count of unique columns if is between 2 and 10 and:
     // - matches more columns than the parsed/default value
     // - or the parsed/default value falls back to 4
-    if (detectedKeyCount >= 2 && detectedKeyCount <= 8) {
-      if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 8) {
+    if (detectedKeyCount >= 2 && detectedKeyCount <= 10) {
+      if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 10) {
         finalKeyCount = detectedKeyCount;
       }
     }
 
-    if (finalKeyCount < 1 || finalKeyCount > 8) {
+    if (finalKeyCount < 1 || finalKeyCount > 10) {
       finalKeyCount = 4; // Absolute safe fallback
     }
   }
@@ -318,6 +321,22 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
       }
     }
 
+    let sliderPoints: Array<{ x: number; y: number }> | undefined = undefined;
+    if ((rn.typeBit & 2) !== 0 && rn.extra && rn.extra.includes('|')) {
+      sliderPoints = [];
+      const partsExtra = rn.extra.split('|');
+      for (let i = 1; i < partsExtra.length; i++) {
+        const coords = partsExtra[i].split(':');
+        if (coords.length === 2) {
+          const px = parseInt(coords[0], 10);
+          const py = parseInt(coords[1], 10);
+          if (!isNaN(px) && !isNaN(py)) {
+            sliderPoints.push({ x: px, y: py });
+          }
+        }
+      }
+    }
+
     notes.push({
       id: `${customId}_n_${noteIdCounter++}`,
       time: rn.time,
@@ -328,6 +347,12 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
       isReleased: false,
       isMissed: false,
       isHoldFailed: false,
+      x: rn.x,
+      y: rn.y,
+      objType: rn.typeBit,
+      sliderPoints,
+      sliderLength: rn.pixelLength,
+      slidesCount: rn.slides,
     });
   }
 
@@ -354,6 +379,7 @@ export function parseOsuBeatmap(content: string, customId: string): Beatmap {
     hpDrainRate,
     overallDifficulty,
     videoStartTime: media.videoStartTime,
+    mode,
   };
 }
 
@@ -414,7 +440,7 @@ export function calculateDecayStrainDifficulty(notes: Array<{ time: number }>): 
 
 /**
  * Procedural Star Difficulty heuristic estimator.
- * Mimics osu!mania's algorithm using multi-column strain analysis, jackhammer penalties,
+ * Mimics rhythm algorithm using multi-column strain analysis, jackhammer penalties,
  * chord-complexity weighting, and peak strain aggregation over short intervals.
  */
 function estimateStarDifficulty(notes: HitObject[], keyCount: number): number {
@@ -485,7 +511,7 @@ function estimateStarDifficulty(notes: HitObject[], keyCount: number): number {
       lastNoteTimeInColumn[col] = event.time;
     }
 
-    // 4. Combine key strains. osu!mania-like lane/column strain priority sorting
+    // 4. Combine key strains. lane/column strain priority sorting
     const sortedStrains = [...columnStrain].sort((a, b) => b - a);
     let combinedStrain = 0;
     let rankWeight = 1.0;
@@ -499,7 +525,7 @@ function estimateStarDifficulty(notes: HitObject[], keyCount: number): number {
     lastProcessedTime = event.time;
   }
 
-  // 5. Peak Strain Aggregation (Chunking) as in osu!mania to balance map length vs local intensity peaks
+  // 5. Peak Strain Aggregation (Chunking) to balance map length vs local intensity peaks
   const firstNoteTime = notes[0].time;
   const lastNoteTime = notes[notes.length - 1].time;
   const songDurationMs = lastNoteTime - firstNoteTime;
@@ -524,7 +550,7 @@ function estimateStarDifficulty(notes: HitObject[], keyCount: number): number {
   // Apply geometric series sum decay weighting
   let weightedSum = 0;
   let currentWeight = 1.0;
-  const decayWeightFactor = 0.94; // osu!mania is around 0.90 - 0.95
+  const decayWeightFactor = 0.94; // Generally around 0.90 - 0.95
 
   for (const peak of chunkPeaks) {
     weightedSum += peak * currentWeight;

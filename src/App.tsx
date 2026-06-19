@@ -11,7 +11,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders } from 'lucide-react';
+import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot } from 'lucide-react';
+import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 import SongSelect from './components/SongSelect';
@@ -68,6 +69,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   circleRenderStyle: 'circles',
   playfieldWidthPercent: 40,
   progressBarTop: false,
+  selectedMods: [],
 };
 
 export default function App() {
@@ -76,13 +78,24 @@ export default function App() {
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+  const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/default.svg');
+  const [isMobile, setIsMobile] = useState<boolean>(false);
 
   // Performance history states
   const [playHistory, setPlayHistory] = useState<PlayHistoryRecord[]>([]);
   const [historyLimit, setHistoryLimit] = useState<number>(50);
-  const [activeReplayFrames, setActiveReplayFrames] = useState<ReplayFrame[] | null>(null);
+  const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
 
   // Load play history & latency settings on mount
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -159,7 +172,7 @@ export default function App() {
         targetMap.bgUrl = cached.bgUrl || targetMap.bgUrl;
       }
       setSelectedBeatmap(targetMap);
-      setActiveReplayFrames(record.replayFrames);
+      setActiveReplayRecord(record);
       setCurrentScreen('play');
     }
   };
@@ -167,20 +180,21 @@ export default function App() {
   // Dynamically apply selected skin colors to the site theme/UI elements!
   useEffect(() => {
     let accentHex = '#00b0ff'; // Default Neon Cyber cyan
+    const effectiveSettings = activeReplayRecord?.recordedSettings || settings;
 
-    if (settings.skinId === 'classic-bar') {
+    if (effectiveSettings.skinId === 'classic-bar') {
       accentHex = '#ef4444'; // Red DDR
-    } else if (settings.skinId === 'circles') {
-      accentHex = '#ff4081'; // Pink osu!mania
-    } else if (settings.skinId === 'cyberpunk') {
+    } else if (effectiveSettings.skinId === 'circles') {
+      accentHex = '#ff4081'; // Pink
+    } else if (effectiveSettings.skinId === 'cyberpunk') {
       accentHex = '#ec4899'; // Vaporwave magenta
-    } else if (settings.skinId === 'emerald') {
+    } else if (effectiveSettings.skinId === 'emerald') {
       accentHex = '#10b981'; // Acid emerald
-    } else if (settings.skinId === 'minimalist') {
+    } else if (effectiveSettings.skinId === 'minimalist') {
       accentHex = '#94a3b8'; // Monochrome slate
-    } else if (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors.length > 0) {
+    } else if (effectiveSettings.skinId === 'custom' && effectiveSettings.customSkinColors && effectiveSettings.customSkinColors.length > 0) {
       // Use center key color or side key color for maximum visible identity!
-      accentHex = settings.customSkinColors[2] || settings.customSkinColors[0] || '#06b6d4';
+      accentHex = effectiveSettings.customSkinColors[2] || effectiveSettings.customSkinColors[0] || '#06b6d4';
     }
 
     const cleanHex = accentHex.replace('#', '');
@@ -199,7 +213,7 @@ export default function App() {
       document.documentElement.style.setProperty('--skin-accent', accentHex);
       document.documentElement.style.setProperty('--skin-accent-rgb', `${r}, ${g}, ${b}`);
     }
-  }, [settings.skinId, settings.customSkinColors]);
+  }, [settings.skinId, settings.customSkinColors, activeReplayRecord]);
 
   // Autoscroll to the top of the viewport whenever a page component loads or changes
   // Lock body overflow on gameplay screen to prevent any unwanted scrolling context
@@ -302,6 +316,7 @@ export default function App() {
         circleRenderStyle: updated.circleRenderStyle || 'circles',
         playfieldWidthPercent: updated.playfieldWidthPercent !== undefined ? Number(updated.playfieldWidthPercent) : 40,
         progressBarTop: updated.progressBarTop !== undefined ? Boolean(updated.progressBarTop) : false,
+        selectedMods: updated.selectedMods || [],
       };
 
       if (updated.bindings) {
@@ -323,7 +338,7 @@ export default function App() {
     });
   };
 
-  const handleImportOsuMap = async (map: Beatmap) => {
+  const handleImportBeatmap = async (map: Beatmap) => {
     setCustomMaps(prev => {
       const filtered = prev.filter(m => m.id !== map.id);
       return [map, ...filtered];
@@ -358,7 +373,7 @@ export default function App() {
   };
 
   const handleSelectMap = (map: Beatmap) => {
-    setActiveReplayFrames(null); // Fresh clean live playthrough
+    setActiveReplayRecord(null); // Fresh clean live playthrough
     setSelectedBeatmap(map);
     setCurrentScreen('play');
   };
@@ -376,8 +391,8 @@ export default function App() {
       console.log('Fullscreen exit error:', e);
     }
 
-    // Only commit to performance logs if they are NOT playing a spectator replay
-    if (selectedBeatmap && !activeReplayFrames) {
+    // Only commit to performance logs if they are NOT playing a spectator replay and it's a mania map (mode 3)
+    if (selectedBeatmap && !activeReplayRecord && selectedBeatmap.mode === 3) {
       let gradeChar = 'D';
       const acc = finalScore.accuracy;
       if (finalScore.failed) gradeChar = 'FAIL';
@@ -400,7 +415,9 @@ export default function App() {
         grade: gradeChar,
         isFailed: !!finalScore.failed,
         scoreState: finalScore,
-        replayFrames: replayFrames
+        replayFrames: replayFrames,
+        recordedSettings: { ...settings },
+        mods: settings.selectedMods ? [...settings.selectedMods] : []
       };
 
       setPlayHistory(prev => {
@@ -422,7 +439,7 @@ export default function App() {
   };
 
   const handleRetrySong = () => {
-    setActiveReplayFrames(null);
+    setActiveReplayRecord(null);
     setSelectedBeatmap(null);
     setCurrentScreen('select');
   };
@@ -431,8 +448,16 @@ export default function App() {
     <div 
       id="application-container" 
       className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative ${
-        currentScreen === 'play' ? 'h-screen overflow-hidden' : 'h-screen overflow-y-auto overflow-x-hidden'
+        (currentScreen === 'play' || currentScreen === 'select') ? 'h-screen overflow-hidden' : 'h-screen overflow-y-auto overflow-x-hidden'
       }`}
+      style={{
+        backgroundImage: (currentScreen === 'select') 
+          ? `linear-gradient(rgba(10, 8, 16, 0.2), rgba(6, 6, 12, 0.45)), url(${songSelectBgUrl})` 
+          : 'none',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      }}
     >
       {/* GLOWING TECH GRADIENTS BACKDROP & GRID OVERLAY (CONTAINED TO PREVENT DOUBLE SCROLLBARS AND SPACE LEAKS UNDER THE FOOTER) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
@@ -443,58 +468,67 @@ export default function App() {
 
       {/* 1. MASTER HEADER */}
       {currentScreen !== 'play' && (
-        <header id="main-header" className="h-16 border-b border-white/5 flex items-center px-6 justify-between bg-[#08080c]/85 backdrop-blur-md sticky top-0 z-30">
+        <header 
+          id="main-header" 
+          className="h-16 flex items-center px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
+        >
           <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
             <div 
               onClick={() => setCurrentScreen('menu')}
-              className="flex items-center gap-3 cursor-pointer group"
+              className="flex items-center cursor-pointer group select-none"
             >
-              <div className="py-1 px-2 bg-skin-accent rounded text-slate-950 font-black tracking-tighter text-xs shadow-skin-accent-glow">
-                RM
-              </div>
-              <div className="flex flex-col">
-                <h1 className="text-lg font-black tracking-tight text-white uppercase leading-none">
-                  RHYTHM<span className="text-skin-accent">MANIA</span>
-                </h1>
-                <p className="text-[8px] text-skin-accent font-mono tracking-widest leading-none mt-1 opacity-75">ENGINE VERSION 2.0</p>
-              </div>
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white uppercase leading-none group-hover:scale-105 transition-transform duration-150">
+                Rhythm<span className="text-pink-500 font-black">Mania</span>
+              </h1>
             </div>
 
-            <nav id="top-nav" className="flex items-center gap-6 text-xs uppercase tracking-widest">
+            <nav id="top-nav" className="flex items-center gap-4 text-xs uppercase tracking-widest">
               <button
                 id="header-nav-play"
                 onClick={() => setCurrentScreen('select')}
-                className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
+                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'select' 
-                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-400 border-pink-500/40 shadow-md shadow-pink-500/10' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
                 }`}
+                title="Mania Select (Keys mode)"
               >
-                Music Select
+                <Keyboard className="h-5 w-5" />
+                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                  Mania mode
+                </span>
               </button>
               
               <button
                 id="header-nav-settings"
                 onClick={() => setCurrentScreen('settings')}
-                className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
+                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'settings' 
-                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-400 border-cyan-500/40 shadow-md shadow-cyan-500/10' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
                 }`}
+                title="System Settings"
               >
-                System Settings
+                <SettingsIcon className="h-5 w-5" />
+                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                  Settings
+                </span>
               </button>
 
               <button
                 id="header-nav-history"
                 onClick={() => setCurrentScreen('history')}
-                className={`transition-all duration-200 h-16 flex items-center font-bold px-1 relative ${
+                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'history' 
-                    ? 'text-white border-b-2 border-skin-accent text-shadow-sm text-skin-accent text-[12px]' 
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40 shadow-md shadow-emerald-500/10' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
                 }`}
+                title="Personal Performance"
               >
-                Personal Performance
+                <History className="h-5 w-5" />
+                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                  History
+                </span>
               </button>
             </nav>
           </div>
@@ -502,108 +536,17 @@ export default function App() {
       )}
 
       {/* 2. CORE VIEWPORTS */}
-      <main id="app-main-viewport" className={`flex-1 flex flex-col justify-center ${currentScreen === 'play' ? '' : 'py-6 md:py-12 px-4 md:px-6 relative z-10'}`}>
+      <main 
+        id="app-main-viewport" 
+        className={`flex-1 flex flex-col min-h-0 relative ${
+          (currentScreen === 'play' || currentScreen === 'select') 
+            ? 'w-full h-full' 
+            : 'py-6 md:py-12 px-4 md:px-6 z-10'
+        }`}
+      >
         <AnimatePresence mode="wait">
           {currentScreen === 'menu' && (
-            <motion.div
-              key="menu"
-              variants={PAGE_TRANSITION_VARIANTS}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              className="w-full flex flex-col items-center"
-            >
-              <div id="home-menu-inner" className="max-w-5xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-12 py-6 w-full">
-                {/* LEFT HERO PANEL */}
-                <div className="flex flex-col gap-6 text-left max-w-xl">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-skin-accent-dim border border-skin-accent-dim text-skin-accent text-[10px] font-mono tracking-wider w-fit shadow-skin-accent-glow">
-                    <Cpu className="h-3 w-3 animate-pulse" /> PROCEDURAL SCALING MATRIX ACTIVE
-                  </div>
-                  
-                  <div className="flex flex-col gap-3">
-                    <h1 className="text-5xl md:text-6xl font-black tracking-tight text-white uppercase italic leading-[1.05]">
-                      THE PREMIUM <br/>
-                      <span className="bg-gradient-to-r from-skin-accent to-indigo-400 bg-clip-text text-transparent">RHYTHM DECK</span>
-                    </h1>
-                    <p className="text-sm text-slate-400 font-sans leading-relaxed tracking-wide">
-                      Experience a precision-calibrated lane rhythm engine. Complete with customizable scroll multipliers, 2K–8K bindings, real-time .osu parser integrations, and smooth audio transitions.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-4 mt-2">
-                    <button
-                      id="launch-game-btn"
-                      onClick={() => setCurrentScreen('select')}
-                      className="px-8 py-4 bg-skin-accent hover:brightness-110 text-slate-950 font-black text-xs rounded uppercase tracking-[0.2em] italic shadow-skin-accent-neon active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      SELECT TRACK <ChevronRight className="h-4.5 w-4.5 stroke-[2.5]" />
-                    </button>
-                    
-                    <button
-                      id="launch-settings-btn"
-                      onClick={() => setCurrentScreen('settings')}
-                      className="px-8 py-4 bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white font-black text-xs rounded border border-white/10 uppercase tracking-widest hover:border-white/20 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <SettingsIcon className="h-4 w-4 text-skin-accent" /> CALIBRATE OFFSET
-                    </button>
-                  </div>
-                </div>
-
-                {/* RIGHT GRAPHICAL HERO PLATE */}
-                <div className="relative flex items-center justify-center w-full max-w-sm lg:max-w-md">
-                  <div className="relative p-10 bg-[#08080b]/90 rounded-3xl border border-white/5 shadow-2xl flex items-center justify-center w-full aspect-square max-w-[340px]">
-                    {/* CYBER SONIC PORTAL SPIN */}
-                    <div className="absolute inset-4 rounded-full border border-dashed border-skin-accent-dim animate-spin" style={{ animationDuration: '40s' }} />
-                    <div className="absolute inset-8 rounded-full border border-dashed border-indigo-500/20 animate-spin" style={{ animationDuration: '24s', animationDirection: 'reverse' }} />
-                    <div className="absolute inset-1 w-full h-full bg-skin-accent-dim blur-[50px] rounded-full" />
-                    
-                    {/* FLOATING ABSTRACT LANE INDICATORS */}
-                    <div className="absolute top-10 left-5 h-20 w-1 bg-gradient-to-b from-skin-accent to-transparent opacity-60 rounded-full" />
-                    <div className="absolute bottom-10 right-5 h-20 w-1 bg-gradient-to-t from-indigo-500 to-transparent opacity-60 rounded-full" />
-                    
-                    <div className="p-10 bg-[#0c0c12]/95 rounded-full border border-white/10 shadow-[inner_0_0_30px_rgba(255,255,255,0.02)] relative flex items-center justify-center w-[180px] h-[180px] group hover:border-skin-accent-dim transition-all duration-500">
-                      <Disc className="h-28 w-28 text-slate-800 animate-spin group-hover:text-slate-700 transition" style={{ animationDuration: '8s' }} />
-                      <span className="absolute h-12 w-12 bg-black rounded-full border border-white/10 flex items-center justify-center shadow-2xl">
-                        <Music className="h-5 w-5 text-skin-accent" />
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* COMPACT DASHBOARD SWITCHES */}
-              <div className="max-w-5xl mx-auto w-full grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 border-t border-white/5 pt-12">
-                <div className="flex flex-col p-6 bg-[#08080B]/90 rounded-2xl border border-white/5 hover:border-cyan-400/20 transition-all duration-300">
-                  <span className="p-3 bg-cyan-400/5 text-cyan-400 rounded-xl border border-cyan-400/10 mb-4 w-fit">
-                    <Gamepad2 className="h-5 w-5" />
-                  </span>
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">2K - 8K COMPATIBILITY</h4>
-                  <p className="text-xs text-slate-400 mt-2 font-sans leading-relaxed">
-                    Seamless scaling modes. Customize key bindings per keyCount to optimize physical response vectors.
-                  </p>
-                </div>
-
-                <div className="flex flex-col p-6 bg-[#08080B]/90 rounded-2xl border border-white/5 hover:border-cyan-400/20 transition-all duration-300">
-                  <span className="p-3 bg-cyan-400/5 text-cyan-400 rounded-xl border border-cyan-400/10 mb-4 w-fit animate-pulse">
-                    <Music className="h-5 w-5" />
-                  </span>
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">ZIP RESOLVER</h4>
-                  <p className="text-xs text-slate-400 mt-2 font-sans leading-relaxed">
-                    Drag and drop your standard `.osu` or `.osz` files to instantly ingest charts and start playing immediately.
-                  </p>
-                </div>
-
-                <div className="flex flex-col p-6 bg-[#08080B]/90 rounded-2xl border border-white/5 hover:border-cyan-400/20 transition-all duration-300">
-                  <span className="p-3 bg-cyan-400/5 text-cyan-400 rounded-xl border border-cyan-400/10 mb-4 w-fit">
-                    <BarChart3 className="h-5 w-5" />
-                  </span>
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">EPIC GRADE FEEDBACK</h4>
-                  <p className="text-xs text-slate-400 mt-2 font-sans leading-relaxed">
-                    A gorgeous results and post-game telemetry system tracking perfect spreads and overall performance accuracy.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
+            <MainMenu onNavigate={(screen) => setCurrentScreen(screen as any)} />
           )}
 
           {currentScreen === 'select' && (
@@ -621,9 +564,11 @@ export default function App() {
                 onSelectMap={handleSelectMap}
                 onOpenGlobalSettings={() => setCurrentScreen('settings')}
                 customMaps={customMaps}
-                onImportOsuMap={handleImportOsuMap}
+                onImportBeatmap={handleImportBeatmap}
                 onDeleteCustomMap={handleDeleteCustomMap}
                 onDeleteSongGroup={handleDeleteSongGroup}
+                filterMode={3}
+                setSongSelectBgUrl={setSongSelectBgUrl}
               />
             </motion.div>
           )}
@@ -637,33 +582,33 @@ export default function App() {
               exit="exit"
               className="w-full flex-1 flex flex-col"
             >
-              <GameplayCanvas
-                beatmap={selectedBeatmap}
-                settings={settings}
-                updateSettings={updateSettings}
-                onFinish={handleGameplayFinish}
-                onBack={() => {
-                  try {
-                    if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
-                      if (document.exitFullscreen) {
-                        document.exitFullscreen().catch(err => console.log(err));
-                      } else if ((document as any).webkitExitFullscreen) {
-                        (document as any).webkitExitFullscreen();
+                <GameplayCanvas
+                  beatmap={selectedBeatmap}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  onFinish={handleGameplayFinish}
+                  onBack={() => {
+                    try {
+                      if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
+                        if (document.exitFullscreen) {
+                          document.exitFullscreen().catch(err => console.log(err));
+                        } else if ((document as any).webkitExitFullscreen) {
+                          (document as any).webkitExitFullscreen();
+                        }
                       }
+                    } catch (e) {}
+                    const returnScreen = activeReplayRecord ? 'history' : 'select';
+                    setActiveReplayRecord(null);
+                    if (selectedBeatmap) {
+                      if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
+                      if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
+                      if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
                     }
-                  } catch (e) {}
-                  const returnScreen = activeReplayFrames ? 'history' : 'select';
-                  setActiveReplayFrames(null);
-                  if (selectedBeatmap) {
-                    if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
-                    if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
-                    if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
-                  }
-                  setSelectedBeatmap(null);
-                  setCurrentScreen(returnScreen);
-                }}
-                replayData={activeReplayFrames}
-              />
+                    setSelectedBeatmap(null);
+                    setCurrentScreen(returnScreen);
+                  }}
+                  replayRecord={activeReplayRecord}
+                />
             </motion.div>
           )}
 
@@ -690,8 +635,8 @@ export default function App() {
                       }
                     }
                   } catch (e) {}
-                  const returnScreen = activeReplayFrames ? 'history' : 'select';
-                  setActiveReplayFrames(null);
+                  const returnScreen = activeReplayRecord ? 'history' : 'select';
+                  setActiveReplayRecord(null);
                   if (selectedBeatmap) {
                     if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
                     if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
@@ -744,16 +689,24 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* 3. FOOTER */}
-      {currentScreen !== 'play' && (
-        <footer id="main-footer" className="border-t border-white/5 bg-[#030305] py-8 text-[10px] text-slate-500 mt-auto relative z-10 font-mono">
-          <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="tracking-widest">// RHYTHM PERFORMANCE ENGINE • SYNC_OK</span>
-            <span className="flex items-center gap-1 opacity-75">
-              Designed with precision mechanics • {new Date().getFullYear()} RHYTHMMANIA
-            </span>
+      {/* MOBILE WARNING OVERLAY */}
+      {isMobile && (
+        <div className="fixed inset-0 z-50 bg-[#050508] flex flex-col justify-center items-center p-6 text-center select-none">
+          <div className="max-w-md bg-[#0c0c12]/90 border border-white/10 rounded-2xl p-8 backdrop-blur-md shadow-2xl relative">
+            <div className="absolute top-0 right-0 left-0 h-1.5 bg-gradient-to-r from-pink-500 via-rose-500 to-indigo-500 rounded-t-2xl" />
+            <div className="w-16 h-16 rounded-full bg-pink-500/10 border border-pink-500/20 flex items-center justify-center mx-auto mb-6 text-pink-400">
+              <span className="text-2xl">📱</span>
+            </div>
+            <h2 className="text-2xl font-black text-white mb-3 tracking-tight uppercase">Mobile Redesign</h2>
+            <div className="h-px bg-white/10 w-16 mx-auto mb-4" />
+            <p className="text-slate-300 text-sm leading-relaxed mb-6 font-sans">
+              The RhythmMania mobile interface is currently being fully redesigned to bring high-fidelity touch mechanisms and perfect audio synchronizations to portable viewports.
+            </p>
+            <p className="text-pink-500 text-xs font-mono tracking-widest font-black uppercase">
+              Please enter from a Desktop screen
+            </p>
           </div>
-        </footer>
+        </div>
       )}
     </div>
   );

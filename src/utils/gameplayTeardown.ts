@@ -36,13 +36,4 @@ export function executeTeardown(
   if (keydown) window.removeEventListener('keydown', keydown);
   if (keyup) window.removeEventListener('keyup', keyup);
   if (offset) window.removeEventListener('keydown', offset);
-
-  // Clear LRU Media urls because AssetLifecycleManager is going to revoke all blobs
-  try {
-    storageManager.lruMediaCache.clearAll();
-  } catch (err) {
-    console.warn("Failed to clear media cache during teardown:", err);
-  }
-
-  AssetLifecycleManager.clearAll();
 }

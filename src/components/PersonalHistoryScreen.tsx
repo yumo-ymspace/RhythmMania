@@ -193,6 +193,14 @@ export default function PersonalHistoryScreen({
   return (
     <div id="personal-history-view-container" className="flex flex-col gap-6 w-full max-w-6xl mx-auto h-full p-2 lg:p-4 text-slate-100 pb-16 animate-fade-in">
       
+      {/* SAFETY NOTICE OVERLAY */}
+      <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-xl flex items-center justify-center text-center backdrop-blur-sm">
+        <p className="text-[11px] font-sans text-indigo-200 tracking-wide">
+          <strong className="text-indigo-400 font-black uppercase tracking-widest mr-1.5">Safety Notice:</strong>
+          Clearing browser memory or wiping local storage will erase performance records and encoded replay timelines.
+        </p>
+      </div>
+
       {/* SECTION HEADER BLOCK */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl gap-4 backdrop-blur-md">
         <div className="flex items-center gap-3.5">
@@ -570,45 +578,6 @@ export default function PersonalHistoryScreen({
               </p>
             </div>
           )}
-
-          {/* STORAGE DIAGNOSTICS AS SECONDARY */}
-          <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-md backdrop-blur-md flex flex-col gap-4">
-            <h3 className="text-xs font-black font-sans tracking-wide uppercase text-indigo-400 flex items-center gap-1.5">
-              <Info className="h-4 w-4" /> Storage Diagnostics
-            </h3>
-            
-            <p className="text-xs text-slate-400 leading-relaxed font-sans">
-              Every score registered encodes precise sub-millisecond timeline events (press coordinates, hold constraints, releases). This allows accurate, frame-perfect game state re-construction.
-            </p>
-
-            <div className="border-t border-white/5 pt-4 space-y-3 font-sans text-xs">
-              <div className="flex justify-between items-center text-slate-300">
-                <span>Plays Recorded</span>
-                <span className="font-extrabold text-white text-sm">{history.length}</span>
-              </div>
-
-              <div className="flex justify-between items-center text-slate-300">
-                <span>Highest Score</span>
-                <span className="font-extrabold text-indigo-400">
-                  {history.length > 0 ? maxScore.toLocaleString() : "Play first"}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center text-slate-300">
-                <span>Persistence Engine</span>
-                <span className="font-mono text-[10px] text-slate-500 bg-white/5 px-2 py-0.5 border border-white/5 rounded">
-                  LocalState API
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-2 text-[10px] text-slate-500 bg-indigo-500/5 border border-indigo-500/10 p-3 rounded-xl flex gap-2.5 items-start">
-              <ShieldAlert className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
-              <p className="leading-relaxed font-sans">
-                <strong>Safety Notice:</strong> Clearing browser memory or wiping local storage will erase performance records and encoded replay timelines.
-              </p>
-            </div>
-          </div>
 
         </div>
 

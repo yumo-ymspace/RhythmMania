@@ -27,6 +27,14 @@ export interface HitObject {
   isMissed: boolean;
   isHoldFailed: boolean; // if released early
   releaseGraceUntil?: number; // For brief key-bounces / re-keying
+
+  // standard specific properties
+  x?: number; // 0-512
+  y?: number; // 0-384
+  objType?: number; // raw hitobject type bitmask
+  sliderPoints?: Array<{ x: number; y: number }>;
+  sliderLength?: number;
+  slidesCount?: number;
 }
 
 export interface BeatmapMetadata {
@@ -42,6 +50,7 @@ export interface BeatmapMetadata {
   videoStartTime?: number; // storyboard video start offset (in milliseconds)
   bgUrl?: string;
   id: string;
+  mode?: number; // 0 for standard, 3 for mania
 }
 
 export interface Beatmap extends BeatmapMetadata {
@@ -97,6 +106,8 @@ export interface PlayHistoryRecord {
   isFailed: boolean;
   scoreState: ScoreState;
   replayFrames: ReplayFrame[];
+  recordedSettings?: Partial<GameSettings>;
+  mods?: string[];
 }
 
 export interface KeyBindings {
@@ -118,7 +129,7 @@ export interface GameSettings {
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
   disableParticles?: boolean; // completely disable particle visual burst generator
   limitDprToOne?: boolean; // cap canvas device pixel ratio to 1x to save GPU rendering cost
-  skinId?: string; // custom osu!mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings')
+  skinId?: string; // custom mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings')
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
   noteStyle?: 'rounded' | 'square' | 'circle' | 'pill';
@@ -134,6 +145,7 @@ export interface GameSettings {
   laneSeparatorOpacity?: number; // 0.0 to 1.0 (opacity for lane divider lines)
   progressBarTop?: boolean; // progress bar position setting (top vs bottom)
   playfieldWidthPercent?: number; // width of lanes as percent of screen width (33 to 50)
+  selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

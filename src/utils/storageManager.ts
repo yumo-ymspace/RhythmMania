@@ -20,7 +20,7 @@ export interface SavedBeatmap extends Beatmap {
   audioFilename?: string;
   videoFilename?: string | null;
   bgFilename?: string | null;
-  originalOsuContent?: string;
+  originalContent?: string;
   isServerMap?: boolean;
   oszUrl?: string;
 }

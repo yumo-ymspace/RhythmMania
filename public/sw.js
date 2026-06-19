@@ -68,12 +68,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Specialized Cache-First policy for beatmaps / .osz files / .osu files
+  // 2. Specialized Cache-First policy for beatmaps / .osz files / .txt files
   const isBeatmapAsset = 
     url.pathname.endsWith('.osz') || 
     url.pathname.endsWith('.zip') || 
     url.pathname.includes('/beatmaps/') ||
-    url.pathname.endsWith('.osu') ||
+    url.pathname.endsWith('.txt') ||
     url.pathname.endsWith('.mp3') ||
     url.pathname.endsWith('.ogg') ||
     url.pathname.endsWith('.wav');

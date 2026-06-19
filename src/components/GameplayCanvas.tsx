@@ -25,6 +25,7 @@ import { RobustZipResolver } from '../utils/zipResolver';
 import { AssetLifecycleManager } from '../utils/assetLifecycle';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
+import metadata from '../../metadata.json';
 
 export interface ColumnStyle {
   width: number;
@@ -167,7 +168,7 @@ interface GameplayCanvasProps {
   updateSettings?: (s: Partial<GameSettings>) => void;
   onFinish: (score: ScoreState, replay?: ReplayFrame[]) => void;
   onBack: () => void;
-  replayData?: ReplayFrame[] | null;
+  replayRecord?: PlayHistoryRecord | null;
 }
 
 interface Particle {
@@ -190,12 +191,30 @@ interface HitErrorTick {
 
 export default function GameplayCanvas({
   beatmap,
-  settings,
+  settings: propSettings,
   updateSettings,
   onFinish,
   onBack,
-  replayData = null
+  replayRecord = null
 }: GameplayCanvasProps) {
+  // Override settings if we're watching a replay
+  const settings = React.useMemo(() => {
+    if (replayRecord?.recordedSettings) {
+      return {
+        ...propSettings,
+        ...replayRecord.recordedSettings,
+        musicVolume: propSettings.musicVolume,
+        hitsoundVolume: propSettings.hitsoundVolume,
+        videoOpacity: propSettings.videoOpacity,
+        backgroundDim: propSettings.backgroundDim
+      };
+    }
+    return propSettings;
+  }, [propSettings, replayRecord]);
+
+  const replayData = replayRecord?.replayFrames || null;
+  const replayMods = replayRecord?.mods || [];
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -362,6 +381,7 @@ export default function GameplayCanvas({
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [showCountdown, setShowCountdown] = useState<number>(0);
   const [unpauseCountdown, setUnpauseCountdown] = useState<number>(0);
+  const [isFailed, setIsFailed] = useState<boolean>(false);
 
   // Active inputs trace
   const keysPressedRef = useRef<boolean[]>([]);
@@ -383,6 +403,7 @@ export default function GameplayCanvas({
 
   const [loadingAudioProgress, setLoadingAudioProgress] = useState<number>(0);
   const [isAudioLoaded, setIsAudioLoaded] = useState<boolean>(false);
+  const [isReadyToTransition, setIsReadyToTransition] = useState<boolean>(false);
 
   // Custom pre-play stage states
   const [isPrePlay, setIsPrePlay] = useState<boolean>(true);
@@ -458,7 +479,14 @@ export default function GameplayCanvas({
     ];
   };
 
-  const judgementWindows = getJudgementWindows(beatmap.overallDifficulty);
+  // Apply active mods to Overall Difficulty for Tightness / Easy adjustments
+  let effectiveOD = beatmap.overallDifficulty;
+  if (settings.selectedMods?.includes('HR')) {
+    effectiveOD = Math.min(10, effectiveOD * 1.4);
+  } else if (settings.selectedMods?.includes('EZ')) {
+    effectiveOD = effectiveOD * 0.5;
+  }
+  const judgementWindows = getJudgementWindows(effectiveOD);
   const marvelousJudg = judgementWindows.find(w => w.type === 'marvelous') || judgementWindows[0];
   const perfectJudg = judgementWindows.find(w => w.type === 'perfect') || judgementWindows[1];
   const greatJudg = judgementWindows.find(w => w.type === 'great') || judgementWindows[2];
@@ -468,7 +496,7 @@ export default function GameplayCanvas({
 
   const initializeGameplay = (runCountdown: boolean = false) => {
     // Deep copy notes from the beatmap, ensuring gameplay properties reset
-    notesRef.current = beatmap.notes.map(note => ({
+    notesRef.current = (beatmap.notes || []).map(note => ({
       ...note,
       isHit: false,
       isReleased: false,
@@ -515,6 +543,7 @@ export default function GameplayCanvas({
     setUiHp(100);
     setUiJudgement(null);
     setIsPaused(false);
+    setIsFailed(false);
     isPlayingRef.current = false;
     
     if (videoRef.current) {
@@ -593,13 +622,22 @@ export default function GameplayCanvas({
             let parsedBgUrl = beatmap.bgUrl || '';
 
             if (audioFilename && !parsedAudioUrl) {
-              const file = resolver.findFile(audioFilename);
+              const file = !audioFilename.toLowerCase().endsWith('.wav') ? resolver.findFile(audioFilename) : null;
               if (file) {
                 const b = await file.async('blob');
                 parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.audioUrl = parsedAudioUrl;
               }
             }
+            if (!parsedAudioUrl) {
+              const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
+              if (fallbackObj) {
+                const b = await fallbackObj.async('blob');
+                parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
+                beatmap.audioUrl = parsedAudioUrl;
+              }
+            }
+
             if (videoFilename && !parsedVideoUrl) {
               const file = resolver.findFile(videoFilename);
               if (file) {
@@ -608,10 +646,19 @@ export default function GameplayCanvas({
                 beatmap.videoUrl = parsedVideoUrl;
               }
             }
+
             if (bgFilename && !parsedBgUrl) {
               const file = resolver.findFile(bgFilename);
               if (file) {
                 const b = await file.async('blob');
+                parsedBgUrl = AssetLifecycleManager.registerBlob(b);
+                beatmap.bgUrl = parsedBgUrl;
+              }
+            }
+            if (!parsedBgUrl) {
+              const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
+              if (fallbackObj) {
+                const b = await fallbackObj.async('blob');
                 parsedBgUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.bgUrl = parsedBgUrl;
               }
@@ -634,12 +681,21 @@ export default function GameplayCanvas({
       mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
       mainAudio.setOffset(settings.audioOffset);
       
+      // Calculate mod speed scaling factor
+      let activeRate = 1.0;
+      if (settings.selectedMods?.includes('DT')) {
+        activeRate = 1.5;
+      } else if (settings.selectedMods?.includes('HT')) {
+        activeRate = 0.75;
+      }
+      mainAudio.playbackRate = activeRate;
+      
       const success = await mainAudio.loadTrack(beatmap.audioUrl || '', (p) => {
         if (active) setLoadingAudioProgress(p);
       });
       
       if (active) {
-        setIsAudioLoaded(true);
+        setIsReadyToTransition(true);
         if (!success) {
           setIsPlayingFallback(true);
           const declaredAudio = (beatmap as any).audioFilename || 'audio.mp3';
@@ -697,6 +753,7 @@ export default function GameplayCanvas({
             mainAudio.play(beatmap.bpm, settings.audioOffset);
             isPlayingRef.current = true;
             if (videoRef.current) {
+              videoRef.current.playbackRate = mainAudio.playbackRate;
               videoRef.current.play().catch(err => {
                 console.warn('Video failed to start after countdown elapsed:', err);
               });
@@ -721,6 +778,7 @@ export default function GameplayCanvas({
             isPlayingRef.current = true;
             mainAudio.play(beatmap.bpm, settings.audioOffset);
             if (videoRef.current) {
+              videoRef.current.playbackRate = mainAudio.playbackRate;
               videoRef.current.play().catch(err => {
                 console.warn('Video failed to play on resume:', err instanceof Error ? err.message : String(err));
               });
@@ -784,11 +842,6 @@ export default function GameplayCanvas({
       
       if (isPrePlay) {
         if (showSettingsModal || showInfoModal) return;
-        if (e.key === ' ' || e.key === 'Enter') {
-          e.preventDefault();
-          setIsPrePlay(false);
-          setShowCountdown(3);
-        }
         if (e.key === 'Escape') {
           e.preventDefault();
           onBack();
@@ -944,7 +997,7 @@ export default function GameplayCanvas({
       const hitError = playTime - note.time;
       let tickColor = '#3b82f6'; // Default perfect blue
       if (resolvedJudgement.type === 'marvelous' || resolvedJudgement.type === 'perfect') {
-        tickColor = '#3b82f6'; // Blue for 300 range (Osu!)
+        tickColor = '#3b82f6'; // Blue for 300 range
       } else if (resolvedJudgement.type === 'great') {
         tickColor = '#22c55e'; // Green for 100 range
       } else if (resolvedJudgement.type === 'good' || resolvedJudgement.type === 'bad') {
@@ -1034,10 +1087,14 @@ export default function GameplayCanvas({
     let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
     state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
 
-    if (state.hp <= 0) {
+    if (state.hp <= 0 && !settings.selectedMods?.includes('NF')) {
       state.failed = true;
       isPlayingRef.current = false;
+      setIsFailed(true);
       mainAudio.pause();
+      if (videoRef.current) {
+        try { videoRef.current.pause(); } catch (e) {}
+      }
     }
 
     // Formula: Raw score aggregation + accuracy
@@ -1494,7 +1551,22 @@ export default function GameplayCanvas({
         const rh = 20;
 
         ctx.save();
-        ctx.globalAlpha = settings.noteOpacity ?? 1.0;
+        let currentOpacity = settings.noteOpacity ?? 1.0;
+        if (settings.selectedMods?.includes('HD')) {
+          const distancePercent = settings.upsurfaceNoteMode 
+            ? (height - noteY) / (height - (receptorY || 500))
+            : noteY / (receptorY || 500);
+
+          if (distancePercent < 0.35) {
+            currentOpacity = currentOpacity;
+          } else if (distancePercent < 0.70) {
+            const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
+            currentOpacity *= Math.max(0, fadeFactor);
+          } else {
+            currentOpacity = 0.0;
+          }
+        }
+        ctx.globalAlpha = currentOpacity;
         
         // Define a local helper to enforce custom note rounding overrides
         const drawNoteShape = (radiusDefault: number) => {
@@ -1620,7 +1692,7 @@ export default function GameplayCanvas({
             ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
             ctx.fill();
           } else {
-            // Default osu!mania Circles
+            // Default Circles
             const cx = rx + rw / 2;
             const cy = ry + rh / 2;
             const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
@@ -2163,34 +2235,146 @@ export default function GameplayCanvas({
     initializeGameplay(false);
   };
 
-  // Safe loader state checking
-  if (!isAudioLoaded) {
-    return (
-      <div id="gameplay-loader" className="flex flex-col items-center justify-center min-h-[500px] h-full bg-slate-950 text-slate-100 p-8 rounded-2xl border border-slate-800 shadow-2xl">
-        <div className="relative flex items-center justify-center p-6 bg-slate-900 rounded-full mb-6 border border-slate-700/50 shadow-inner">
-          <Volume2 className="h-12 w-12 text-cyan-400 animate-pulse" />
-          <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400/10 animate-ping" />
-        </div>
-        <h3 className="text-xl font-bold font-sans tracking-tight mb-2">Syncing Timing Windows...</h3>
-        <p className="text-sm text-slate-400 font-mono tracking-wide max-w-sm text-center mb-6">
-          Initializing latency compensators and calibration offsets
-        </p>
-        
-        <div className="w-full max-w-xs bg-slate-900 h-2.5 rounded-full overflow-hidden border border-slate-800">
-          <div 
-            className="bg-cyan-400 h-full rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(34,211,238,0.5)]"
-            style={{ width: `${loadingAudioProgress}%` }}
-          />
-        </div>
-        <span className="text-xs text-slate-500 font-mono mt-2">{loadingAudioProgress}% loaded</span>
-      </div>
-    );
-  }
-
   const handleStartGameplay = () => {
     setIsPrePlay(false);
     setShowCountdown(3);
   };
+
+  // Handle keys while loading
+  useEffect(() => {
+    if (isReadyToTransition && !isAudioLoaded) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.repeat) return;
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          handleExit();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [isReadyToTransition, isAudioLoaded]);
+
+  // Handle keys in PrePlay
+  useEffect(() => {
+    if (isPrePlay && isAudioLoaded) {
+      const mountTime = Date.now();
+      const handlePrePlayKeyDown = (e: KeyboardEvent) => {
+        if (e.repeat) return;
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          handleExit();
+        } else if (e.code === 'Space' || e.code === 'Enter') {
+          // Ignore keydown if it happens within 300ms of entering Pre-Play (prevents bleed from Loading page inputs)
+          if (Date.now() - mountTime < 300) return;
+          e.preventDefault();
+          handleStartGameplay();
+        }
+      };
+      window.addEventListener('keydown', handlePrePlayKeyDown);
+      return () => window.removeEventListener('keydown', handlePrePlayKeyDown);
+    }
+  }, [isPrePlay, isAudioLoaded]);
+
+  // Safe loader state checking with high-fidelity themed presentation
+  if (!isAudioLoaded) {
+    const hasBg = !!beatmap.bgUrl;
+    return (
+      <div 
+        id="gameplay-loader" 
+        onClick={() => {
+          if (isReadyToTransition) {
+            setIsAudioLoaded(true);
+          }
+        }}
+        className="flex flex-col items-center justify-center w-full h-screen bg-[#050508] text-slate-100 p-6 relative overflow-hidden select-none cursor-pointer"
+        style={{
+          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url(${beatmap.bgUrl})` : 'none',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        <div className="absolute bottom-2 left-4 z-[100] text-[10px] text-white/30 font-mono font-bold pointer-events-none select-none">
+          {metadata.version}
+        </div>
+        {/* Subtle decorative background noise or radial lighting */}
+        <div className="absolute inset-0 bg-radial-gradient from-transparent to-[#030305]/80 pointer-events-none" />
+
+        <div className="w-full max-w-xl flex flex-col items-center relative z-10 p-8 rounded-2xl bg-[#09090e]/92 border border-white/10 backdrop-blur-xl shadow-2xl animate-fade-in">
+          {/* Circular pulsing vinyl loader item */}
+          <div className="relative flex items-center justify-center p-6 bg-white/[0.02] rounded-full mb-6 border border-white/10 shadow-lg">
+            <Volume2 className="h-10 w-10 text-skin-accent animate-pulse" />
+            <span className="absolute inset-0 rounded-full border-2 border-skin-accent/25 animate-ping" />
+          </div>
+
+          {/* Loading core title & metadata header */}
+          <span className="text-[10px] font-mono uppercase tracking-[0.3em] text-skin-accent font-black mb-1.5">
+            SYNCING SOUNDS & COMPENSATORS
+          </span>
+          <h2 className="text-xl md:text-2xl font-black tracking-tight text-white font-sans text-center leading-tight mb-4">
+            {beatmap.title || 'Loading Beatmap...'}
+          </h2>
+
+          {/* Metadata Grid Card */}
+          <div className="w-full grid grid-cols-2 gap-3 px-4 py-3 bg-white/[0.02] border border-white/5 rounded-xl text-left text-xs mb-6 font-sans">
+            <div>
+              <span className="text-slate-500 font-mono block text-[10px] uppercase">Artist</span>
+              <span className="text-slate-200 font-bold truncate block">{beatmap.artist || 'Unknown'}</span>
+            </div>
+            <div>
+              <span className="text-slate-500 font-mono block text-[10px] uppercase">Creator</span>
+              <span className="text-slate-200 font-bold truncate block">{beatmap.creator || 'Unknown'}</span>
+            </div>
+            <div>
+              <span className="text-slate-500 font-mono block text-[10px] uppercase">Keys Mode</span>
+              <span className="text-skin-accent font-black block">{beatmap.keyCount || 4} Keys</span>
+            </div>
+            <div>
+              <span className="text-slate-500 font-mono block text-[10px] uppercase">Difficulty</span>
+              <span className="text-pink-400 font-bold truncate block">{beatmap.difficulty || 'Normal'}</span>
+            </div>
+          </div>
+
+          {/* Ingestion Pipeline Logs (Tells the exact unzipping and WAV clearing story nicely!) */}
+          <div className="w-full flex flex-col gap-1.5 mb-6 text-[11px] font-mono text-left text-slate-400 border-t border-b border-white/5 py-4 px-1">
+            <div className="flex justify-between items-center">
+              <span>🗜️ Decompressed OSZ (ZIP) Archive</span>
+              <span className="text-emerald-400 font-bold">SUCCESS</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>🧹 Purged uncompressed WAV audio</span>
+              <span className="text-emerald-400 font-bold">SUCCESS</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>📊 Parsed chart matrices</span>
+              <span className="text-emerald-400 font-bold">READY</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>🔊 Preloading high-fidelity MP3 track</span>
+              <span className={`${loadingAudioProgress === 100 ? 'text-emerald-400' : 'text-skin-accent'} font-bold animate-pulse`}>
+                {loadingAudioProgress === 100 ? 'COMPLETE' : `${loadingAudioProgress}%`}
+              </span>
+            </div>
+          </div>
+
+          {/* Real Audio Buffer Progress Bar */}
+          <div className="w-full bg-white/[0.05] h-2.5 rounded-full overflow-hidden border border-white/10 relative shadow-inner mb-2">
+            <div 
+              className="bg-skin-accent h-full rounded-full transition-all duration-300 shadow-[0_0_12px_rgba(235,13,115,0.4)]"
+              style={{ width: `${loadingAudioProgress}%` }}
+            />
+          </div>
+          {isReadyToTransition ? (
+            <span className="text-[10px] text-skin-accent animate-pulse font-mono font-black uppercase tracking-widest mt-2 bg-skin-accent/10 px-3 py-1.5 rounded-lg border border-skin-accent/20 cursor-pointer text-center">
+              CLICK ANYWHERE TO CONTINUE
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">{loadingAudioProgress}% BUFFERED</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 
@@ -2202,7 +2386,10 @@ export default function GameplayCanvas({
         <div 
           className="absolute inset-0 z-50 bg-[#050508]/85 backdrop-blur-md flex flex-col justify-between p-6 select-none animate-fade-in"
           style={{ borderRadius: '0px' }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Removed handleStartGameplay() so they must click the button
+          }}
         >
           {/* Top Row: Navigation and Fullscreen Controls */}
           <div className="w-full flex justify-between items-center z-10">
@@ -2234,7 +2421,9 @@ export default function GameplayCanvas({
             </div>
 
             <div className="text-right">
-              <span className="text-[9px] text-zinc-500 font-mono tracking-widest font-black uppercase">PRE-PLAY ENGINE STAGE</span>
+              <span className="text-[9px] text-zinc-500 font-mono tracking-widest font-black uppercase">
+                {replayData ? "PRE-REPLAY ENGINE STAGE" : "PRE-PLAY ENGINE STAGE"}
+              </span>
             </div>
           </div>
 
@@ -2271,10 +2460,12 @@ export default function GameplayCanvas({
                   e.stopPropagation();
                   handleStartGameplay();
                 }}
-                className="flex items-center justify-center gap-4 px-12 py-5 bg-slate-800 hover:bg-slate-750 text-white rounded-xl border border-white/10 transition-all active:scale-95 cursor-pointer shadow-xl hover:shadow-[0_0_30px_rgba(255,255,255,0.07)]"
+                className={`flex items-center justify-center gap-4 px-12 py-5 hover:bg-slate-750 text-white rounded-xl border border-white/10 transition-all active:scale-95 cursor-pointer shadow-xl hover:shadow-[0_0_30px_rgba(255,255,255,0.07)] ${replayData ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-800'}`}
               >
                 <Play className="h-6 w-6 fill-current text-white" />
-                <span className="font-sans font-black text-lg tracking-wider uppercase">Start</span>
+                <span className="font-sans font-black text-lg tracking-wider uppercase">
+                  {replayData ? "Watch" : "Start"}
+                </span>
               </button>
 
               {/* Beatmap metadata button */}
@@ -2291,14 +2482,14 @@ export default function GameplayCanvas({
               </button>
             </div>
 
-            {/* Tap instruction */}
             <div className="text-zinc-500 font-mono text-[10px] tracking-widest text-center uppercase">
-              PRESS SPACEBAR OR ENTER TO BEGIN PERFORMANCE
+              {replayData ? "CLICK 'WATCH' TO BEGIN REPLAY" : "CLICK 'START' TO BEGIN PERFORMANCE"}
             </div>
           </div>
 
           {/* Bottom info */}
-          <div className="w-full flex justify-between text-[10px] text-zinc-500 font-mono px-2">
+          <div className="w-full flex justify-between text-[10px] text-zinc-500 font-mono px-2 relative">
+            <div className="absolute -bottom-6 left-2 font-bold pointer-events-none text-white/30">{metadata.version}</div>
             <span>BPM: {beatmap.bpm}</span>
             <span>DIFFICULTY: {beatmap.difficulty}</span>
           </div>
@@ -2331,56 +2522,60 @@ export default function GameplayCanvas({
 
                 <div className="space-y-4 font-sans text-xs text-left">
                   {/* Scroll speed */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Scroll Speed</span>
-                      <span className="font-mono text-cyan-400 font-extrabold">{settings.scrollSpeed}x</span>
-                    </div>
-                    <input 
-                      type="range" min="5" max="40" step="1"
-                      value={settings.scrollSpeed} 
-                      onChange={(e) => updateSettings?.({ scrollSpeed: Number(e.target.value) })}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                      onTouchMove={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-
-                  {/* Audio latency offset */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-slate-400 font-sans">
-                      <span>Audio Offset / Latency</span>
-                      <span className="font-mono text-cyan-400 font-extrabold">
-                        {settings.audioOffset > 0 ? `+${settings.audioOffset}` : settings.audioOffset}ms
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => updateSettings?.({ audioOffset: Math.max(-500, settings.audioOffset - 5) })}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
-                      >
-                        -5
-                      </button>
+                  {!replayData && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Scroll Speed</span>
+                        <span className="font-mono text-cyan-400 font-extrabold">{settings.scrollSpeed}x</span>
+                      </div>
                       <input 
-                        type="range" min="-300" max="300" step="5"
-                        value={settings.audioOffset} 
-                        onChange={(e) => updateSettings?.({ audioOffset: Number(e.target.value) })}
+                        type="range" min="5" max="40" step="1"
+                        value={settings.scrollSpeed} 
+                        onChange={(e) => updateSettings?.({ scrollSpeed: Number(e.target.value) })}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
                         onTouchMove={(e) => e.stopPropagation()}
                         onPointerDown={(e) => e.stopPropagation()}
-                        className="flex-1 accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                        className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
                       />
-                      <button 
-                        onClick={() => updateSettings?.({ audioOffset: Math.min(500, settings.audioOffset + 5) })}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
-                      >
-                        +5
-                      </button>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Audio latency offset */}
+                  {!replayData && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-slate-400 font-sans">
+                        <span>Audio Offset / Latency</span>
+                        <span className="font-mono text-cyan-400 font-extrabold">
+                          {settings.audioOffset > 0 ? `+${settings.audioOffset}` : settings.audioOffset}ms
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => updateSettings?.({ audioOffset: Math.max(-500, settings.audioOffset - 5) })}
+                          className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
+                        >
+                          -5
+                        </button>
+                        <input 
+                          type="range" min="-300" max="300" step="5"
+                          value={settings.audioOffset} 
+                          onChange={(e) => updateSettings?.({ audioOffset: Number(e.target.value) })}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onTouchMove={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="flex-1 accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                        />
+                        <button 
+                          onClick={() => updateSettings?.({ audioOffset: Math.min(500, settings.audioOffset + 5) })}
+                          className="px-2 py-0.5 bg-slate-900 hover:bg-slate-850 text-slate-300 border border-white/5 hover:border-white/10 rounded font-mono text-[10px] font-bold cursor-pointer"
+                        >
+                          +5
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Lane Background Dim */}
                   <div className="space-y-1.5">
@@ -2437,37 +2632,41 @@ export default function GameplayCanvas({
                   </div>
 
                   {/* Playfield Width */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Lane Playfield Width</span>
-                      <span className="font-mono text-cyan-400 font-extrabold">{settings.playfieldWidthPercent ?? 40}%</span>
+                  {!replayData && (
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Lane Playfield Width</span>
+                        <span className="font-mono text-cyan-400 font-extrabold">{settings.playfieldWidthPercent ?? 40}%</span>
+                      </div>
+                      <input 
+                        type="range" min="20" max="50" step="1"
+                        value={settings.playfieldWidthPercent ?? 40} 
+                        onChange={(e) => updateSettings?.({ playfieldWidthPercent: Number(e.target.value) })}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        onTouchMove={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                      />
                     </div>
-                    <input 
-                      type="range" min="20" max="50" step="1"
-                      value={settings.playfieldWidthPercent ?? 40} 
-                      onChange={(e) => updateSettings?.({ playfieldWidthPercent: Number(e.target.value) })}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                      onTouchMove={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
+                  )}
 
                   {/* Upsurface note mode */}
-                  <div className="pt-2 flex justify-between items-center border-t border-white/5">
-                    <span className="text-slate-400">Scroll Direction</span>
-                    <button
-                      onClick={() => updateSettings?.({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
-                      className={`px-3 py-1 text-[10px] font-bold font-mono tracking-wider rounded uppercase border transition cursor-pointer ${
-                        settings.upsurfaceNoteMode 
-                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.3)]' 
-                          : 'bg-slate-900 text-slate-400 border-white/5 hover:text-white animate-pulse'
-                      }`}
-                    >
-                      {settings.upsurfaceNoteMode ? 'Upward Scroll' : 'Downward Scroll'}
-                    </button>
-                  </div>
+                  {!replayData && (
+                    <div className="pt-2 flex justify-between items-center border-t border-white/5">
+                      <span className="text-slate-400">Scroll Direction</span>
+                      <button
+                        onClick={() => updateSettings?.({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
+                        className={`px-3 py-1 text-[10px] font-bold font-mono tracking-wider rounded uppercase border transition cursor-pointer ${
+                          settings.upsurfaceNoteMode 
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.3)]' 
+                            : 'bg-slate-900 text-slate-400 border-white/5 hover:text-white animate-pulse'
+                        }`}
+                      >
+                        {settings.upsurfaceNoteMode ? 'Upward Scroll' : 'Downward Scroll'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -2661,9 +2860,11 @@ export default function GameplayCanvas({
         {/* GET READY COUNTDOWN OVERLAY */}
         {showCountdown > 0 && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#050508]/85 pointer-events-none select-none animate-fade-in font-sans">
-            <div className="text-4xl md:text-5xl font-black text-white tracking-widest uppercase mb-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] animate-pulse">
-              Get Ready...
-            </div>
+            {!replayData && (
+              <div className="text-4xl md:text-5xl font-black text-white tracking-widest uppercase mb-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] animate-pulse">
+                Get Ready...
+              </div>
+            )}
             <div className="text-6xl md:text-8xl font-black text-cyan-400 drop-shadow-[0_4px_16px_rgba(34,211,238,0.5)]">
               {showCountdown}
             </div>
@@ -2856,7 +3057,7 @@ export default function GameplayCanvas({
           </div>
           
           {/* FAIL CARD OVERLAY */}
-          {scoreStateRef.current.failed && (
+          {(isFailed || scoreStateRef.current.failed) && (
             <div id="game-fail-overlay" className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm">
               <div className="relative flex items-center justify-center p-4 bg-red-950/40 rounded-full border border-red-500/30 mb-6 font-mono">
                 <ShieldAlert className="h-14 w-14 text-rose-500 animate-bounce" />

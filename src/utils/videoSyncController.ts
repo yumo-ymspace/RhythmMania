@@ -15,7 +15,7 @@ import { GameSettings } from '../types';
 export class VideoSyncController {
   private videoEl: HTMLVideoElement;
   private getAudioTimeMs: () => number;
-  private videoStartTimeMs: number; // Parsed from .osu (e.g., -1500)
+  private videoStartTimeMs: number; // Parsed from map text (e.g., -1500)
   private settings: GameSettings;
   
   private lastSyncTime: number = 0;

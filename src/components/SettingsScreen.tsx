@@ -461,7 +461,7 @@ export default function SettingsScreen({
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {[
-                      { id: 'circles', name: 'osu!mania Circles', desc: 'Beautiful round keys & round pill notes.' },
+                      { id: 'circles', name: 'Circular Mode', desc: 'Beautiful round keys & round pill notes.' },
                       { id: 'glassy-spheres', name: '3D Glassy Spheres', desc: 'Glossy 3D glass spheres with specular highlights & active glows.' },
                       { id: 'hollow-rings', name: 'Retro Hollow Rings', desc: 'Classic hollow rings lighting up with flat round keys.' },
                     ].map((sk) => {
@@ -902,14 +902,14 @@ export default function SettingsScreen({
         {/* LEFT PANEL: DECIBELS / DIM PANEL PREFERENCES */}
         <div className="lg:col-span-6 flex flex-col gap-6">
 
-          {/* OSU!MANIA GAME SKINS SELECTION */}
+          {/* MANIA GAME SKINS SELECTION */}
           <div className="bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl flex flex-col gap-5 backdrop-blur-md">
             <h3 className="text-[10px] text-slate-500 font-black tracking-widest uppercase flex items-center gap-1.5 border-b border-white/5 pb-3">
               <Palette className="h-4 w-4 text-skin-accent" /> Game Colour Customization
             </h3>
 
             <p className="text-slate-400 text-xs leading-normal -mt-2">
-              Select your customized playfield skin. Different styles modify visual note shapes, target receptor visual states, and track lanes. Visit <a href="https://osuskins.net" target="_blank" rel="noopener noreferrer" className="text-skin-accent font-extrabold hover:underline">osuskins.net</a> for style references.
+              Select your customized playfield skin. Different styles modify visual note shapes, target receptor visual states, and track lanes.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
@@ -991,7 +991,7 @@ export default function SettingsScreen({
                     <span className="text-xs font-black tracking-tight text-white block">
                       {settings.customSkinName 
                         ? `Loaded: ${settings.customSkinName}` 
-                        : 'Upload skin.ini or osu! .osk/.zip skin package'}
+                        : 'Upload skin.ini or .osk/.zip skin package'}
                     </span>
                     <span className="text-[10px] text-slate-500 leading-normal mt-1 block">
                       Drag & drop your skin files, or click here to browse.

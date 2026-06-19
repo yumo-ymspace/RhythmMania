@@ -28,6 +28,7 @@ export class AudioEngine {
   private audioOffsetMs: number = 0; // Calibration offset
   private lastAudioTime: number = 0;
   private lastSystemTime: number = 0;
+  public playbackRate: number = 1.0; // Playback rate scaling coefficient (DT/HT support)
 
   // Procedural backup synthesizer tracker
   private synthInterval: any = null;
@@ -140,7 +141,8 @@ export class AudioEngine {
       }
 
       onProgress?.(10);
-      const res = await fetch(url, { referrerPolicy: 'no-referrer' });
+      const isBlob = url.startsWith('blob:');
+      const res = await fetch(url, isBlob ? undefined : { referrerPolicy: 'no-referrer' });
       if (!res.ok) throw new Error('CORS or Network error loading file');
       onProgress?.(40);
       
@@ -200,18 +202,19 @@ export class AudioEngine {
     
     if (this.musicBuffer) {
       // Real Audio Buffer mode
-      this.startTime = audioContextTime - this.pauseTime;
+      this.startTime = audioContextTime;
       this.musicSource = this.ctx.createBufferSource();
       this.musicSource.buffer = this.musicBuffer;
       this.musicSource.connect(this.musicGain!);
+      this.musicSource.playbackRate.value = this.playbackRate;
       
-      // Start node at the previous paused position
+      // Start node at the previous paused position (in buffer seconds)
       this.musicSource.start(0, this.pauseTime);
     } else {
       // Procedural fallback drum & melody sequencer mode
       // Synchronized to timing clock ticks
-      this.startTime = audioContextTime - this.pauseTime;
-      this.proceduralTimeStart = audioContextTime - this.pauseTime;
+      this.startTime = audioContextTime;
+      this.proceduralTimeStart = audioContextTime - (this.pauseTime / this.playbackRate);
       this.startBackupSynthSequencer();
     }
 
@@ -225,7 +228,8 @@ export class AudioEngine {
     this.isPlaying = false;
     
     const audioContextTime = this.ctx.currentTime;
-    this.pauseTime = audioContextTime - this.startTime;
+    // pauseTime is always stored in raw buffer-time seconds
+    this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
     
     if (this.musicSource) {
       try {
@@ -288,9 +292,11 @@ export class AudioEngine {
     const maxInterpolation = isStartupSec ? 0.50 : 0.05;
     const interpolatedAudioTime = this.lastAudioTime + Math.min(elapsedSinceLastUpdate, maxInterpolation);
     
-    const rawElapsed = (interpolatedAudioTime - this.startTime) * 1000;
+    const currentSegmentElapsed = (interpolatedAudioTime - this.startTime) * this.playbackRate;
+    const rawElapsedMs = (this.pauseTime + currentSegmentElapsed) * 1000;
+    
     // Apply calibration offset
-    return rawElapsed - this.audioOffsetMs;
+    return rawElapsedMs - this.audioOffsetMs;
   }
 
   /**

@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.5.2
+**HIGH DENSITY MATRIX** · v0.6.0
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and **HTML5 Canvas** for low-latency rendering, it delivers a professional-grade experience right in your browser.
 
@@ -143,43 +143,6 @@ public/
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) v18+
-
-### Installation
-
-```bash
-git clone https://github.com/yumo-ymspace/RhythmMania.git
-cd RhythmMania
-npm install
-```
-
-### Running Locally
-
-```bash
-npm run dev
-```
-
-The app will be available at `http://localhost:3000`.
-
-### Building for Production
-
-```bash
-npm run build
-npm run preview   # Preview the production build locally
-```
-
-### Type Checking
-
-```bash
-npm run lint   # Runs tsc --noEmit
-```
-
----
-
 ## Importing Beatmaps
 
 RhythmMania reads standard osu! mania beatmaps:
@@ -238,7 +201,7 @@ All bindings are fully rebindable per lane count in the Settings screen.
 
 ## License
 
-Licensed under the [GPolyForm Perimeter 1.0.1](LICENSE).
+Licensed under the [PolyForm Perimeter 1.0.1](LICENSE).
 
 ---
 

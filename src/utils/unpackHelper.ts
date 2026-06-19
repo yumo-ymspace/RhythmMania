@@ -76,7 +76,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       }
 
       if (!parsedAudioUrl) {
-        const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg', '.wav']) || resolver.findFallbackByExtensions(['.mp3', '.ogg', '.wav'])?.file;
+        const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
         if (fallbackObj) {
           const b = await fallbackObj.async('blob');
           parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
