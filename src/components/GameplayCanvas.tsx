@@ -13,7 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
-import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame } from '../types';
+import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
 import { VideoSyncController } from '../utils/videoSyncController';
 import { PlayZoneOverlay } from './PlayZoneOverlay';
 import { executeTeardown } from '../utils/gameplayTeardown';
@@ -161,6 +161,13 @@ export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: st
 
   return styles;
 }
+
+const formatMsToMinSec = (timeMs: number) => {
+  const totalSecs = Math.max(0, Math.floor(timeMs / 1000));
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
 
 interface GameplayCanvasProps {
   beatmap: Beatmap;
@@ -387,7 +394,11 @@ export default function GameplayCanvas({
   const keysPressedRef = useRef<boolean[]>([]);
   const activeColumnsRef = useRef<boolean[]>([]);
   const hasKeyPressedOnceRef = useRef<boolean[]>([]);
-  const progressBarRef = useRef<HTMLDivElement>(null);
+  const progressBarRef = useRef<any>(null);
+  const isScrubbingRef = useRef<boolean>(false);
+  const wasPlayingRef = useRef<boolean>(false);
+  const timeLabelRef = useRef<HTMLSpanElement>(null);
+  const isReplayMode = !!replayRecord;
   
   // Dynamic visual visualizers
   const particlesRef = useRef<Particle[]>([]);
@@ -1087,7 +1098,7 @@ export default function GameplayCanvas({
     let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
     state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
 
-    if (state.hp <= 0 && !settings.selectedMods?.includes('NF')) {
+    if (state.hp <= 0 && !settings.selectedMods?.includes('NF') && !isReplayMode) {
       state.failed = true;
       isPlayingRef.current = false;
       setIsFailed(true);
@@ -1288,7 +1299,21 @@ export default function GameplayCanvas({
       if (progressBarRef.current) {
         const totalDurationMs = beatmap.duration * 1000;
         const progressPercent = totalDurationMs > 0 ? Math.min(100, Math.max(0, (songTime / totalDurationMs) * 100)) : 0;
-        progressBarRef.current.style.width = `${progressPercent}%`;
+        
+        if (progressBarRef.current.tagName === 'INPUT') { // It's the replay scrubber
+            const inputEl = progressBarRef.current as HTMLInputElement;
+            if (!isScrubbingRef.current) {
+                inputEl.value = (Math.max(0, songTime)).toString();
+                inputEl.style.background = `linear-gradient(to right, #06b6d4 ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%)`;
+            }
+        } else {
+            progressBarRef.current.style.width = `${progressPercent}%`;
+        }
+      }
+
+      if (timeLabelRef.current && !isScrubbingRef.current) {
+        const totalMs = beatmap.duration * 1000;
+        timeLabelRef.current.innerText = `${formatMsToMinSec(songTime)} / ${formatMsToMinSec(totalMs)}`;
       }
 
       // Replay simulation playback
@@ -2217,8 +2242,17 @@ export default function GameplayCanvas({
     if (showCountdown > 0 || unpauseCountdown > 0 || scoreStateRef.current.failed) return;
 
     if (isPaused) {
-      // Start recovery countdown instead of starting immediately
-      setUnpauseCountdown(3);
+      if (isReplayMode) {
+        setIsPaused(false);
+        isPlayingRef.current = true;
+        mainAudio.play(beatmap.bpm, settings.audioOffset);
+        if (videoRef.current) {
+          try { videoRef.current.play(); } catch (e) {}
+        }
+      } else {
+        // Start recovery countdown instead of starting immediately
+        setUnpauseCountdown(3);
+      }
     } else {
       setIsPaused(true);
       isPlayingRef.current = false;
@@ -2226,6 +2260,252 @@ export default function GameplayCanvas({
       if (videoRef.current) {
         try { videoRef.current.pause(); } catch (e) {}
       }
+    }
+  };
+
+  const simulateGameToTime = (targetTimeMs: number) => {
+    // 1. Reset all notes to default states
+    notesRef.current = (beatmap.notes || []).map(note => ({
+      ...note,
+      isHit: false,
+      isReleased: false,
+      isMissed: false,
+      isHoldFailed: false,
+      hitTime: undefined,
+      releaseTime: undefined,
+      releaseGraceUntil: undefined
+    }));
+
+    // 2. Reset keyboard arrays
+    keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
+    activeColumnsRef.current = new Array(beatmap.keyCount).fill(false);
+    laneGlowRef.current = new Array(beatmap.keyCount).fill(0);
+    hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
+
+    // 3. Reset score tracking
+    scoreStateRef.current = {
+      score: 0,
+      combo: 0,
+      maxCombo: 0,
+      hp: 100,
+      marvelousCount: 0,
+      perfectCount: 0,
+      greatCount: 0,
+      goodCount: 0,
+      badCount: 0,
+      missCount: 0,
+      accuracy: 100,
+      completed: false,
+      failed: false,
+    };
+
+    // Reset hit error timing ticks
+    hitErrorTicksRef.current = [];
+
+    if (!replayData || replayData.length === 0) {
+      setUiScore(0);
+      setUiCombo(0);
+      setUiHp(100);
+      return;
+    }
+
+    // Helper functions for chronological simulation
+    const simApplyJudgement = (judg: JudgementWindow) => {
+      const state = scoreStateRef.current;
+      if (judg.type === 'miss') {
+        state.missCount++;
+        state.combo = 0;
+      } else {
+        state.combo++;
+        if (state.combo > state.maxCombo) {
+          state.maxCombo = state.combo;
+        }
+        if (judg.type === 'marvelous') state.marvelousCount++;
+        else if (judg.type === 'perfect') state.perfectCount++;
+        else if (judg.type === 'great') state.greatCount++;
+        else if (judg.type === 'good') state.goodCount++;
+        else if (judg.type === 'bad') state.badCount++;
+      }
+      let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
+      state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
+
+      const totalHits = state.perfectCount + state.marvelousCount + state.greatCount + state.goodCount + state.badCount + state.missCount;
+      if (totalHits > 0) {
+        const weightedSum = 
+          state.marvelousCount * 320 +
+          state.perfectCount * 300 +
+          state.greatCount * 200 +
+          state.goodCount * 100 +
+          state.badCount * 50;
+        const maxPossibleSum = totalHits * 320;
+        state.accuracy = parseFloat(((weightedSum / maxPossibleSum) * 100).toFixed(2));
+      }
+
+      const baseUnit = 1000000 / notesRef.current.length;
+      let noteScorePoints = 0;
+      if (judg.type === 'marvelous') noteScorePoints = baseUnit;
+      else if (judg.type === 'perfect') noteScorePoints = baseUnit * 0.95;
+      else if (judg.type === 'great') noteScorePoints = baseUnit * 0.7;
+      else if (judg.type === 'good') noteScorePoints = baseUnit * 0.4;
+      else if (judg.type === 'bad') noteScorePoints = baseUnit * 0.15;
+      
+      state.score = Math.floor(Math.min(1000000, state.score + noteScorePoints));
+    };
+
+    const simTriggerHit = (colIndex: number, frameTime: number) => {
+      const activeHoldAndReleased = notesRef.current.find(
+        (n) => n.column === colIndex && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.releaseGraceUntil
+      );
+      if (activeHoldAndReleased) {
+        activeHoldAndReleased.releaseGraceUntil = undefined;
+        return;
+      }
+      const note = notesRef.current.find(
+        (n) => n.column === colIndex && !n.isHit && !n.isMissed
+      );
+      if (!note) return;
+      const diff = frameTime - note.time;
+      const absDiff = Math.abs(diff);
+      const maxWindow = judgementWindows[judgementWindows.length - 1].windowMs;
+      if (diff < -maxWindow) {
+        return; 
+      }
+      let resolvedJudgement = judgementWindows[judgementWindows.length - 1]; // Miss
+      for (const wind of judgementWindows) {
+        if (absDiff <= wind.windowMs) {
+          resolvedJudgement = wind;
+          break;
+        }
+      }
+      if (resolvedJudgement.type !== 'miss') {
+        note.isHit = true;
+        note.hitTime = frameTime;
+        simApplyJudgement(resolvedJudgement);
+      }
+    };
+
+    const simTriggerRelease = (colIndex: number, frameTime: number) => {
+      const holdNote = notesRef.current.find(
+        (n) => n.column === colIndex && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed
+      );
+      if (!holdNote || !holdNote.endTime) return;
+      const endDiff = frameTime - holdNote.endTime;
+      const absEndDiff = Math.abs(endDiff);
+      if (endDiff < -181) {
+        holdNote.releaseGraceUntil = frameTime + 180;
+        return;
+      }
+      const greatWindow = greatJudg.windowMs;
+      const missWindow = missJudg.windowMs;
+      holdNote.isReleased = true;
+      holdNote.releaseTime = frameTime;
+      if (absEndDiff <= greatWindow) {
+        simApplyJudgement(marvelousJudg);
+      } else if (absEndDiff <= missWindow) {
+        simApplyJudgement(goodJudg);
+      } else {
+        holdNote.isHoldFailed = true;
+        simApplyJudgement(missJudg);
+      }
+    };
+
+    const simCheckAutonomousMisses = (currentTime: number) => {
+      notesRef.current.forEach((n) => {
+        if (!n.isHit && !n.isMissed && currentTime - n.time > missJudg.windowMs) {
+          n.isMissed = true;
+          simApplyJudgement(missJudg);
+        }
+        if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime && currentTime - n.endTime > missJudg.windowMs) {
+          if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
+             n.isHoldFailed = true;
+             simApplyJudgement(missJudg);
+          } else if (!n.releaseGraceUntil) {
+             n.isHoldFailed = true;
+             simApplyJudgement(missJudg);
+          }
+        }
+      });
+    };
+
+    // Play chronological replay frames up to targetTimeMs
+    const historicalFrames = replayData.filter(f => f.time <= targetTimeMs);
+    let prevKeys = new Array(beatmap.keyCount).fill(false);
+
+    historicalFrames.forEach(frame => {
+      // 1. Check autonomous misses at this frame time
+      simCheckAutonomousMisses(frame.time);
+
+      // 2. Process keyboard changes
+      for (let col = 0; col < beatmap.keyCount; col++) {
+        const wasPressed = prevKeys[col];
+        const isCurrentlyPressed = frame.keysPressed[col];
+        if (!wasPressed && isCurrentlyPressed) {
+          simTriggerHit(col, frame.time);
+        } else if (wasPressed && !isCurrentlyPressed) {
+          simTriggerRelease(col, frame.time);
+        }
+        prevKeys[col] = isCurrentlyPressed;
+      }
+    });
+
+    // 3. Sweep up to targetTimeMs
+    simCheckAutonomousMisses(targetTimeMs);
+
+    // Sync key states to the last frame if available
+    if (historicalFrames.length > 0) {
+      const lastFrame = historicalFrames[historicalFrames.length - 1];
+      keysPressedRef.current = [...lastFrame.keysPressed];
+      activeColumnsRef.current = [...lastFrame.keysPressed];
+    } else {
+      keysPressedRef.current.fill(false);
+      activeColumnsRef.current.fill(false);
+    }
+
+    lastProcessedReplayTimeRef.current = targetTimeMs;
+
+    // Synchronize UI view hooks
+    setUiScore(scoreStateRef.current.score);
+    setUiCombo(scoreStateRef.current.combo);
+    setUiHp(scoreStateRef.current.hp);
+  };
+
+  const handleSeek = (newTimeMs: number) => {
+    mainAudio.seekTo(newTimeMs / 1000);
+    audioTimeRef.current = newTimeMs;
+    smoothOffsetRef.current = settings.audioOffset;
+    if (videoRef.current) {
+       videoRef.current.currentTime = newTimeMs / 1000;
+    }
+    
+    // reset visuals
+    hitErrorTicksRef.current = [];
+    currentJudgementRef.current = null;
+    particlesRef.current = [];
+    laneGlowRef.current.fill(0);
+    screenShakeRef.current = 0;
+    
+    if (isReplayMode) {
+      simulateGameToTime(newTimeMs);
+    } else {
+      // Normal playing seek
+      // Hide or miss nodes prior to the seek point so they don't pile up on screen
+      notesRef.current.forEach(n => {
+         if (n.time < newTimeMs - 200) {
+             n.isHit = true; 
+             n.isMissed = false;
+             n.isReleased = true; // Complete any hold notes
+             n.isHoldFailed = false;
+         } else {
+             n.isHit = false;
+             n.isMissed = false;
+             n.isReleased = false;
+             n.isHoldFailed = false;
+             n.hitTime = undefined;
+             n.releaseTime = undefined;
+             n.releaseGraceUntil = undefined;
+         }
+      });
+      lastProcessedReplayTimeRef.current = newTimeMs;
     }
   };
 
@@ -2908,24 +3188,141 @@ export default function GameplayCanvas({
           </div>
         )}
 
-        {/* SONG TIMING PROGRESS BAR */}
+        {/* SONG TIMING PROGRESS BAR OR REPLAY SCRUBBER */}
         {!isPrePlay && (
-          <div 
-            className={`absolute left-0 right-0 z-35 bg-white/5 ${
-              settings.progressBarTop ? 'top-0 h-1.5' : 'bottom-0 h-1.5'
-            }`}
+          <div className={`absolute left-0 right-0 z-35 ${
+            isReplayMode ? (settings.progressBarTop ? 'top-0' : 'bottom-0 flex flex-col justify-end') :
+            (settings.progressBarTop ? 'top-0 h-1.5' : 'bottom-0 h-1.5')
+          } pointer-events-none transition-all duration-300`}
           >
-            <div 
-              ref={progressBarRef}
-              className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_8px_rgba(34,211,238,0.7)]"
-              style={{ width: '0%' }}
-            />
+            {isReplayMode ? (
+              <div className="w-full flex flex-col items-center px-4 md:px-8 py-4 bg-slate-950/95 border-t border-white/10 pointer-events-auto backdrop-blur-2xl shadow-[0_-15px_35px_rgba(0,0,0,0.95)] z-40">
+                <div className="w-full max-w-5xl flex flex-col gap-2.5">
+                     
+                     {/* Slider track + Time stamp row */}
+                     <div className="w-full flex items-center justify-between gap-4">
+                        
+                        {/* Play/Pause Button */}
+                        <button
+                           onClick={togglePause}
+                           className="text-white hover:text-cyan-400 hover:bg-white/10 active:scale-95 transition-all bg-white/5 rounded-full cursor-pointer h-10 w-10 flex items-center justify-center shrink-0 border border-white/10"
+                        >
+                           {isPaused ? <Play className="w-5 h-5 fill-current ml-0.5" /> : <Pause className="w-5 h-5 fill-current" />}
+                        </button>
+
+                        <div className="flex-1 w-full relative group py-2">
+                           <input 
+                              ref={progressBarRef as React.Ref<HTMLInputElement>}
+                              type="range"
+                              min="0"
+                              max={beatmap.duration * 1000}
+                              step="1"
+                              defaultValue={0}
+                              onPointerDown={() => {
+                                  isScrubbingRef.current = true;
+                                  wasPlayingRef.current = isPlayingRef.current && !isPaused;
+                                  mainAudio.pause();
+                                  if (videoRef.current) {
+                                      try { videoRef.current.pause(); } catch (e) {}
+                                  }
+                              }}
+                              onPointerUp={(e) => { 
+                                  isScrubbingRef.current = false; 
+                                  const newTime = Number((e.target as HTMLInputElement).value);
+                                  handleSeek(newTime);
+                                  if (wasPlayingRef.current) {
+                                      mainAudio.play(beatmap.bpm, settings.audioOffset);
+                                      if (videoRef.current) {
+                                          try { videoRef.current.play(); } catch (e) {}
+                                      }
+                                  }
+                              }}
+                              onChange={(e) => {
+                                  const newTime = Number(e.target.value);
+                                  const totalMs = beatmap.duration * 1000;
+                                  const progressPercent = totalMs > 0 ? (newTime / totalMs) * 100 : 0;
+                                  e.target.style.background = `linear-gradient(to right, #06b6d4 ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%)`;
+                                  
+                                  if (timeLabelRef.current) {
+                                      timeLabelRef.current.innerText = `${formatMsToMinSec(newTime)} / ${formatMsToMinSec(totalMs)}`;
+                                  }
+                                  simulateGameToTime(newTime);
+                                  audioTimeRef.current = newTime;
+                                  if (videoRef.current) {
+                                      videoRef.current.currentTime = newTime / 1000;
+                                  }
+                              }}
+                              className="w-full h-2 rounded-full appearance-none outline-none cursor-pointer group-hover:h-2.5 transition-all z-10 block bg-white/20"
+                              style={{
+                                 background: `linear-gradient(to right, #06b6d4 0%, rgba(255,255,255,0.15) 0%)`,
+                                 WebkitAppearance: 'none',
+                              }}
+                           />
+                           <style dangerouslySetInnerHTML={{__html: `
+                              input[type=range]::-webkit-slider-thumb {
+                                -webkit-appearance: none;
+                                appearance: none;
+                                width: 14px;
+                                height: 14px;
+                                border-radius: 50%;
+                                background: #ffffff;
+                                box-shadow: 0 0 10px rgba(6, 182, 212, 0.9), 0 0 4px rgba(255, 255, 255, 0.5);
+                                border: 2px solid #06b6d4;
+                                cursor: pointer;
+                                transition: transform 0.15s ease-in-out, background-color 0.1s;
+                              }
+                              input[type=range]:hover::-webkit-slider-thumb, 
+                              input[type=range]:active::-webkit-slider-thumb {
+                                transform: scale(1.4);
+                                background: #06b6d4;
+                                border-color: #ffffff;
+                              }
+                           `}} />
+                        </div>
+
+                        {/* Direct readable Time Stamp HUD */}
+                        <span 
+                           ref={timeLabelRef}
+                           className="font-mono text-sm text-slate-300 font-bold shrink-0 min-w-[110px] text-right"
+                        >
+                           00:00 / 00:00
+                        </span>
+
+                        <div className="flex items-center gap-2.5 shrink-0 border-l border-white/10 pl-4 h-8">
+                            <span className="text-[10px] font-black text-slate-400 tracking-wider uppercase">Speed</span>
+                            <select 
+                               onChange={(e) => {
+                                   const spd = Number(e.target.value);
+                                   mainAudio.setPlaybackRate(spd);
+                                   if (videoRef.current) videoRef.current.playbackRate = spd;
+                               }} 
+                               defaultValue={mainAudio.playbackRate || 1} 
+                               className="bg-white/10 hover:bg-white/15 text-white rounded-md px-2.5 py-1 outline-none font-mono text-xs border border-white/10 cursor-pointer transition-all font-semibold"
+                            >
+                              <option value={0.5}>0.5x</option>
+                              <option value={0.75}>0.75x</option>
+                              <option value={1}>1.0x</option>
+                              <option value={1.5}>1.5x</option>
+                              <option value={2}>2.0x</option>
+                            </select>
+                        </div>
+
+                     </div>
+                </div>
+              </div>
+            ) : (
+              <div 
+                ref={progressBarRef as React.Ref<HTMLDivElement>}
+                className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 shadow-[0_0_8px_rgba(34,211,238,0.7)]"
+                style={{ width: '0%' }}
+              />
+            )}
           </div>
         )}
 
         {/* FLOATING ACCURACY AND SCORE (Bottom Left) */}
         {!isPrePlay && (
-          <div className="absolute left-6 bottom-8 z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+          <div className={`absolute left-6 ${isReplayMode ? 'bottom-28' : 'bottom-8'} z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]`}>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ACCURACY</span>
             <span className="text-2xl md:text-3xl font-black text-cyan-400 font-mono tracking-tight leading-none mb-1">
               {scoreStateRef.current.accuracy.toFixed(2)}%

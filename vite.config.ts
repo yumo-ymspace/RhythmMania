@@ -32,9 +32,5 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-    server: {
-      hmr: true,
-      watch: {},
-    },
   };
 });

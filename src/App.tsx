@@ -85,6 +85,7 @@ export default function App() {
   const [playHistory, setPlayHistory] = useState<PlayHistoryRecord[]>([]);
   const [historyLimit, setHistoryLimit] = useState<number>(50);
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
+  const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
 
   // Load play history & latency settings on mount
   useEffect(() => {
@@ -392,18 +393,17 @@ export default function App() {
     }
 
     // Only commit to performance logs if they are NOT playing a spectator replay and it's a mania map (mode 3)
-    if (selectedBeatmap && !activeReplayRecord && selectedBeatmap.mode === 3) {
+    if (selectedBeatmap && !activeReplayRecord && selectedBeatmap.mode === 3 && finalScore.completed && !finalScore.failed) {
       let gradeChar = 'D';
       const acc = finalScore.accuracy;
-      if (finalScore.failed) gradeChar = 'FAIL';
-      else if (acc >= 100) gradeChar = 'SS';
+      if (acc >= 100) gradeChar = 'SS';
       else if (acc >= 95) gradeChar = 'S';
       else if (acc >= 90) gradeChar = 'A';
       else if (acc >= 80) gradeChar = 'B';
       else if (acc >= 70) gradeChar = 'C';
 
       const newRecord: PlayHistoryRecord = {
-        id: `play_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
         timestamp: Date.now(),
         beatmapId: selectedBeatmap.id,
         beatmapTitle: selectedBeatmap.title,
@@ -433,6 +433,15 @@ export default function App() {
       });
     }
 
+    if (!finalScore.completed || finalScore.failed) {
+      // "pre exited or failed maps will not get the score screen/ will just replay the song/ go back to the song select"
+      setActiveReplayRecord(null);
+      setSelectedBeatmap(null);
+      setScoreState(null);
+      setCurrentScreen('select');
+      return;
+    }
+
     // Do NOT clear spectator frames here so that the results selection knows we are in replay mode
     setScoreState(finalScore);
     setCurrentScreen('results');
@@ -447,8 +456,8 @@ export default function App() {
   return (
     <div 
       id="application-container" 
-      className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative ${
-        (currentScreen === 'play' || currentScreen === 'select') ? 'h-screen overflow-hidden' : 'h-screen overflow-y-auto overflow-x-hidden'
+      className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative h-screen ${
+        (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
       style={{
         backgroundImage: (currentScreen === 'select') 
@@ -539,7 +548,7 @@ export default function App() {
       <main 
         id="app-main-viewport" 
         className={`flex-1 flex flex-col min-h-0 relative ${
-          (currentScreen === 'play' || currentScreen === 'select') 
+          (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results') 
             ? 'w-full h-full' 
             : 'py-6 md:py-12 px-4 md:px-6 z-10'
         }`}
@@ -619,12 +628,17 @@ export default function App() {
               initial="initial"
               animate="animate"
               exit="exit"
-              className="w-full"
+              className="w-full h-full overflow-hidden bg-zinc-950 flex items-center justify-center"
             >
               <ResultsScreen
                 scoreState={scoreState}
                 beatmap={selectedBeatmap}
+                playHistory={playHistory}
                 onRetry={handleRetrySong}
+                onWatchReplay={(record) => {
+                  setViewingHistoryResult(false);
+                  handleWatchReplay(record);
+                }}
                 onBack={() => {
                   try {
                     if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
@@ -635,8 +649,9 @@ export default function App() {
                       }
                     }
                   } catch (e) {}
-                  const returnScreen = activeReplayRecord ? 'history' : 'select';
+                  const returnScreen = activeReplayRecord ? 'history' : (viewingHistoryResult ? 'history' : 'select');
                   setActiveReplayRecord(null);
+                  setViewingHistoryResult(false);
                   if (selectedBeatmap) {
                     if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
                     if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
@@ -645,6 +660,11 @@ export default function App() {
                   setSelectedBeatmap(null);
                   setCurrentScreen(returnScreen);
                 }}
+                onBackToHistory={viewingHistoryResult ? () => {
+                  setViewingHistoryResult(false);
+                  setScoreState(null);
+                  setCurrentScreen('history');
+                } : undefined}
               />
             </motion.div>
           )}
@@ -656,12 +676,25 @@ export default function App() {
               initial="initial"
               animate="animate"
               exit="exit"
-              className="w-full"
+              className="w-full h-full"
             >
               <PersonalHistoryScreen
                 history={playHistory}
                 allBeatmaps={customMaps}
-                onWatchReplay={handleWatchReplay}
+                onWatchReplay={(record) => {
+                  setViewingHistoryResult(false);
+                  handleWatchReplay(record);
+                }}
+                onViewResult={(record) => {
+                  setActiveReplayRecord(null);
+                  setScoreState(record.scoreState);
+                  const bm = customMaps.find(m => m.id === record.beatmapId);
+                  if (bm) {
+                      setSelectedBeatmap(bm);
+                      setViewingHistoryResult(true);
+                      setCurrentScreen('results');
+                  }
+                }}
                 onClearHistory={handleClearHistory}
                 onDeleteRecord={handleDeleteHistoryRecord}
                 historyLimit={historyLimit}

@@ -32,7 +32,7 @@ export interface PackageRecord {
 }
 
 const DB_NAME = 'RhythmManiaDB';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 class SimpleBlobCache {
   private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string }>();

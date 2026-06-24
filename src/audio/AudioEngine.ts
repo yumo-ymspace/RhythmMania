@@ -241,6 +241,56 @@ export class AudioEngine {
     this.stopBackupSynthSequencer();
   }
 
+  public setPlaybackRate(rate: number) {
+    if (this.playbackRate === rate) return;
+    
+    // If playing, we need to precisely track elapsed time at the old rate before switching
+    if (this.isPlaying && this.ctx) {
+      const audioContextTime = this.ctx.currentTime;
+      this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
+      this.startTime = audioContextTime; // Reset baseline for the new rate
+      this.lastAudioTime = this.ctx.currentTime;
+      this.lastSystemTime = performance.now();
+    }
+    
+    this.playbackRate = rate;
+    
+    if (this.musicSource) {
+      this.musicSource.playbackRate.value = rate;
+    }
+  }
+
+  public seekTo(timeSeconds: number) {
+    this.pauseTime = timeSeconds;
+    
+    if (this.isPlaying && this.ctx) {
+      // Stop current playback to restart it from the new seek point
+      if (this.musicSource) {
+        try {
+          this.musicSource.stop();
+        } catch (e) {}
+        this.musicSource = null;
+      }
+      this.stopBackupSynthSequencer();
+      
+      const audioContextTime = this.ctx.currentTime;
+      this.startTime = audioContextTime;
+      this.lastAudioTime = audioContextTime;
+      this.lastSystemTime = performance.now();
+      
+      if (this.musicBuffer) {
+        this.musicSource = this.ctx.createBufferSource();
+        this.musicSource.buffer = this.musicBuffer;
+        this.musicSource.connect(this.musicGain!);
+        this.musicSource.playbackRate.value = this.playbackRate;
+        this.musicSource.start(0, this.pauseTime);
+      } else {
+        this.proceduralTimeStart = audioContextTime - (this.pauseTime / this.playbackRate);
+        this.startBackupSynthSequencer();
+      }
+    }
+  }
+
   public stop() {
     this.pause();
     this.pauseTime = 0;

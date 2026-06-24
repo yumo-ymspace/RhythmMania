@@ -18,7 +18,7 @@ const BEATMAP_CACHE_NAME = 'rhythm-mania-beatmaps';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/public/beatmaps/manifest.json',
+  '/beatmaps/manifest.json',
   '/metadata.json'
 ];
 

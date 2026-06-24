@@ -10,32 +10,30 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Play, 
   Trash2, 
   Database, 
   Award, 
-  Info, 
   Calendar, 
   Search, 
   Sliders, 
-  ShieldAlert,
-  ChevronDown,
-  ChevronUp,
-  Loader,
   Music,
-  CheckCircle,
-  AlertTriangle
+  ChevronRight,
+  Sparkles,
+  Trophy,
+  Flame,
+  Clock,
+  ArrowRight
 } from 'lucide-react';
 import { PlayHistoryRecord, Beatmap } from '../types';
-import { unpackBeatmap } from '../utils/unpackHelper';
-import { storageManager } from '../utils/storageManager';
 
 interface PersonalHistoryScreenProps {
   history: PlayHistoryRecord[];
   allBeatmaps: Beatmap[];
   onWatchReplay: (record: PlayHistoryRecord) => void;
+  onViewResult?: (record: PlayHistoryRecord) => void;
   onClearHistory: () => void;
   onDeleteRecord: (id: string) => void;
   historyLimit: number;
@@ -46,6 +44,7 @@ export default function PersonalHistoryScreen({
   history,
   allBeatmaps,
   onWatchReplay,
+  onViewResult,
   onClearHistory,
   onDeleteRecord,
   historyLimit,
@@ -53,29 +52,15 @@ export default function PersonalHistoryScreen({
 }: PersonalHistoryScreenProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
-  const [expandedSongKey, setExpandedSongKey] = useState<string | null>(null);
-  const [selectedRecord, setSelectedRecord] = useState<PlayHistoryRecord | null>(null);
-  const [isUnpacking, setIsUnpacking] = useState(false);
-  const [unpackError, setUnpackError] = useState<string | null>(null);
-  const [unpackStage, setUnpackStage] = useState<string>('');
+  
+  // Track selected song
+  const [selectedSongKey, setSelectedSongKey] = useState<string | null>(null);
+  // Track selected difficulty under active song
+  const [selectedDifficultyId, setSelectedDifficultyId] = useState<string | null>(null);
 
-  const selectedMap = selectedRecord ? allBeatmaps.find(b => b.id === selectedRecord.beatmapId) : null;
-
-  const maxScore = history.length > 0 ? Math.max(...history.map(r => r.score)) : 0;
-
-  // Filter history records by search term
-  const filteredHistory = useMemo(() => {
-    return history.filter(record => {
-      const titleMatch = (record.beatmapTitle || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const artistMatch = (record.beatmapArtist || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const gradeMatch = (record.grade || '').toLowerCase().includes(searchTerm.toLowerCase());
-      return titleMatch || artistMatch || gradeMatch;
-    });
-  }, [history, searchTerm]);
-
-  // Group filtered history records by title and artist
-  const songGroups = useMemo(() => {
-    const groupsMap = new Map<string, {
+  // Group history records by unique song
+  const playedSongs = useMemo(() => {
+    const map = new Map<string, {
       songKey: string;
       title: string;
       artist: string;
@@ -83,16 +68,19 @@ export default function PersonalHistoryScreen({
       records: PlayHistoryRecord[];
     }>();
 
-    filteredHistory.forEach((record) => {
+    // Filter to only successful, solid game logs (not failed)
+    history.forEach((record) => {
+      if (record.isFailed) return;
+      
       const title = record.beatmapTitle || 'Untitled';
       const artist = record.beatmapArtist || 'Unknown';
       const songKey = `${artist.toLowerCase().trim()} - ${title.toLowerCase().trim()}`;
 
-      // Find beatmap for bgUrl lookup
-      const map = allBeatmaps.find(b => b.id === record.beatmapId);
-      const bgUrl = map?.bgUrl;
+      // Retrieve actual beatmap reference if available for art backgrounds
+      const matchedMap = allBeatmaps.find(b => b.id === record.beatmapId);
+      const bgUrl = matchedMap?.bgUrl;
 
-      let group = groupsMap.get(songKey);
+      let group = map.get(songKey);
       if (!group) {
         group = {
           songKey,
@@ -101,85 +89,108 @@ export default function PersonalHistoryScreen({
           bgUrl,
           records: []
         };
-        groupsMap.set(songKey, group);
+        map.set(songKey, group);
       }
       group.records.push(record);
     });
 
-    // Sort records inside each group by timestamp descending
-    groupsMap.forEach(group => {
-      group.records.sort((a, b) => b.timestamp - a.timestamp);
+    // Sort song items by their latest play date (newest first)
+    return Array.from(map.values()).sort((a, b) => {
+      const latestA = Math.max(...a.records.map(r => r.timestamp));
+      const latestB = Math.max(...b.records.map(r => r.timestamp));
+      return latestB - latestA;
+    });
+  }, [history, allBeatmaps]);
+
+  // Search filtering on song titles/artists
+  const filteredSongs = useMemo(() => {
+    if (!searchTerm) return playedSongs;
+    return playedSongs.filter(s => 
+      s.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      s.artist.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [playedSongs, searchTerm]);
+
+  // Auto-select first song if none selected or selection becomes invalid
+  useEffect(() => {
+    if (filteredSongs.length > 0) {
+      if (!selectedSongKey || !filteredSongs.some(s => s.songKey === selectedSongKey)) {
+        setSelectedSongKey(filteredSongs[0].songKey);
+      }
+    } else {
+      setSelectedSongKey(null);
+    }
+  }, [filteredSongs, selectedSongKey]);
+
+  // Selected song group representation
+  const selectedSong = useMemo(() => {
+    return playedSongs.find(s => s.songKey === selectedSongKey) || null;
+  }, [playedSongs, selectedSongKey]);
+
+  // Extract unique played map difficulties matching this song card
+  const difficulties = useMemo(() => {
+    if (!selectedSong) return [];
+    
+    const diffMap = new Map<string, {
+      beatmapId: string;
+      difficultyName: string;
+      keyCount: number;
+      starRating: number;
+      records: PlayHistoryRecord[];
+    }>();
+
+    selectedSong.records.forEach(r => {
+      const bm = allBeatmaps.find(b => b.id === r.beatmapId);
+      const diffName = bm?.difficulty || `${r.keyCount}K Standard`;
+      const stars = bm ? (Number(bm.difficulty) * 0.5 + 2) : 4.50;
+
+      let diffGroup = diffMap.get(r.beatmapId);
+      if (!diffGroup) {
+        diffGroup = {
+          beatmapId: r.beatmapId,
+          difficultyName: diffName,
+          keyCount: r.keyCount,
+          starRating: stars,
+          records: []
+        };
+        diffMap.set(r.beatmapId, diffGroup);
+      }
+      diffGroup.records.push(r);
     });
 
-    return Array.from(groupsMap.values());
-  }, [filteredHistory, allBeatmaps]);
+    // Sort difficulty settings (key count, star rating descending)
+    return Array.from(diffMap.values()).sort((a, b) => b.starRating - a.starRating);
+  }, [selectedSong, allBeatmaps]);
 
-  // Handle selecting an individual replay without unpacking
-  const handleSelectRecord = (record: PlayHistoryRecord) => {
-    setSelectedRecord(record);
-    setUnpackError(null);
-  };
-
-  const handleWatchReplayClick = async () => {
-    if (!selectedRecord || isUnpacking) return;
-    
-    const map = allBeatmaps.find(b => b.id === selectedRecord.beatmapId);
-    if (!map) {
-      setUnpackError("Beatmap reference not found in your local inventory.");
-      return;
+  // Automatically default active difficulty when song swaps
+  useEffect(() => {
+    if (difficulties.length > 0) {
+      // Keep selected is still there, else update to first
+      if (!selectedDifficultyId || !difficulties.some(d => d.beatmapId === selectedDifficultyId)) {
+        setSelectedDifficultyId(difficulties[0].beatmapId);
+      }
+    } else {
+      setSelectedDifficultyId(null);
     }
+  }, [difficulties, selectedDifficultyId]);
 
-    setIsUnpacking(true);
-    setUnpackError(null);
+  // Find active difficulty object
+  const activeDifficulty = useMemo(() => {
+    if (!selectedDifficultyId) return null;
+    return difficulties.find(d => d.beatmapId === selectedDifficultyId) || null;
+  }, [difficulties, selectedDifficultyId]);
 
-    try {
-      setUnpackStage("Initializing replay environment...");
-      
-      // Ensure any blob references on this map are cleared prior to launching replay
-      if (map.audioUrl?.startsWith('blob:')) map.audioUrl = '';
-      if (map.videoUrl?.startsWith('blob:')) map.videoUrl = '';
-      if (map.bgUrl?.startsWith('blob:')) map.bgUrl = '';
-      storageManager.lruMediaCache.evict(map.id);
+  // High score calculations
+  const bestRecord = useMemo(() => {
+    if (!activeDifficulty || activeDifficulty.records.length === 0) return null;
+    return [...activeDifficulty.records].sort((a, b) => b.score - a.score)[0];
+  }, [activeDifficulty]);
 
-      // Blocking pacing delay so the user sees the loading state on the button
-      await new Promise(resolve => setTimeout(resolve, 800));
-    } catch (e) {
-      console.error('Failed preparing watch replay:', e);
-    } finally {
-      setIsUnpacking(false);
-    }
-
-    onWatchReplay(selectedRecord);
-  };
-
-  const handleDeleteRecord = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onDeleteRecord(id);
-    if (selectedRecord && selectedRecord.id === id) {
-      setSelectedRecord(null);
-    }
-  };
-
-  const getRankBadgeProps = (grade: string) => {
-    switch (grade.toUpperCase()) {
-      case 'SS':
-        return { bg: 'bg-cyan-500/10 border-cyan-400/30 text-cyan-400', shadow: 'shadow-[0_0_12px_rgba(34,211,238,0.2)]' };
-      case 'S':
-        return { bg: 'bg-amber-500/10 border-amber-400/30 text-amber-400', shadow: 'shadow-[0_0_12px_rgba(245,158,11,0.2)]' };
-      case 'A':
-        return { bg: 'bg-emerald-500/10 border-emerald-400/30 text-emerald-400', shadow: 'shadow-[0_0_10px_rgba(16,185,129,0.15)]' };
-      case 'B':
-        return { bg: 'bg-indigo-500/10 border-indigo-400/30 text-indigo-400', shadow: '' };
-      case 'C':
-        return { bg: 'bg-pink-500/10 border-pink-400/30 text-pink-400', shadow: '' };
-      case 'D':
-        return { bg: 'bg-slate-500/10 border-slate-400/30 text-slate-300', shadow: '' };
-      case 'FAIL':
-        return { bg: 'bg-rose-500/10 border-rose-400/30 text-rose-400 line-through', shadow: 'shadow-[0_0_12px_rgba(244,63,94,0.15)]' };
-      default:
-        return { bg: 'bg-slate-800 border-slate-700 text-slate-400', shadow: '' };
-    }
-  };
+  // Latest record (passed to trigger results view)
+  const latestRecord = useMemo(() => {
+    if (!activeDifficulty || activeDifficulty.records.length === 0) return null;
+    return [...activeDifficulty.records].sort((a, b) => b.timestamp - a.timestamp)[0];
+  }, [activeDifficulty]);
 
   const formatDate = (timestamp: number) => {
     try {
@@ -191,68 +202,69 @@ export default function PersonalHistoryScreen({
   };
 
   return (
-    <div id="personal-history-view-container" className="flex flex-col gap-6 w-full max-w-6xl mx-auto h-full p-2 lg:p-4 text-slate-100 pb-16 animate-fade-in">
+    <div id="personal-history-view-container" className="flex flex-col w-full h-full text-slate-100 animate-fade-in select-none bg-zinc-950 overflow-hidden">
       
-      {/* SAFETY NOTICE OVERLAY */}
-      <div className="bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-xl flex items-center justify-center text-center backdrop-blur-sm">
-        <p className="text-[11px] font-sans text-indigo-200 tracking-wide">
-          <strong className="text-indigo-400 font-black uppercase tracking-widest mr-1.5">Safety Notice:</strong>
-          Clearing browser memory or wiping local storage will erase performance records and encoded replay timelines.
+      {/* WARNING NOTICE LINE */}
+      <div className="bg-indigo-500/10 border-b border-indigo-500/20 px-4 py-2 flex items-center justify-center text-center backdrop-blur-sm shrink-0">
+        <p className="text-[11px] font-sans text-indigo-300 tracking-wide">
+          <strong className="text-indigo-400 font-extrabold uppercase tracking-widest mr-1.5">Note:</strong>
+          Performance results, hit grades, and replay telemetry are cached safely inside your local client sandbox.
         </p>
       </div>
 
-      {/* SECTION HEADER BLOCK */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#08080C]/90 border border-white/5 p-5 rounded-2xl shadow-xl gap-4 backdrop-blur-md">
-        <div className="flex items-center gap-3.5">
-          <span className="p-3.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-400/20">
+      {/* HEADER SECTION PANEL */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#08080C] border-b border-white/5 p-4 md:px-8 gap-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-400/20 shrink-0">
             <Award className="h-5 w-5" />
           </span>
           <div>
-            <span className="text-[9px] text-slate-500 font-mono tracking-widest uppercase">// PERFORMANCE STATION</span>
-            <h2 className="text-lg font-black font-sans leading-none mt-1 tracking-wider uppercase italic text-white flex items-center gap-1.5">
-              Personal Performance History
+            <span className="text-[9px] text-zinc-500 font-mono tracking-widest uppercase block">// ARCHIVES CHANNEL</span>
+            <h2 className="text-base font-black font-sans leading-none mt-1 tracking-wider uppercase italic text-white">
+              Played Songs History
             </h2>
           </div>
         </div>
 
-        {/* CONTROLS AREA */}
+        {/* SYSTEM RETENTION CONTROLS */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* LIMIT OPTIONS */}
-          <div className="flex items-center gap-2 bg-black/40 border border-white/5 px-3 py-2 rounded-xl text-xs text-slate-400">
+          {/* LIMIT PICKER */}
+          <div className="flex items-center gap-2 bg-black/40 border border-white/5 px-3 py-1.5 rounded-xl text-xs text-slate-400">
             <Sliders className="h-3.5 w-3.5 text-indigo-400" />
-            <span className="font-sans font-medium uppercase text-[10px] tracking-wider">Max plays kept:</span>
+            <span className="uppercase text-[9px] tracking-wider font-extrabold text-zinc-500">Log policy:</span>
             <select
               value={historyLimit}
               onChange={(e) => onSetHistoryLimit(Number(e.target.value))}
-              className="bg-[#08080C] text-slate-200 outline-none border-none py-0.5 px-1 rounded hover:text-white font-black cursor-pointer"
+              className="bg-zinc-950 text-slate-200 outline-none border-none py-0.5 px-1 rounded hover:text-white font-extrabold cursor-pointer text-[11px]"
             >
-              <option value="10">10 plays</option>
-              <option value="25">25 plays</option>
-              <option value="50">50 plays</option>
-              <option value="100">100 plays</option>
+              <option value="10">Keep 10 runs</option>
+              <option value="25">Keep 25 runs</option>
+              <option value="50">Keep 50 runs</option>
+              <option value="100">Keep 100 runs</option>
               <option value="9999">Unlimited</option>
             </select>
           </div>
 
-          {/* CLEAR OPTION */}
+          {/* RESET DATABASE */}
           {history.length > 0 && (
             <div className="relative">
               {showConfirmClear ? (
-                <div className="flex items-center gap-1.5 bg-rose-950/30 border border-rose-500/20 rounded-xl p-1 animate-scale-in">
-                  <span className="text-[10px] font-extrabold text-rose-400 uppercase tracking-wider px-2">Clear all?</span>
+                <div className="flex items-center gap-1 bg-rose-950/40 border border-rose-500/20 rounded-xl p-0.5 animate-scale-in">
+                  <span className="text-[9px] font-extrabold text-rose-400 uppercase tracking-widest px-2">Erase all?</span>
                   <button
                     onClick={() => {
                       onClearHistory();
-                      setSelectedRecord(null);
+                      setSelectedSongKey(null);
+                      setSelectedDifficultyId(null);
                       setShowConfirmClear(false);
                     }}
-                    className="bg-rose-600 hover:bg-rose-500 text-white font-sans text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider cursor-pointer"
+                    className="bg-rose-600 hover:bg-rose-500 text-white font-sans text-[9px] font-extrabold px-2 py-1 rounded-lg uppercase tracking-wide cursor-pointer"
                   >
-                    Yes
+                    Confirm
                   </button>
                   <button
                     onClick={() => setShowConfirmClear(false)}
-                    className="bg-white/5 hover:bg-white/10 text-slate-300 font-sans text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider cursor-pointer"
+                    className="bg-white/5 hover:bg-white/10 text-slate-300 font-sans text-[9px] font-extrabold px-2 py-1 rounded-lg uppercase tracking-wide cursor-pointer"
                   >
                     No
                   </button>
@@ -260,9 +272,9 @@ export default function PersonalHistoryScreen({
               ) : (
                 <button
                   onClick={() => setShowConfirmClear(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-sans text-[10px] font-black uppercase tracking-wider rounded-xl border border-rose-500/15 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-sans text-[10px] font-extrabold uppercase tracking-wider rounded-xl border border-rose-500/15 transition-all cursor-pointer"
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> Wipe Saved Runs
+                  <Trash2 className="h-3.5 w-3.5" /> Wipe Logs
                 </button>
               )}
             </div>
@@ -270,311 +282,255 @@ export default function PersonalHistoryScreen({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      {/* CORE WORKSPACE GRID */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 items-stretch bg-zinc-950 overflow-hidden">
         
-        {/* LEFT COLUMN: HISTORY DATABASE GROUPED BY SONG */}
-        <div className="lg:col-span-8 flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+        {/* LEFT COMPONENT: SONG SELECTOR STREAM */}
+        <div className="lg:col-span-4 xl:col-span-3 flex flex-col bg-[#0c0c12] border-r border-white/5 shrink-0 overflow-y-auto scrollbar-none h-full p-4 md:p-6 gap-4">
+          
+          {/* SEARCH BAR ELEMENT */}
+          <div className="relative shrink-0">
+            <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
             <input 
               id="history-search-input"
               type="text"
-              placeholder="Search historical records by song title, artist, or ranking grade..."
+              placeholder="Search played song catalogs..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-black/40 border border-white/5 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/30 transition-all"
+              className="w-full pl-10 pr-4 py-2 bg-black/40 border border-white/5 rounded-xl font-sans text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/25 transition-all"
             />
           </div>
 
-          <div className="space-y-3.5">
-            {songGroups.length > 0 ? (
-              songGroups.map((group) => {
-                const isGroupExpanded = expandedSongKey === group.songKey;
-                const hasSelectedRecordInGroup = group.records.some(r => r.id === selectedRecord?.id);
+          {/* CLEAN SONGS LIST CONTAINER */}
+          <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1 select-none scrollbar-thin scrollbar-thumb-white/5">
+            {filteredSongs.length > 0 ? (
+              filteredSongs.map((song) => {
+                const isSelected = selectedSongKey === song.songKey;
 
                 return (
-                  <div key={group.songKey} className="flex flex-col gap-1 transition-all">
-                    
-                    {/* SONG CARD HEADER - Click to Expand / Collapse */}
-                    <div
-                      onClick={() => setExpandedSongKey(isGroupExpanded ? null : group.songKey)}
-                      className={`p-3 rounded-xl flex items-center justify-between gap-3.5 border transition-all relative overflow-hidden backdrop-blur-md cursor-pointer ${
-                        isGroupExpanded
-                          ? 'bg-gradient-to-r from-slate-900/90 to-[#0e0e15]/90 border-indigo-500/25 shadow-sm'
-                          : hasSelectedRecordInGroup
-                            ? 'bg-gradient-to-r from-indigo-950/20 to-[#08080c]/90 border-indigo-500/40 hover:border-indigo-500/60 shadow-sm'
-                            : 'bg-[#08080C]/90 border-white/[0.03] hover:border-white/10 hover:bg-slate-950/90 opacity-90'
-                      }`}
-                    >
-                      {/* Subtly tint background with song picture */}
-                      {group.bgUrl && (
-                        <div 
-                          className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.035] pointer-events-none scale-105 select-none blur-sm"
-                          style={{ backgroundImage: `url(${group.bgUrl})` }}
-                        />
-                      )}
+                  <div
+                    key={song.songKey}
+                    onClick={() => {
+                      setSelectedSongKey(song.songKey);
+                      setSelectedDifficultyId(null); // Reset diff on change
+                    }}
+                    className={`p-3 rounded-xl flex items-center justify-between gap-3 border transition-all relative overflow-hidden backdrop-blur-md cursor-pointer ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-indigo-500/10 to-[#14141d]/90 border-indigo-500/40 shadow-md'
+                        : 'bg-[#08080C]/80 border-white/[0.02] hover:border-white/10 hover:bg-[#0c0c14]/95 opacity-90'
+                    }`}
+                  >
+                    {/* Subtle covert bg thumbnail tint */}
+                    {song.bgUrl && (
+                      <div 
+                        className="absolute inset-0 bg-cover bg-center opacity-[0.03] pointer-events-none scale-102 blur-sm"
+                        style={{ backgroundImage: `url(${song.bgUrl})` }}
+                      />
+                    )}
 
-                      <div className="flex items-center gap-3 w-full pr-1 overflow-hidden pointer-events-none select-none">
-                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-900 border border-white/5 flex items-center justify-center relative">
-                          {group.bgUrl ? (
-                            <img 
-                              src={group.bgUrl} 
-                              alt={group.title} 
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <Music className="h-4 w-4 text-indigo-400/75" />
-                          )}
-                        </div>
-
-                        <div className="overflow-hidden w-full">
-                          <span className="text-[9px] text-[#8e99ef] font-extrabold uppercase font-mono tracking-wider block truncate max-w-[90%]">
-                            {group.artist || 'Unknown Artist'}
+                    <div className="flex items-center gap-3 min-w-0 pointer-events-none">
+                      {/* Info labels */}
+                      <div className="min-w-0">
+                        <span className="text-[8px] text-zinc-500 font-black uppercase font-mono tracking-wider block truncate">
+                          {song.artist}
+                        </span>
+                        <h4 className="font-extrabold font-sans text-xs text-white tracking-tight truncate max-w-[210px] -mt-0.5">
+                          {song.title}
+                        </h4>
+                        
+                        <div className="flex gap-2 items-center text-[9px] text-slate-500 mt-1 font-mono leading-none">
+                          <span className="font-bold px-1.5 py-0.5 border rounded uppercase tracking-wide text-[8px] bg-indigo-500/5 text-indigo-300 border-indigo-500/10">
+                            {song.records.length} {song.records.length === 1 ? 'play' : 'plays'}
                           </span>
-                          <h4 className="font-extrabold font-sans text-xs text-white tracking-tight -mt-0.5 truncate max-w-[95%]">
-                            {group.title}
-                          </h4>
-                          
-                          <div className="flex gap-2 items-center text-[9px] text-slate-500 mt-1 font-mono leading-none">
-                            <span className="font-bold px-1.5 py-0.5 border rounded uppercase tracking-wide text-[8px] bg-indigo-500/10 text-indigo-300 border-indigo-500/15">
-                              {group.records.length} {group.records.length === 1 ? 'play logged' : 'plays logged'}
-                            </span>
-                          </div>
                         </div>
-                      </div>
-
-                      {/* Expanded UI arrow states */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        {isGroupExpanded ? (
-                          <ChevronUp className="h-4 w-4 text-indigo-400" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4 text-slate-500" />
-                        )}
                       </div>
                     </div>
 
-                    {/* EXPANDED DROPDOWN LIST OF INDIVIDUAL REPLAYS */}
-                    {isGroupExpanded && (
-                      <div className="mt-1 ml-4 border-l border-indigo-500/20 pl-3 flex flex-col gap-1.5 select-none animate-fade-in-slow">
-                        {group.records.map((record) => {
-                          const isSelected = selectedRecord?.id === record.id;
-                          const badge = getRankBadgeProps(record.grade);
-                          const associatedMap = allBeatmaps.find(b => b.id === record.beatmapId);
-
-                          return (
-                            <div
-                              key={record.id}
-                              onClick={() => handleSelectRecord(record)}
-                              className={`p-3 rounded-lg transition-all duration-150 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border ${
-                                isSelected 
-                                  ? 'bg-gradient-to-r from-indigo-500/15 to-indigo-950/10 border-indigo-500/50 shadow-indigo-500/5'
-                                  : 'bg-[#050508]/85 border-white/[0.02] hover:bg-[#0c0c14]/90 opacity-90 cursor-pointer'
-                              }`}
-                            >
-                              <div className="flex items-center gap-3 min-w-0 flex-1">
-                                {/* RANK CHARACTER STYLED BULLET */}
-                                <span className={`w-9 h-9 shrink-0 flex items-center justify-center rounded-lg border text-xs font-serif font-black italic select-none ${badge.bg} ${badge.shadow}`}>
-                                  {record.grade}
-                                </span>
-
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-extrabold text-[11px] text-white font-sans tracking-tight truncate">
-                                      {associatedMap?.difficulty || `${record.keyCount}K Play`}
-                                    </span>
-                                    <span className="px-1 py-0.5 bg-white/5 border border-white/5 text-[8px] text-slate-400 font-mono rounded tracking-widest uppercase shrink-0">
-                                      {record.keyCount}K
-                                    </span>
-                                  </div>
-                                  
-                                  {/* Timestamp metadata */}
-                                  <span className="flex items-center gap-1 text-[9px] text-slate-500 mt-1 font-mono">
-                                    <Calendar className="h-2.5 w-2.5" />
-                                    {formatDate(record.timestamp)}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-                                <div className="text-right font-mono text-[10px] hidden sm:block">
-                                  <div className="text-indigo-400 font-bold">{record.score.toLocaleString()} pts</div>
-                                  <div className="text-slate-500 text-[9px]">{record.accuracy.toFixed(2)}% | {record.maxCombo}x max</div>
-                                </div>
-
-                                <button
-                                  onClick={(e) => handleDeleteRecord(record.id, e)}
-                                  className="p-1.5 rounded bg-white/5 border border-white/5 text-slate-500 hover:text-red-400 hover:bg-rose-500/10 hover:border-red-500/10 transition-all cursor-pointer"
-                                  title="Wipe this performance log"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
+                    <ChevronRight className={`h-4 w-4 transition-all ${isSelected ? 'text-indigo-400 translate-x-0.5' : 'text-zinc-600'}`} />
                   </div>
                 );
               })
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 px-4 bg-[#08080C]/50 border border-white/5 rounded-2xl text-center">
-                <Database className="h-10 w-10 text-slate-500 mb-3" />
-                <h4 className="text-sm font-bold text-slate-300">No performances logged</h4>
-                <p className="text-xs text-slate-500 max-w-sm mt-1 mx-auto leading-relaxed">
-                  {searchTerm ? "No local play records match the active filters." : "Performances successfully finished or failed will automatically log here, capturing live key replays."}
+              <div className="flex flex-col items-center justify-center py-20 px-4 bg-[#08080C]/40 border border-white/5 rounded-2xl text-center">
+                <Database className="h-9 w-9 text-zinc-600 mb-2" />
+                <h4 className="text-xs font-bold text-slate-400">No played tracks found</h4>
+                <p className="text-[10px] text-zinc-600 max-w-xs mt-1 leading-relaxed font-sans">
+                  {searchTerm ? "No local play records match the search keywords." : "Finished runs are fully cached right after gameplay completion."}
                 </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: REPLAY VIEWER DETAIL & DYNAMIC UNPACKER */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
+        {/* RIGHT COLUMN: DIFFICULTY DROPDOWN & RESULTS ENTRY SCREEN */}
+        <div className="lg:col-span-8 xl:col-span-9 flex flex-col p-4 md:p-8 overflow-y-auto scrollbar-none h-full bg-[#050508]">
           
-          {selectedRecord ? (
-            <div className="bg-[#08080C]/90 border border-white/5 p-6 rounded-2xl shadow-md backdrop-blur-md flex flex-col gap-5">
+          {selectedSong ? (
+            <div className="bg-[#0e0e14]/90 border border-white/5 p-6 md:p-8 rounded-3xl shadow-2xl flex flex-col gap-5 max-w-4xl w-full mx-auto justify-between h-auto min-h-0">
               
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <span className="text-[9px] text-slate-500 font-mono tracking-widest uppercase">// SELECTED REPLAY</span>
-                  <h3 className="text-sm font-extrabold font-sans leading-tight mt-1 text-white truncate max-w-[200px]">
-                    {selectedRecord.beatmapTitle}
+              {/* Song Information banner */}
+              <div className="flex items-start gap-4 relative overflow-hidden bg-white/[0.01] border border-white/[0.04] p-4 rounded-xl">
+                {selectedSong.bgUrl && (
+                  <div 
+                    className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.035] pointer-events-none scale-105 blur-md"
+                    style={{ backgroundImage: `url(${selectedSong.bgUrl})` }}
+                  />
+                )}
+
+                <div className="min-w-0">
+                  <span className="text-[10px] text-indigo-400 font-extrabold uppercase font-mono tracking-wider block">
+                    {selectedSong.artist}
+                  </span>
+                  <h3 className="text-base font-black font-sans text-white tracking-tight mt-0.5 truncate max-w-[280px]">
+                    {selectedSong.title}
                   </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[200px]">
-                    {selectedRecord.beatmapArtist}
+                  <span className="inline-flex items-center gap-1.5 text-[9px] text-zinc-500 font-mono mt-1 uppercase">
+                    <Clock className="h-3 w-3 text-zinc-500" />
+                    Total plays: {selectedSong.records.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* DIFFICULTIES SELECT DROPDOWN BLOCK */}
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider font-mono">
+                  Select Logged Difficulty:
+                </label>
+                
+                <div className="relative">
+                  <select
+                    value={selectedDifficultyId || ''}
+                    onChange={(e) => setSelectedDifficultyId(e.target.value)}
+                    className="w-full appearance-none bg-zinc-950/80 hover:bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-xs text-white font-extrabold cursor-pointer focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/25 transition-all shadow-md"
+                  >
+                    {difficulties.map((diff) => (
+                      <option key={diff.beatmapId} value={diff.beatmapId}>
+                        {!isNaN(diff.starRating) ? `★ ${diff.starRating.toFixed(2)} — ` : ''}{diff.difficultyName} ({diff.keyCount}K Mode) — {diff.records.length} {diff.records.length === 1 ? 'record' : 'records'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-4 pointer-events-none flex items-center text-indigo-400 font-sans">
+                    ▼
+                  </div>
+                </div>
+              </div>
+
+              {/* RECORD METRIC BOX FOR SELECTED DIFFICULTY */}
+              {activeDifficulty && bestRecord ? (
+                <div className="bg-[#14141b]/60 border border-white/5 px-4.5 py-4 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-zinc-500 font-extrabold uppercase font-mono tracking-wider">
+                      Best Score
+                    </span>
+                    <span className="text-sm font-black text-white font-sans mt-1">
+                      {bestRecord.score.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-zinc-500 font-extrabold uppercase font-mono tracking-wider">
+                      Best Accuracy
+                    </span>
+                    <span className="text-sm font-black text-indigo-400 font-sans mt-1">
+                      {bestRecord.accuracy.toFixed(2)}%
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-zinc-500 font-extrabold uppercase font-mono tracking-wider">
+                      Max Combo
+                    </span>
+                    <span className="text-sm font-black text-amber-400 font-sans mt-1">
+                      {bestRecord.maxCombo}x
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-zinc-500 font-extrabold uppercase font-mono tracking-wider">
+                      Best Grade
+                    </span>
+                    <span className="text-sm font-black text-emerald-400 font-serif italic mt-1 bg-emerald-500/5 border border-emerald-500/10 px-2 py-0.5 rounded-md w-fit leading-none">
+                      {bestRecord.grade}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ACTION VIEW RESULTS PANEL */}
+              {latestRecord && onViewResult ? (
+                <div className="flex flex-col gap-3 mt-2 shrink-0">
+                  <button
+                    onClick={() => onViewResult(latestRecord)}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 bg-indigo-500 text-slate-950 hover:brightness-110 font-sans font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-[0_4px_30px_rgba(99,102,241,0.25)] active:scale-98 cursor-pointer"
+                  >
+                    View Detailed Results Screen <ArrowRight className="h-4 w-4" />
+                  </button>
+
+                  <p className="text-[10px] text-center text-zinc-500 font-sans font-medium tracking-wide">
+                    The results screen displays all attempts plotted together so you can review previous benchmarks or watch replays.
                   </p>
                 </div>
-                
-                {/* Visual Rank badge */}
-                {(() => {
-                  const badge = getRankBadgeProps(selectedRecord.grade);
-                  return (
-                    <span className={`w-12 h-12 shrink-0 flex items-center justify-center rounded-xl border ${badge.bg} ${badge.shadow} font-serif font-black text-xl italic select-none`}>
-                      {selectedRecord.grade}
-                    </span>
-                  );
-                })()}
-              </div>
+              ) : null}
 
-              {/* Core metrics readout */}
-              <div className="space-y-2 text-xs border-y border-white/5 py-4 font-sans">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Score Achieved:</span>
-                  <span className="font-extrabold text-white">{selectedRecord.score.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Accuracy Score:</span>
-                  <span className="font-extrabold text-indigo-400">{selectedRecord.accuracy.toFixed(2)}%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Max Combo Spurt:</span>
-                  <span className="font-extrabold text-emerald-400">{selectedRecord.maxCombo}x</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Recorded Mode:</span>
-                  <span className="font-bold text-slate-300 font-mono text-[10px]">{selectedRecord.keyCount}K Key mode</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Date Played:</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{formatDate(selectedRecord.timestamp)}</span>
-                </div>
-              </div>
+              {/* QUICK REPLAY FEED FROM SELECTED DIFFICULTY */}
+              {activeDifficulty && activeDifficulty.records.length > 0 && (
+                <div className="flex flex-col gap-2 mt-2">
+                  <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider font-mono">
+                    Logged Plays on this Diff:
+                  </span>
+                  
+                  <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1 select-none scrollbar-thin scrollbar-thumb-white/5">
+                    {activeDifficulty.records.map((rec) => (
+                      <div 
+                        key={rec.id}
+                        className="p-2.5 rounded-lg bg-black/20 hover:bg-black/35 border border-white/5 flex items-center justify-between text-xs transition-all"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-6 h-6 rounded bg-indigo-500/5 text-indigo-400 border border-indigo-500/10 font-serif italic font-bold flex items-center justify-center text-[10px]">
+                            {rec.grade}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="font-bold text-white block">
+                              {rec.score.toLocaleString()} pts
+                            </span>
+                            <span className="text-[8px] text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
+                              <Calendar className="h-2.5 w-2.5" />
+                              {formatDate(rec.timestamp)}
+                            </span>
+                          </div>
+                        </div>
 
-              {/* Hit judgements breakdown */}
-              {selectedRecord.scoreState && (
-                <div className="bg-black/30 border border-white/5 p-3.5 rounded-xl space-y-2">
-                  <span className="text-[9px] tracking-wider uppercase font-mono text-slate-500 block">Spread Breakdown</span>
-                  <div className="grid grid-cols-3 gap-1.5 font-mono text-[9px] text-center">
-                    <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-md p-1">
-                      <div className="text-cyan-400 font-bold">Marvelous</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.marvelousCount || 0}</div>
-                    </div>
-                    <div className="bg-amber-500/5 border border-amber-500/10 rounded-md p-1">
-                      <div className="text-amber-400 font-bold">Perfect</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.perfectCount || 0}</div>
-                    </div>
-                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-md p-1">
-                      <div className="text-emerald-400 font-bold">Great</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.greatCount || 0}</div>
-                    </div>
-                    <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-md p-1">
-                      <div className="text-indigo-400 font-bold">Good</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.goodCount || 0}</div>
-                    </div>
-                    <div className="bg-purple-500/5 border border-purple-500/10 rounded-md p-1">
-                      <div className="text-purple-400 font-bold">Bad</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.badCount || 0}</div>
-                    </div>
-                    <div className="bg-rose-500/5 border border-rose-500/10 rounded-md p-1">
-                      <div className="text-rose-400 font-bold">Miss</div>
-                      <div className="text-slate-300 mt-0.5">{selectedRecord.scoreState.missCount || 0}</div>
-                    </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] font-mono text-slate-500 hidden sm:block">
+                            {rec.accuracy.toFixed(2)}% | {rec.maxCombo}x
+                          </span>
+                          <button
+                            onClick={() => onWatchReplay(rec)}
+                            className="px-2.5 py-1 bg-white/5 hover:bg-indigo-500/10 hover:text-indigo-400 border border-white/5 hover:border-indigo-500/20 rounded text-[9px] font-sans font-bold flex items-center gap-1 active:scale-95 transition-all text-zinc-300 cursor-pointer"
+                          >
+                            <Play className="h-2 w-2 fill-current" /> Watch
+                          </button>
+                          <button
+                            onClick={() => onDeleteRecord(rec.id)}
+                            className="p-1 px-1.5 bg-transparent hover:bg-rose-500/10 hover:text-rose-400 text-zinc-500 rounded transition-all cursor-pointer"
+                            title="Delete run record"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Progress feedback for package decryption/media unpacking */}
-              <div className="bg-black/40 border border-white/5 p-3.5 rounded-xl flex items-center justify-between text-xs transition-all">
-                {isUnpacking ? (
-                  <div className="flex items-center gap-2.5 text-indigo-400 font-sans font-medium">
-                    <Loader className="h-3.5 w-3.5 animate-spin text-indigo-400 shrink-0" />
-                    <span>{unpackStage || "Initializing replay..."}</span>
-                  </div>
-                ) : unpackError ? (
-                  <div className="flex items-start gap-2 text-rose-400 font-sans font-medium">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-rose-400" />
-                    <div>
-                      <span>Decryption error</span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{unpackError}</p>
-                    </div>
-                  </div>
-                ) : selectedMap ? (
-                  <div className="flex items-center gap-2.5 text-emerald-400 font-sans font-medium">
-                    <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                    <span>Replay synchronized and ready.</span>
-                  </div>
-                ) : (
-                  <div className="flex items-start gap-2 text-rose-400 font-sans font-medium">
-                    <AlertTriangle className="h-4.5 w-4.5 shrink-0 mt-0.5 text-rose-400" />
-                    <div>
-                      <span>Beatmap missing</span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Please import the beatmap package prior to viewing.</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Direct playback/viewer triggers */}
-              <button
-                id="watch-replay-telemetry-btn"
-                disabled={isUnpacking || !selectedMap}
-                onClick={handleWatchReplayClick}
-                className={`w-full flex items-center justify-center gap-2 py-3 bg-indigo-500 hover:brightness-110 text-slate-950 font-sans text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-indigo-500/10 ${
-                  isUnpacking || !selectedMap ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-95'
-                }`}
-              >
-                {isUnpacking ? (
-                  <>
-                    <Loader className="h-4 w-4 animate-spin text-slate-950" />
-                    <span>Preparing Replay Engine...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 fill-current" /> Watch Replay
-                  </>
-                )}
-              </button>
-
             </div>
           ) : (
-            <div className="bg-[#08080C]/90 border border-white/5 p-6 rounded-2xl shadow-md backdrop-blur-md flex flex-col items-center justify-center py-16 text-center text-slate-500">
-              <Award className="h-10 w-10 text-slate-650 mb-3" />
-              <h4 className="text-sm font-bold text-slate-300">Replay Station Panel</h4>
-              <p className="text-xs text-slate-500 max-w-sm mt-1.5 leading-relaxed font-sans">
-                Select an individual score record from the listed song group dropdown on the left. The replay, audio, and video files will automatically unpack and assemble.
+            <div className="bg-[#0e0e14]/90 border border-white/5 p-8 rounded-3xl shadow-2xl flex flex-col items-center justify-center py-20 text-center text-slate-500 h-full w-full mx-auto max-w-4xl">
+              <Trophy className="h-10 w-10 text-zinc-600 mb-3" />
+              <h4 className="text-xs font-bold text-slate-400">Archived Performance Station</h4>
+              <p className="text-[11px] text-zinc-600 max-w-sm mt-1.5 leading-relaxed font-sans">
+                Logged plays of finished tracks will cluster automatically. Select a completed song database card from the list on the left to swap difficulties.
               </p>
             </div>
           )}
