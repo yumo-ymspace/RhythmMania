@@ -2,7 +2,7 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
- * This source code is licensed under the PolyForm Perimeter License 1.0.0.
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
  *
@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Settings as SettingsIcon, Play, MousePointer2 } from 'lucide-react';
 import metadata from '../../metadata.json';
 
-export const MainMenu = ({ onNavigate }: { onNavigate: (screen: 'select' | 'settings' | 'history') => void }) => {
+export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 'select' | 'history') => void, onOpenSettings: () => void }) => {
   const bgImages = ['Arushii.jpg', 'Ferineon.jpg', 'Kourihase.png', 'MPDisplay.png', 'nikio.png'];
   const [bg, setBg] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
@@ -72,7 +72,7 @@ export const MainMenu = ({ onNavigate }: { onNavigate: (screen: 'select' | 'sett
                 className="absolute left-[55%] md:left-[50%] md:ml-44 flex flex-col gap-4 text-left z-20"
               >
                 <button 
-                  onClick={(e) => { e.stopPropagation(); onNavigate('settings'); }}
+                  onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                   className="px-6 py-4 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-500/50 hover:border-slate-400 text-white font-sans font-black text-xl italic tracking-wider rounded-r-full shadow-lg transition-all flex items-center gap-2"
                 >
                   <SettingsIcon className="w-5 h-5" /> Settings

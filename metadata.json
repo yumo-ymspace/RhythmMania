@@ -1,6 +1,6 @@
 {
-  "name": "RhythmMania v0.6.1 ",
+  "name": "RhythmMania v0.6.2",
   "description": "A high-performance, precision-gauged mania-style lane rhythm game featuring 2K-8K key modes, procedural beatmap scaling, custom key rebound matrices, and real-time .osu community map parsing.",
   "requestFramePermissions": [],
-  "version": "v0.6.1"
+  "version": "v0.6.2"
 }

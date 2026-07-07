@@ -2,7 +2,7 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
- * This source code is licensed under the PolyForm Perimeter License 1.0.0.
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
  *
@@ -132,14 +132,17 @@ export interface GameSettings {
   skinId?: string; // custom mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings')
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
-  noteStyle?: 'rounded' | 'square' | 'circle' | 'pill';
-  receptorStyle?: 'tactile' | 'square' | 'minimal' | 'translucent';
+  squareRenderStyle?: 'rhythmmania' | 'rhythmplus';
+  rhythmplusColor?: string; // color for RhythmPlus style
+  rhythmmaniaNoteColor?: string; // color for RhythmMania style notes
+  rhythmmaniaReceptorColor?: string; // color for RhythmMania style receptors
+  circleNoteColor?: string; // color for Circle style notes
+  circleReceptorColor?: string; // color for Circle style receptors
   noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
   receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
   circleSize?: number; // scale multiplier for circle skin notes (0.5 to 1.5)
   noteSizeMultiplier?: number; // separate multiplier for falling notes
   playfieldStyle?: 'square' | 'circle';
-  circleRenderStyle?: 'circles' | 'glassy-spheres' | 'hollow-rings';
   judgementOpacity?: number; // 0.0 to 1.0 (opacity for judgement text)
   judgementSize?: number; // 0.5 to 1.5 (font size scaling multiplier)
   laneSeparatorOpacity?: number; // 0.0 to 1.0 (opacity for lane divider lines)

@@ -2,7 +2,7 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
- * This source code is licensed under the PolyForm Perimeter License 1.0.0.
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
  *
@@ -32,45 +32,7 @@ const PAGE_TRANSITION_VARIANTS = {
 const LOCAL_STORAGE_SETTINGS_KEY = 'rhythm_mania_v1_settings';
 const LOCAL_STORAGE_CUSTOM_MAPS_KEY = 'rhythm_mania_v1_custom_maps';
 
-const DEFAULT_SETTINGS: GameSettings = {
-  scrollSpeed: 21,
-  audioOffset: 0,
-  visualOffset: 0,
-  hitsoundVolume: 0.60,
-  musicVolume: 0.75,
-  keyMode: 4,
-  bindings: {
-    2: ['f', 'j'],
-    3: ['f', ' ', 'j'],
-    4: ['d', 'f', 'j', 'k'],
-    5: ['d', 'f', ' ', 'j', 'k'],
-    6: ['s', 'd', 'f', 'j', 'k', 'l'],
-    7: ['s', 'd', 'f', ' ', 'j', 'k', 'l'],
-    8: ['a', 's', 'd', 'f', 'j', 'k', 'l', ';']
-  },
-  upsurfaceNoteMode: false,
-  videoOpacity: 0.35,
-  backgroundDim: 0.60,
-  disableVideo: false,
-  videoOffset: 0,
-  disableParticles: false,
-  limitDprToOne: false,
-  skinId: 'neon',
-  noteStyle: 'rounded',
-  receptorStyle: 'tactile',
-  noteOpacity: 1.0,
-  receptorOpacity: 1.0,
-  judgementOpacity: 1.0,
-  judgementSize: 1.0,
-  laneSeparatorOpacity: 0.30,
-  circleSize: 1.0,
-  noteSizeMultiplier: 1.0,
-  playfieldStyle: 'square',
-  circleRenderStyle: 'circles',
-  playfieldWidthPercent: 40,
-  progressBarTop: false,
-  selectedMods: [],
-};
+import { DEFAULT_SETTINGS } from './components/settings/defaultSettings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<GameScreen>('menu');
@@ -80,6 +42,7 @@ export default function App() {
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
   const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/default.svg');
   const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
 
   // Performance history states
   const [playHistory, setPlayHistory] = useState<PlayHistoryRecord[]>([]);
@@ -180,35 +143,9 @@ export default function App() {
 
   // Dynamically apply selected skin colors to the site theme/UI elements!
   useEffect(() => {
-    let accentHex = '#00b0ff'; // Default Neon Cyber cyan
-    const effectiveSettings = activeReplayRecord?.recordedSettings || settings;
-
-    if (effectiveSettings.skinId === 'classic-bar') {
-      accentHex = '#ef4444'; // Red DDR
-    } else if (effectiveSettings.skinId === 'circles') {
-      accentHex = '#ff4081'; // Pink
-    } else if (effectiveSettings.skinId === 'cyberpunk') {
-      accentHex = '#ec4899'; // Vaporwave magenta
-    } else if (effectiveSettings.skinId === 'emerald') {
-      accentHex = '#10b981'; // Acid emerald
-    } else if (effectiveSettings.skinId === 'minimalist') {
-      accentHex = '#94a3b8'; // Monochrome slate
-    } else if (effectiveSettings.skinId === 'custom' && effectiveSettings.customSkinColors && effectiveSettings.customSkinColors.length > 0) {
-      // Use center key color or side key color for maximum visible identity!
-      accentHex = effectiveSettings.customSkinColors[2] || effectiveSettings.customSkinColors[0] || '#06b6d4';
-    }
-
-    const cleanHex = accentHex.replace('#', '');
-    let r = 0, g = 176, b = 255;
-    if (cleanHex.length === 3) {
-      r = parseInt(cleanHex[0] + cleanHex[0], 16);
-      g = parseInt(cleanHex[1] + cleanHex[1], 16);
-      b = parseInt(cleanHex[2] + cleanHex[2], 16);
-    } else if (cleanHex.length === 6) {
-      r = parseInt(cleanHex.slice(0, 2), 16);
-      g = parseInt(cleanHex.slice(2, 4), 16);
-      b = parseInt(cleanHex.slice(4, 6), 16);
-    }
+    // Fixed default RhythmMania color
+    const accentHex = '#00b0ff';
+    const r = 0, g = 176, b = 255;
 
     if (typeof document !== 'undefined') {
       document.documentElement.style.setProperty('--skin-accent', accentHex);
@@ -221,7 +158,7 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
     document.getElementById('application-container')?.scrollTo({ top: 0, behavior: 'auto' });
-    if (currentScreen === 'play') {
+    if (currentScreen === 'play' || showSettings) {
       document.body.style.overflow = 'hidden';
       document.body.style.height = '100vh';
       document.documentElement.style.overflow = 'hidden';
@@ -238,7 +175,16 @@ export default function App() {
       document.documentElement.style.overflow = '';
       document.documentElement.style.height = '';
     };
-  }, [currentScreen]);
+  }, [currentScreen, showSettings]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSettings(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showSettings]);
 
   useEffect(() => {
     const savedSettingsText = localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
@@ -304,8 +250,12 @@ export default function App() {
         skinId: updated.skinId || 'neon',
         customSkinColors: updated.customSkinColors,
         customSkinName: updated.customSkinName,
-        noteStyle: updated.noteStyle || 'rounded',
-        receptorStyle: updated.receptorStyle || 'tactile',
+        squareRenderStyle: updated.squareRenderStyle || 'rhythmmania',
+        rhythmplusColor: updated.rhythmplusColor || '#ffff00',
+        rhythmmaniaNoteColor: updated.rhythmmaniaNoteColor || '#00b0ff',
+        rhythmmaniaReceptorColor: updated.rhythmmaniaReceptorColor || '#00b0ff',
+        circleNoteColor: updated.circleNoteColor || '#00b0ff',
+        circleReceptorColor: updated.circleReceptorColor || '#00b0ff',
         noteOpacity: updated.noteOpacity !== undefined ? Number(updated.noteOpacity) : 1.0,
         receptorOpacity: updated.receptorOpacity !== undefined ? Number(updated.receptorOpacity) : 1.0,
         judgementOpacity: updated.judgementOpacity !== undefined ? Number(updated.judgementOpacity) : 1.0,
@@ -314,7 +264,6 @@ export default function App() {
         circleSize: updated.circleSize !== undefined ? Number(updated.circleSize) : 1.0,
         noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Number(updated.noteSizeMultiplier) : 1.0,
         playfieldStyle: updated.playfieldStyle || 'square',
-        circleRenderStyle: updated.circleRenderStyle || 'circles',
         playfieldWidthPercent: updated.playfieldWidthPercent !== undefined ? Number(updated.playfieldWidthPercent) : 40,
         progressBarTop: updated.progressBarTop !== undefined ? Boolean(updated.progressBarTop) : false,
         selectedMods: updated.selectedMods || [],
@@ -510,9 +459,9 @@ export default function App() {
               
               <button
                 id="header-nav-settings"
-                onClick={() => setCurrentScreen('settings')}
+                onClick={() => setShowSettings(prev => !prev)}
                 className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
-                  currentScreen === 'settings' 
+                  showSettings 
                     ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-400 border-cyan-500/40 shadow-md shadow-cyan-500/10' 
                     : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
                 }`}
@@ -555,7 +504,10 @@ export default function App() {
       >
         <AnimatePresence mode="wait">
           {currentScreen === 'menu' && (
-            <MainMenu onNavigate={(screen) => setCurrentScreen(screen as any)} />
+            <MainMenu 
+              onNavigate={(screen) => setCurrentScreen(screen as any)} 
+              onOpenSettings={() => setShowSettings(true)}
+            />
           )}
 
           {currentScreen === 'select' && (
@@ -571,7 +523,7 @@ export default function App() {
                 settings={settings}
                 updateSettings={updateSettings}
                 onSelectMap={handleSelectMap}
-                onOpenGlobalSettings={() => setCurrentScreen('settings')}
+                onOpenSettings={() => setShowSettings(true)}
                 customMaps={customMaps}
                 onImportBeatmap={handleImportBeatmap}
                 onDeleteCustomMap={handleDeleteCustomMap}
@@ -703,24 +655,15 @@ export default function App() {
             </motion.div>
           )}
 
-          {currentScreen === 'settings' && (
-            <motion.div
-              key="settings"
-              variants={PAGE_TRANSITION_VARIANTS}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              className="w-full"
-            >
-              <SettingsScreen
-                settings={settings}
-                updateSettings={updateSettings}
-                onBack={() => setCurrentScreen('select')}
-              />
-            </motion.div>
-          )}
         </AnimatePresence>
       </main>
+
+      <SettingsScreen
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        settings={settings}
+        updateSettings={updateSettings}
+      />
 
       {/* MOBILE WARNING OVERLAY */}
       {isMobile && (

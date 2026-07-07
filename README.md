@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.6.1
+**HIGH DENSITY MATRIX** · v0.6.2
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and **HTML5 Canvas** for low-latency rendering, it delivers a professional-grade experience right in your browser.
 
@@ -103,42 +103,76 @@ A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with propo
 ## Project Structure
 
 ```
-src/
-├── App.tsx                        # Root screen router and global state
-├── types.ts                       # All shared TypeScript interfaces
-├── main.tsx                       # React entry point
-├── index.css                      # Global base styles
+RhythmMania/
+├── index.html                          # App entry point HTML shell
+├── package.json                        # Dependencies & scripts (React, Vite, Tailwind)
+├── vite.config.ts                      # Vite build configuration
+├── tsconfig.json                       # TypeScript configuration
+├── metadata.json                       # App version/metadata manifest
+├── LICENSE.md                          # License file
+├── README.md                           # Project overview
 │
-├── components/
-│   ├── PersonalHistoryScreen.tsx  # Gameplay history browser and replay system
-│   ├── GameplayCanvas.tsx         # Main game loop, Canvas renderer, input handler
-│   ├── SongSelect.tsx             # Song/difficulty browser, .osz importer
-│   ├── SettingsScreen.tsx         # Key bindings, offsets, calibration metronome
-│   ├── ResultsScreen.tsx          # Post-game grade, accuracy, hit breakdown
-│   └── PlayZoneOverlay.tsx        # In-game HUD overlay (score, HP, combo)
+├── public/
+│   ├── sw.js                           # Service Worker for offline caching & PWA
+│   ├── backgrounds/                    # Static background images for menus
+│   └── beatmaps/                       # Server-side beatmap packages (.osz) + manifest
+│       ├── manifest.json               # Registry of downloadable beatmaps from server
+│       └── osz_files.osz               # Bundled maps
 │
-├── audio/
-│   └── AudioEngine.ts             # Web Audio timing engine + fallback sequencer
-│
-├── data/
-│   └── songs.ts                   # Procedural beatmap generator + LCG seeder
-│
-├── utils/
-│   ├── beatmapParser.ts           # .osu file parser, BPM calculator, star estimator
-│   ├── storageManager.ts          # IndexedDB wrapper + LRU blob cache
-│   ├── fullscreenManager.ts       # Cross-browser fullscreen API wrapper
-│   ├── zipResolver.ts             # 3-phase case-insensitive .osz asset resolver
-│   ├── mediaRegistry.ts           # Centralized registry for media assets
-│   ├── tempMemoryCache.ts         # Temporary in-memory cache for frequently accessed assets
-│   ├── videoSyncController.ts     # PLL-based audio/video drift correction
-│   ├── touchInputAdapter.ts       # Touch-to-lane mapping with slide support
-│   ├── assetLifecycle.ts          # Blob URL creation/revocation tracking
-│   └── gameplayTeardown.ts        # Safe cleanup on exit (audio, RAF, refs)
-│
-public/
-└── beatmaps/
-    ├── manifest.json              # Server-hosted map index
-    └── osz_files.osz              # Bundled maps
+└── src/
+    ├── main.tsx                        # React entry point, mounts <App/>, registers service worker
+    ├── App.tsx                         # Root component: screen router, global state, history/settings management
+    ├── types.ts                        # All shared TypeScript interfaces (HitObject, Beatmap, ScoreState, GameSettings, etc.)
+    ├── index.css                       # Global styles, Tailwind imports, CSS variables, custom animations, scrollbar
+    │
+    ├── audio/
+    │   └── AudioEngine.ts              # Web Audio API engine: music/hitsound playback, volume, offset, decoder
+    │
+    ├── data/
+    │   └── songs.ts                    # Procedural beatmap generator (seed-locked, deterministic patterns)
+    │
+    ├── components/
+    │   ├── MainMenu.tsx                # Main menu screen with animated bg, play/settings/history nav
+    │   ├── SongSelect.tsx              # Beatmap browser: search, filter, drag-drop import, download, play
+    │   ├── GameplayCanvas.tsx          # Core gameplay: Canvas2D render loop, note processing, scoring, input, replay
+    │   ├── ResultsScreen.tsx           # Post-play results: grade, stats breakdown, play history, replay watch
+    │   ├── PlayZoneOverlay.tsx         # HUD overlay during gameplay (score, accuracy, focus toggle)
+    │   ├── PersonalHistoryScreen.tsx   # Play history archive: song grouping, difficulty selector, replay/view
+    │   ├── SettingsScreen.tsx          # Re-exports SettingsDrawer for the settings panel
+    │   │
+    │   └── settings/
+    │       ├── SettingsDrawer.tsx       # Settings drawer container with sidebar + content pane
+    │       ├── SettingsSidebar.tsx      # Left sidebar: category navigation in settings
+    │       ├── SettingsPane.tsx         # Right pane: renders grouped setting rows per category
+    │       ├── SettingsRow.tsx          # Single settings row: rail, label, control
+    │       ├── SettingsSearchBar.tsx    # Search bar for filtering settings
+    │       ├── settingsRegistry.tsx     # Central registry of all settings (categories, keys, controls)
+    │       ├── defaultSettings.ts       # Default GameSettings values (frozen object)
+    │       ├── SectionSkinPreview.tsx   # Skin preview component in settings
+    │       ├── BindingMatrix.tsx        # Key binding matrix editor for lane columns
+    │       ├── OffsetWizardModal.tsx    # Offset calibration wizard modal
+    │       ├── skinParser.ts           # Parses .ini skin files to extract custom colors
+    │       │
+    │       └── controls/                # Reusable setting control components
+    │           ├── SettingsSlider.tsx   # Range slider control
+    │           ├── SettingsToggle.tsx   # Toggle/switch control
+    │           ├── SettingsSelect.tsx   # Dropdown select control
+    │           ├── SettingsButton.tsx   # Action button control
+    │           ├── ColorSwatchRow.tsx   # Color picker row control
+    │           └── ConfirmModal.tsx     # Confirmation dialog modal
+    │
+    └── utils/
+        ├── beatmapParser.ts            # Parses .osu beatmap files into Beatmap objects & extracts media paths
+        ├── storageManager.ts           # IndexedDB storage for beatmaps, packages, and LRU media cache
+        ├── assetLifecycle.ts           # Manages lifecycle of blob URLs to prevent memory leaks
+        ├── mediaRegistry.ts            # Global singleton registry for active HTMLVideoElement reference
+        ├── zipResolver.ts              # Robust JSZip file finder/resolver for beatmap archives
+        ├── unpackHelper.ts             # Unpacks beatmap media (audio, video, bg) from zip archives
+        ├── tempMemoryCache.ts          # In-memory cache for zip buffers
+        ├── videoSyncController.ts      # PLL-based video-audio sync controller during gameplay
+        ├── gameplayTeardown.ts         # Cleanup: stops audio, cancels animation frame, revokes blobs
+        ├── fullscreenManager.ts        # Fullscreen API wrapper for focus mode
+        └── touchInputAdapter.ts        # Multi-touch input adapter for mobile gameplay on canvas
 ```
 
 ---
@@ -159,14 +193,14 @@ RhythmMania reads standard osu! mania beatmaps:
 
 | Judgement | Timing Window* | Score | HP Delta |
 |-----------|---------------|-------|----------|
-| Marvelous | ±16 ms | 320 | +2 |
-| Perfect | ±40 ms | 300 | +1 |
-| Great | ±73 ms | 200 | 0 |
-| Good | ±103 ms | 100 | −2 |
-| Bad | ±127 ms | 55 | −5 |
+| Marvelous | ±16 ms | 320 | +3 |
+| Perfect | max(20, 44 − 2.4×OD) ms | 300 | +2 |
+| Great | max(35, 74 − 3.9×OD) ms | 200 | +1 |
+| Good | max(53, 104 − 5.1×OD) ms | 100 | +0.2 |
+| Bad | max(72, 134 − 6.2×OD) ms | 50 | −3 |
 | Miss | — | 0 | −10 |
 
-*Windows scale with beatmap `overallDifficulty` (0–10). Combo multiplier applies on top of base scores.
+*Windows scale with beatmap `overallDifficulty` (0–10). At OD 8 the windows are: Miss 124 ms, Bad 84 ms, Good 63 ms, Great 43 ms, Perfect 25 ms. HP deltas are further multiplied by a drain-rate scalar (0.8× when `hpDrainRate > 5`, otherwise 1.2×).
 
 ---
 

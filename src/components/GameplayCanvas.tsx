@@ -2,7 +2,7 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
- * This source code is licensed under the PolyForm Perimeter License 1.0.0.
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
  *
@@ -1492,60 +1492,107 @@ export default function GameplayCanvas({
               ? settings.customSkinColors[4]
               : '#38bdf8';
 
-            if (n.isHit && !n.isReleased) {
-              if (n.releaseGraceUntil) {
-                const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                holdGrad.addColorStop(0, flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)');
-                holdGrad.addColorStop(1, 'rgba(161,117,14,0.3)');
+            const isCircleMode = settings.playfieldStyle === 'circle' || 
+                                 settings.skinId === 'circles' || 
+                                 settings.skinId === 'glassy-spheres' || 
+                                 settings.skinId === 'hollow-rings';
+
+            if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+              const rpColor = settings.rhythmplusColor || '#ffff00';
+              if (n.isHit && !n.isReleased) {
+                if (n.releaseGraceUntil) {
+                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                  holdGrad.addColorStop(0, flicker ? rpColor : hexToRgba(rpColor, 0.5));
+                  holdGrad.addColorStop(1, flicker ? rpColor : hexToRgba(rpColor, 0.5));
+                } else {
+                  holdGrad.addColorStop(0, rpColor);
+                  holdGrad.addColorStop(1, rpColor);
+                }
+              } else if (n.isHoldFailed) {
+                holdGrad.addColorStop(0, 'rgba(100,116,139,0.5)');
+                holdGrad.addColorStop(1, 'rgba(100,116,139,0.5)');
               } else {
-                holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)');
-                holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)');
+                holdGrad.addColorStop(0, rpColor);
+                holdGrad.addColorStop(1, rpColor);
               }
-            } else if (n.isHoldFailed) {
-              holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
-              holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
+            } else if (settings.playfieldStyle !== 'circle') {
+              const rmColor = settings.rhythmmaniaNoteColor || '#00b0ff';
+              if (n.isHit && !n.isReleased) {
+                if (n.releaseGraceUntil) {
+                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                  holdGrad.addColorStop(0, flicker ? hexToRgba(rmColor, 0.8) : hexToRgba(rmColor, 0.2));
+                  holdGrad.addColorStop(1, hexToRgba(rmColor, 0.3));
+                } else {
+                  holdGrad.addColorStop(0, hexToRgba(rmColor, 0.8));
+                  holdGrad.addColorStop(1, hexToRgba(rmColor, 0.3));
+                }
+              } else if (n.isHoldFailed) {
+                holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
+                holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
+              } else {
+                holdGrad.addColorStop(0, hexToRgba(rmColor, 0.6));
+                holdGrad.addColorStop(1, hexToRgba(rmColor, 0.2));
+              }
             } else {
-              holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)');
-              holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)');
+              if (n.isHit && !n.isReleased) {
+                if (n.releaseGraceUntil) {
+                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                  holdGrad.addColorStop(0, flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)');
+                  holdGrad.addColorStop(1, 'rgba(161,117,14,0.3)');
+                } else {
+                  holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)');
+                  holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)');
+                }
+              } else if (n.isHoldFailed) {
+                holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
+                holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
+              } else {
+                holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)');
+                holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)');
+              }
             }
             
             ctx.fillStyle = holdGrad;
             
             const padding = isFocusMode ? 3 : 12;
-            const rx = xPos + padding;
-            const ry = Math.min(visualStartY, endY);
-            const rw = colW - padding * 2;
-            const rh = Math.abs(clipHeight);
+            const notePadding = isFocusMode ? 1.5 : 6;
+            const useNotePadding = settings.squareRenderStyle === 'rhythmplus' && !isCircleMode;
+            
+            const rx = xPos + (useNotePadding ? notePadding : padding);
+            const rw = colW - (useNotePadding ? notePadding : padding) * 2;
+            
+            let drawY = Math.min(visualStartY, endY);
+            let drawH = Math.abs(clipHeight);
+            
+            if (useNotePadding) {
+              drawY -= 4;
+              drawH += 8;
+            }
             
             ctx.beginPath();
-            const nStyle = settings.noteStyle || 'rounded';
-            const isCircleMode = settings.playfieldStyle === 'circle' || 
-                                 settings.skinId === 'circles' || 
-                                 settings.skinId === 'glassy-spheres' || 
-                                 settings.skinId === 'hollow-rings';
-            if (nStyle === 'square') {
-              ctx.rect(rx, ry, rw, rh);
-            } else if (nStyle === 'circle' || nStyle === 'pill') {
-              ctx.roundRect(rx, ry, rw, rh, rw / 2);
+            if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+              ctx.rect(rx, drawY, rw, drawH);
             } else {
               if (isCircleMode) {
-                ctx.roundRect(rx, ry, rw, rh, rw / 2); // Pill-style capsules
+                ctx.roundRect(rx, drawY, rw, drawH, rw / 2); // Pill-style capsules
               } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
-                ctx.rect(rx, ry, rw, rh); // Pure flat rectangles
+                ctx.rect(rx, drawY, rw, drawH); // Pure flat rectangles
               } else {
-                ctx.roundRect(rx, ry, rw, rh, 6);
+                ctx.roundRect(rx, drawY, rw, drawH, 6);
               }
             }
             ctx.fill();
             
-            ctx.strokeStyle = n.isHit && !n.isReleased 
-              ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee') 
-              : 'rgba(56,189,248,0.4)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(xPos + colW / 2, visualStartY);
-            ctx.lineTo(xPos + colW / 2, endY);
-            ctx.stroke();
+            if (!(settings.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
+              ctx.strokeStyle = n.isHit && !n.isReleased 
+                ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee') 
+                : 'rgba(56,189,248,0.4)';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(xPos + colW / 2, visualStartY);
+              ctx.lineTo(xPos + colW / 2, endY);
+              ctx.stroke();
+            }
             
             ctx.restore();
           }
@@ -1556,6 +1603,10 @@ export default function GameplayCanvas({
       notesRef.current.forEach((n) => {
         if (n.isHit && n.type === 'normal') return;
         if (n.isMissed) return;
+
+        if (n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+          return;
+        }
 
         let noteY = 0;
         if (settings.upsurfaceNoteMode) {
@@ -1596,11 +1647,8 @@ export default function GameplayCanvas({
         // Define a local helper to enforce custom note rounding overrides
         const drawNoteShape = (radiusDefault: number) => {
           ctx.beginPath();
-          const nStyle = settings.noteStyle || 'rounded';
-          if (nStyle === 'square') {
-            ctx.rect(rx, ry, rw, rh);
-          } else if (nStyle === 'circle' || nStyle === 'pill') {
-            ctx.roundRect(rx, ry, rw, rh, rh / 2);
+          if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+            ctx.rect(rx, ry + rh / 2 - 4, rw, 8); // RhythmPlus style notes are thin lines
           } else {
             ctx.roundRect(rx, ry, rw, rh, radiusDefault);
           }
@@ -1609,21 +1657,20 @@ export default function GameplayCanvas({
         let noteFill: string = '';
         let noteStroke: string = colStyles[n.column].color;
 
-        if (n.type === 'hold') {
-          const holdCol = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
-            ? settings.customSkinColors[4]
-            : (settings.skinId === 'cyberpunk' ? '#eab308' : '#ec4899');
-          noteFill = holdCol;
-          noteStroke = settings.skinId === 'custom' ? '#ffffff' : (settings.skinId === 'cyberpunk' ? '#fef08a' : '#fbcfe8');
+        const isNoteCircleMode = settings.playfieldStyle === 'circle' || 
+                                 settings.skinId === 'circles' || 
+                                 settings.skinId === 'glassy-spheres' || 
+                                 settings.skinId === 'hollow-rings';
+
+        if (isNoteCircleMode) {
+          noteFill = settings.circleNoteColor || '#00b0ff';
+          noteStroke = settings.circleNoteColor || '#00b0ff';
+        } else if (settings.squareRenderStyle === 'rhythmplus') {
+          noteFill = settings.rhythmplusColor || '#ffff00';
+          noteStroke = settings.rhythmplusColor || '#ffff00';
         } else {
-          noteFill = colStyles[n.column].color;
-          if (settings.skinId === 'custom') {
-            noteStroke = '#ffffff';
-          } else if (noteFill === '#eceff1') noteStroke = '#cbd5e1';
-          else if (noteFill === '#2e6b9e') noteStroke = '#93c5fd';
-          else if (noteFill === '#d32f2f') noteStroke = '#fecdd3';
-          else if (noteFill === '#00b0ff') noteStroke = '#e0f7fa';
-          else noteStroke = '#94a3b8';
+          noteFill = settings.rhythmmaniaNoteColor || '#00b0ff';
+          noteStroke = settings.rhythmmaniaNoteColor || '#00b0ff';
         }
 
         // Apply skin theme aesthetic note gradients
@@ -1652,97 +1699,45 @@ export default function GameplayCanvas({
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
         } else if (settings.playfieldStyle === 'circle' || settings.skinId === 'circles' || settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') {
-          const effectiveStyle = settings.circleRenderStyle || 
-                                 ((settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') 
-                                   ? settings.skinId 
-                                   : 'circles');
+          const cx = rx + rw / 2;
+          const cy = ry + rh / 2;
+          const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+
+          const noteColor = colStyles[n.column].color;
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
           
-          if (effectiveStyle === 'glassy-spheres') {
-            const cx = rx + rw / 2;
-            const cy = ry + rh / 2;
-            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+          ctx.fillStyle = noteColor;
+          ctx.shadowColor = noteColor;
+          ctx.shadowBlur = 10;
+          ctx.fill();
+          ctx.shadowBlur = 0;
 
-            const sphereColor = colStyles[n.column].color;
-
-            ctx.shadowColor = sphereColor;
-            ctx.shadowBlur = 8;
-            
-            const sphereGrad = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, 0, cx, cy, r);
-            sphereGrad.addColorStop(0, '#ffffff');
-            sphereGrad.addColorStop(0.25, hexToRgba(sphereColor, 0.9)); 
-            sphereGrad.addColorStop(0.8, hexToRgba(sphereColor, 0.55));
-            sphereGrad.addColorStop(1, '#050510');
-            
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.fillStyle = sphereGrad;
-            ctx.fill();
-            
-            ctx.shadowBlur = 0;
-
-            const sheenGrad = ctx.createLinearGradient(cx, cy - r * 0.8, cx, cy);
-            sheenGrad.addColorStop(0, 'rgba(255, 255, 255, 0.7)');
-            sheenGrad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-            
-            ctx.save();
-            ctx.beginPath();
-            ctx.ellipse(cx - r * 0.1, cy - r * 0.35, r * 0.5, r * 0.25, -Math.PI / 8, 0, Math.PI * 2);
-            ctx.fillStyle = sheenGrad;
-            ctx.fill();
-            ctx.restore();
-
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.stroke();
-          } else if (effectiveStyle === 'hollow-rings') {
-            const cx = rx + rw / 2;
-            const cy = ry + rh / 2;
-            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-
-            const noteColor = colStyles[n.column].color;
-
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.fillStyle = noteColor;
-            ctx.fill();
-            
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.8;
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-            ctx.fill();
-          } else {
-            // Default Circles
-            const cx = rx + rw / 2;
-            const cy = ry + rh / 2;
-            const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-
-            const circleGrad = ctx.createRadialGradient(cx - r * 0.15, cy - r * 0.15, 0, cx, cy, r);
-            circleGrad.addColorStop(0, '#ffffff');
-            circleGrad.addColorStop(0.25, noteStroke);
-            circleGrad.addColorStop(0.6, noteFill);
-            circleGrad.addColorStop(1, 'rgba(0,0,0,0.85)');
-
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.fillStyle = circleGrad;
-            ctx.fill();
-
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.3;
-            ctx.stroke();
-
-            // Dynamic center bead glow
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
-            ctx.fill();
-          }
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+          grad.addColorStop(0, noteFill);
+          grad.addColorStop(1, noteFill);
+          ctx.fillStyle = grad;
+          drawNoteShape(0);
+          ctx.fill();
+        } else if (settings.playfieldStyle !== 'circle') {
+          grad.addColorStop(0, noteFill);
+          grad.addColorStop(1, noteFill);
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = noteStroke;
+          ctx.lineWidth = 2.5;
+          drawNoteShape(4);
+          ctx.fill();
+          ctx.stroke();
+          
+          // Subtle glow
+          ctx.shadowColor = noteFill;
+          ctx.shadowBlur = 8;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
         } else {
           // Default Neon and Cyberpunk flows
           grad.addColorStop(0, noteStroke);
@@ -1816,192 +1811,84 @@ export default function GameplayCanvas({
         const xPos = colX[i];
         const colW = colStyles[i].width;
         const isPressed = activeColumnsRef.current[i];
-        const rcColor = colStyles[i].color;
+        
+        const isCircleMode = settings.playfieldStyle === 'circle' || 
+                             settings.skinId === 'circles' || 
+                             settings.skinId === 'glassy-spheres' || 
+                             settings.skinId === 'hollow-rings';
+
+        let rcColor = colStyles[i].color;
+        if (isCircleMode) {
+          rcColor = settings.circleReceptorColor || '#00b0ff';
+        } else if (settings.squareRenderStyle !== 'rhythmplus') {
+          rcColor = settings.rhythmmaniaReceptorColor || '#00b0ff';
+        }
 
         ctx.save();
         ctx.globalAlpha = settings.receptorOpacity ?? 1.0;
 
         {
           // Standard or selected receptor style block
-          const rStyle = settings.receptorStyle || 'tactile';
           
-          const isCircleMode = settings.playfieldStyle === 'circle' || 
-                               settings.skinId === 'circles' || 
-                               settings.skinId === 'glassy-spheres' || 
-                               settings.skinId === 'hollow-rings';
-
           if (isCircleMode) {
-            const effectiveStyle = settings.circleRenderStyle || 
-                                   ((settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') 
-                                     ? settings.skinId 
-                                     : 'circles');
-            
             const cx = xPos + colW / 2;
             const cy = receptorY;
             const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
 
-            if (effectiveStyle === 'glassy-spheres') {
-              if (isPressed) {
-                const bloomGrad = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
-                bloomGrad.addColorStop(0, '#ffffff');
-                bloomGrad.addColorStop(0.3, hexToRgba(rcColor, 0.9));
-                bloomGrad.addColorStop(0.8, hexToRgba(rcColor, 0.4));
-                bloomGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = bloomGrad;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
-                ctx.fill();
+            if (isPressed) {
+              ctx.fillStyle = rcColor;
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, 0, Math.PI * 2);
+              ctx.fill();
 
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.stroke();
-              } else {
-                const baseGrad = ctx.createRadialGradient(cx - r*0.1, cy - r*0.1, 1, cx, cy, r);
-                baseGrad.addColorStop(0, '#1e293b');
-                baseGrad.addColorStop(0.7, '#0f172a');
-                baseGrad.addColorStop(1, '#020617');
-                ctx.fillStyle = baseGrad;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, 0, Math.PI * 2);
+              ctx.stroke();
 
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-                ctx.lineWidth = 1.8;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.stroke();
-              }
-            } else if (effectiveStyle === 'hollow-rings') {
-              if (isPressed) {
-                ctx.fillStyle = rcColor;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.stroke();
-
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath();
-                ctx.arc(cx, cy, r * 0.35, 0, Math.PI * 2);
-                ctx.fill();
-              } else {
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.setLineDash([4, 3]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.15)';
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
-              }
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath();
+              ctx.arc(cx, cy, r * 0.35, 0, Math.PI * 2);
+              ctx.fill();
             } else {
-              // Classic circles
-              if (isPressed) {
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.fillStyle = rcColor;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                // Feedback inner bead
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath();
-                ctx.arc(cx, cy, r * 0.4, 0, Math.PI * 2);
-                ctx.fill();
-              } else {
-                ctx.strokeStyle = hexToRgba(rcColor, 0.7);
-                ctx.lineWidth = 1.8;
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                // Physical center small indicator
-                ctx.fillStyle = hexToRgba(rcColor, 0.4);
-                ctx.beginPath();
-                ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
-                ctx.fill();
-              }
+              ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, 0, Math.PI * 2);
+              ctx.setLineDash([4, 3]);
+              ctx.stroke();
+              ctx.setLineDash([]);
+              
+              ctx.fillStyle = 'rgba(15, 23, 42, 0.15)';
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, 0, Math.PI * 2);
+              ctx.fill();
             }
-          } else if (rStyle === 'minimal') {
-            // ==================== PIANO SEGMENT STYLE ====================
+          } else if (settings.squareRenderStyle === 'rhythmplus') {
+            // ==================== RHYTHMPLUS STYLE ====================
             const rx = xPos + 1;
-            const ry = receptorY - 5;
+            const ry = receptorY - 2;
             const rw = colW - 2;
-            const rh = 10;
+            const rh = 4;
 
             ctx.fillStyle = isPressed 
-              ? 'rgba(255, 255, 255, 0.9)' 
-              : hexToRgba(rcColor, 0.15);
+              ? '#ffffff' 
+              : 'rgba(255, 255, 255, 0.4)';
             
             ctx.beginPath();
-            ctx.roundRect(rx, ry, rw, rh, 3);
+            ctx.rect(rx, ry, rw, rh);
             ctx.fill();
 
-            ctx.strokeStyle = isPressed 
-              ? '#ffffff' 
-              : hexToRgba(rcColor, 0.35);
-            ctx.lineWidth = isPressed ? 2.5 : 1.2;
-            ctx.stroke();
-
-          } else if (rStyle === 'square') {
-            // ==================== SOLID SQUARE STYLE ====================
-            const rx = xPos + 4;
-            const ry = receptorY - 14;
-            const rw = colW - 8;
-            const rh = 28;
-
-            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.9);
-            ctx.lineWidth = isPressed ? 4.0 : 2;
-            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.6) : 'rgba(10, 10, 15, 0.95)';
-
-            ctx.beginPath();
-            ctx.rect(rx, ry, rw, rh); // Pure rigid sharp box
-            ctx.fill();
-            ctx.stroke();
-
-            // Physical Center feedback square
-            ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
-            ctx.fillRect(xPos + colW / 2 - (isPressed ? 6 : 4), receptorY - (isPressed ? 6 : 4), isPressed ? 12 : 8, isPressed ? 12 : 8);
-
-          } else if (rStyle === 'translucent') {
-            // ==================== TRANSLUCENT GLOW STYLE ====================
-            const rx = xPos + 6;
-            const ry = receptorY - 14;
-            const rw = colW - 12;
-            const rh = 28;
-
-            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.6);
-            ctx.lineWidth = isPressed ? 3.0 : 1.5;
-            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.35) : 'rgba(255, 255, 255, 0.05)';
-
-            ctx.beginPath();
-            ctx.roundRect(rx, ry, rw, rh, 8);
-            ctx.fill();
-            ctx.stroke();
-
-            // Elegant neon thin glow circle in the middle
-            ctx.strokeStyle = isPressed ? '#ffffff' : rcColor;
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.arc(xPos + colW / 2, receptorY, isPressed ? 7 : 5, 0, Math.PI * 2);
-            ctx.stroke();
-
+            if (isPressed) {
+              ctx.shadowColor = '#ffffff';
+              ctx.shadowBlur = 10;
+              ctx.fillStyle = '#ffffff';
+              ctx.fill();
+              ctx.shadowBlur = 0;
+            }
           } else {
-            // ==================== TACTILE CLASSIC GLASS (DEFAULT) ====================
+            // ==================== RHYTHMMANIA STYLE (Rounded rectangle) ====================
             const rx = xPos + 6;
             const ry = receptorY - 14;
             const rw = colW - 12;

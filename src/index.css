@@ -28,6 +28,14 @@ body {
 :root {
   --skin-accent: #00b0ff;
   --skin-accent-rgb: 0, 176, 255;
+
+  /* Settings shell tokens */
+  --settings-bg: 12 12 18;                 /* slate-ish */
+  --settings-surface: 18 18 26;
+  --settings-border: 255 255 255;          /* used at low alpha */
+  --settings-text: 226 232 240;             /* slate-200 */
+  --settings-muted: 148 163 184;           /* slate-400 */
+  --settings-changed: 234 179 8;            /* amber-400 — the yellow rail */
 }
 
 /* Dynamic Skin Accent helper classes */
@@ -110,6 +118,69 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(34, 211, 238, 0.4);
 }
+
+/* Settings shell */
+.settings-shell {
+  background-color: rgb(var(--settings-bg) / 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid rgb(var(--settings-border) / 0.06);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 0.5);
+}
+
+/* One row of a setting: rail | label/desc | control */
+.settings-row {
+  display: grid;
+  grid-template-columns: 6px 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  transition: background-color 120ms ease;
+}
+.settings-row:hover {
+  background-color: rgb(255 255 255 / 0.02);
+}
+
+/* The "changed from default" rail */
+.settings-rail {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 9999px;
+  background-color: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+  position: relative;
+}
+.settings-rail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
+}
+.settings-rail.is-changed {
+  background-color: rgb(var(--settings-changed));
+  box-shadow: 0 0 8px rgb(var(--settings-changed) / 0.6);
+}
+
+/* Shake animation for empty search */
+@keyframes settings-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(2px); }
+}
+.settings-shake { animation: settings-shake 250ms ease; }
+
+/* Slide-in for the drawer */
+@keyframes settings-slide-in {
+  from { transform: translateX(-100%); opacity: 0.6; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+.settings-slide-in { animation: settings-slide-in 180ms ease-out; }
 
 /* Block browser zoom gestures completely on gameplay canvas */
 .game-canvas-element {

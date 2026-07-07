@@ -2,7 +2,7 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
- * This source code is licensed under the PolyForm Perimeter License 1.0.0.
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
  *
@@ -31,7 +31,7 @@ interface SongSelectProps {
   settings: GameSettings;
   updateSettings: (s: Partial<GameSettings>) => void;
   onSelectMap: (map: Beatmap) => void;
-  onOpenGlobalSettings: () => void;
+  onOpenSettings: () => void;
   customMaps: Beatmap[];
   onImportBeatmap: (map: Beatmap) => void;
   onDeleteCustomMap?: (id: string) => void;
@@ -44,7 +44,7 @@ export default function SongSelect({
   settings,
   updateSettings,
   onSelectMap,
-  onOpenGlobalSettings,
+  onOpenSettings,
   customMaps,
   onImportBeatmap,
   onDeleteCustomMap,
@@ -57,6 +57,18 @@ export default function SongSelect({
   const [selectedCustomMapId, setSelectedCustomMapId] = useState<string>('');
   const [unpackTrigger, setUnpackTrigger] = useState<number>(0);
   const [manualExpandedSongKey, setManualExpandedSongKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+        e.preventDefault();
+        const tag = document.activeElement?.tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') onOpenSettings();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onOpenSettings]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragActive, setIsDragActive] = useState<boolean>(false);
