@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { RotateCcw, ChevronLeft, User, Play, Calendar, Trophy, Percent, Flame, Video } from 'lucide-react';
+import { RotateCcw, ChevronLeft, Play, Calendar, Trophy, Percent, Flame, Video, ArrowLeft, Trash2 } from 'lucide-react';
 import { Beatmap, ScoreState, PlayHistoryRecord } from '../types';
 
 interface ResultsScreenProps {
@@ -22,6 +22,7 @@ interface ResultsScreenProps {
   onWatchReplay?: (record: PlayHistoryRecord) => void;
   onBack: () => void;
   onBackToHistory?: () => void;
+  onDeleteRecord?: (id: string) => void;
 }
 
 export default function ResultsScreen({
@@ -31,29 +32,48 @@ export default function ResultsScreen({
   onRetry,
   onWatchReplay,
   onBack,
-  onBackToHistory
+  onBackToHistory,
+  onDeleteRecord
 }: ResultsScreenProps) {
-  // 1. Gather all logged play runs for this specific beatmap
+  // Determine actual star rating dynamically
+  const getStarRating = (map: any) => {
+    if (map.starRating !== undefined) return map.starRating;
+    const diffName = (map.difficulty || '').toLowerCase();
+    if (diffName.includes('easy') || diffName.includes('beginner')) return 1.5;
+    if (diffName.includes('doubtful')) return 2.33;
+    if (diffName.includes('normal')) return 2.1;
+    if (diffName.includes('hard') || diffName.includes('hyper')) return 3.65;
+    if (diffName.includes('insane') || diffName.includes('another')) return 4.8;
+    if (diffName.includes('expert') || diffName.includes('black')) return 5.85;
+    if (diffName.includes('extra') || diffName.includes('deluge')) return 6.4;
+    if (diffName.includes('master') || diffName.includes('zenith')) return 7.5;
+    
+    // Fallback deterministic star code
+    const hash = (map.id || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+    const calculated = 1.0 + (hash % 75) / 10; 
+    return Math.round(calculated * 100) / 100;
+  };
+
+  // 1. Gather play runs for this beatmap
   const mapRecords = useMemo(() => {
     return playHistory
       .filter(r => r.beatmapId === beatmap.id && !r.isFailed)
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [playHistory, beatmap.id]);
 
-  // 2. Local selection state for the active run being inspected
+  // 2. Local selection state for inspecting runs
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
-  // 3. Resolve active run or fallback to raw scoreState from props
+  // 3. Resolve active run or fallback to raw scoreState
   const activeRecord = useMemo(() => {
     if (selectedRecordId) {
       return mapRecords.find(r => r.id === selectedRecordId) || null;
     }
-    // Match by score or fallback to most recent
     const matching = mapRecords.find(r => r.score === scoreState.score && Math.abs(r.accuracy - scoreState.accuracy) < 0.05);
     return matching || mapRecords[0] || null;
   }, [selectedRecordId, mapRecords, scoreState]);
 
-  // Active stats to render
   const activeScoreState = activeRecord ? activeRecord.scoreState : scoreState;
   const activeMods = activeRecord ? activeRecord.mods : undefined;
 
@@ -69,26 +89,86 @@ export default function ResultsScreen({
     missCount
   } = activeScoreState;
 
-  const getGrade = (acc: number): { char: string; color: string; ringColor: string } => {
-    if (activeScoreState.failed) return { char: 'F', color: 'text-rose-500', ringColor: '#ef4444' };
-    if (acc >= 100) return { char: 'SS', color: 'text-zinc-100 drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]', ringColor: '#f4f4f5' };
-    if (acc >= 95) return { char: 'S', color: 'text-cyan-300 drop-shadow-[0_0_15px_rgba(103,232,249,0.8)]', ringColor: '#67e8f9' };
-    if (acc >= 90) return { char: 'A', color: 'text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.6)]', ringColor: '#34d399' };
-    if (acc >= 80) return { char: 'B', color: 'text-indigo-400 drop-shadow-[0_0_15px_rgba(129,140,248,0.6)]', ringColor: '#818cf8' };
-    if (acc >= 70) return { char: 'C', color: 'text-pink-400 drop-shadow-[0_0_15px_rgba(244,114,182,0.6)]', ringColor: '#f472b6' };
-    return { char: 'D', color: 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.6)]', ringColor: '#f43f5e' };
+  // Grade color themes & classes
+  const getGradeTheme = (acc: number) => {
+    if (activeScoreState.failed) {
+      return {
+        char: 'F',
+        textColor: 'text-rose-500',
+        borderColor: 'border-rose-500/50',
+        glowBg: 'rgba(239, 68, 68, 0.15)',
+        glowShadow: 'shadow-[0_0_25px_rgba(239,68,68,0.4)]',
+        ringColor: '#ef4444'
+      };
+    }
+    if (acc >= 100) {
+      return {
+        char: 'SS',
+        textColor: 'text-zinc-100',
+        borderColor: 'border-zinc-200/50',
+        glowBg: 'rgba(250, 250, 250, 0.15)',
+        glowShadow: 'shadow-[0_0_25px_rgba(255,255,255,0.4)]',
+        ringColor: '#f4f4f5'
+      };
+    }
+    if (acc >= 95) {
+      return {
+        char: 'S',
+        textColor: 'text-yellow-400',
+        borderColor: 'border-yellow-400/50',
+        glowBg: 'rgba(250, 204, 21, 0.15)',
+        glowShadow: 'shadow-[0_0_30px_rgba(250,204,21,0.55)]',
+        ringColor: '#facc15'
+      };
+    }
+    if (acc >= 90) {
+      return {
+        char: 'A',
+        textColor: 'text-emerald-400',
+        borderColor: 'border-emerald-400/50',
+        glowBg: 'rgba(52, 211, 153, 0.15)',
+        glowShadow: 'shadow-[0_0_25px_rgba(52,211,153,0.4)]',
+        ringColor: '#34d399'
+      };
+    }
+    if (acc >= 80) {
+      return {
+        char: 'B',
+        textColor: 'text-indigo-400',
+        borderColor: 'border-indigo-400/50',
+        glowBg: 'rgba(129, 140, 248, 0.15)',
+        glowShadow: 'shadow-[0_0_25px_rgba(129,140,248,0.4)]',
+        ringColor: '#818cf8'
+      };
+    }
+    if (acc >= 70) {
+      return {
+        char: 'C',
+        textColor: 'text-pink-400',
+        borderColor: 'border-pink-400/50',
+        glowBg: 'rgba(244, 114, 182, 0.15)',
+        glowShadow: 'shadow-[0_0_25px_rgba(244,114,182,0.4)]',
+        ringColor: '#f472b6'
+      };
+    }
+    return {
+      char: 'D',
+      textColor: 'text-rose-500',
+      borderColor: 'border-rose-500/50',
+      glowBg: 'rgba(244, 63, 94, 0.15)',
+      glowShadow: 'shadow-[0_0_25px_rgba(244,63,94,0.4)]',
+      ringColor: '#f43f5e'
+    };
   };
 
-  const grade = getGrade(accuracy);
-  const totalHits = marvelousCount + perfectCount + greatCount + goodCount + badCount + missCount;
+  const grade = getGradeTheme(accuracy);
 
-  // Find historical rank of activeRecord compared to all plays of this song difficulty
-  const activePlayRank = useMemo(() => {
-    if (mapRecords.length === 0 || !activeRecord) return 1;
-    const sorted = [...mapRecords].sort((a, b) => b.score - a.score);
-    const index = sorted.findIndex(r => r.id === activeRecord.id);
-    return index !== -1 ? index + 1 : 1;
-  }, [mapRecords, activeRecord]);
+  // Check if this run is the all-time high score
+  const isNewRecord = useMemo(() => {
+    if (mapRecords.length <= 1) return true;
+    const maxPastScore = Math.max(...mapRecords.map(r => r.id === activeRecord?.id ? 0 : r.score));
+    return score >= maxPastScore;
+  }, [mapRecords, activeRecord, score]);
 
   const formatDate = (timestamp: number) => {
     try {
@@ -99,313 +179,271 @@ export default function ResultsScreen({
     }
   };
 
-  const getMiniGradeStyle = (grd: string) => {
-    switch (grd) {
-      case 'SS': return 'text-zinc-100 bg-white/5 border-white/20';
-      case 'S': return 'text-cyan-300 bg-cyan-400/5 border-cyan-400/25';
-      case 'A': return 'text-emerald-400 bg-emerald-400/5 border-emerald-400/25';
-      case 'B': return 'text-indigo-400 bg-indigo-400/5 border-indigo-400/25';
-      case 'C': return 'text-pink-400 bg-pink-400/5 border-pink-400/25';
-      default: return 'text-rose-500 bg-rose-500/5 border-rose-500/25';
-    }
-  };
+  const currentBg = beatmap.bgUrl || '/backgrounds/nikio.png';
 
   return (
-    <div id="results-screen-container" className="relative flex flex-col items-center justify-center h-full w-full text-slate-100 overflow-hidden bg-zinc-950 select-none">
+    <div id="results-screen-container" className="relative flex flex-col h-full w-full text-slate-100 overflow-hidden bg-zinc-950 select-none">
       
-      {/* Background Cover Blur */}
-      {beatmap.bgUrl && (
-        <>
-          <div 
-            className="absolute inset-0 z-0 opacity-15 scale-105 pointer-events-none"
-            style={{
-              backgroundImage: `url(${beatmap.bgUrl})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              filter: 'blur(35px)',
-            }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-zinc-950/60 z-0 pointer-events-none" />
-        </>
-      )}
+      {/* 1. FULL VIEWPORT BACKGROUND COVER IMAGE */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div 
+          className="absolute inset-0 bg-cover bg-center opacity-45 scale-102 blur-[2px] transition-all duration-700 ease-in-out"
+          style={{ backgroundImage: `url(${currentBg})` }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-zinc-900/80" />
+        <div className="absolute inset-0 bg-black/50" />
+      </div>
 
-      {/* Main Container - Left details, right stats card */}
-      <div className="relative z-10 w-full h-full flex flex-col md:flex-row items-stretch overflow-hidden">
-        
-        {/* LEFT COLUMN: SCROLLABLE LIST OF ALL PERFORMANCE RECORDS */}
-        <div className="md:w-[400px] md:max-w-[400px] flex flex-col bg-[#141419]/90 border-r border-white/5 p-6 backdrop-blur-xl shrink-0 overflow-hidden h-[300px] md:h-auto z-10 shadow-xl">
-          <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4 shrink-0">
-            <div>
-              <span className="text-[9px] text-slate-500 font-mono tracking-widest uppercase block">// PERFORMANCES DATABASE</span>
-              <h3 className="text-sm font-black text-white tracking-wide uppercase flex items-center gap-1.5 mt-0.5">
-                <Trophy className="h-4 w-4 text-amber-400" />
-                Records ({mapRecords.length})
-              </h3>
-            </div>
-            <span className="text-[10px] text-slate-400 font-semibold bg-white/5 border border-white/5 px-2 py-0.5 rounded-full font-mono">
-              {beatmap.keyCount}K Mode
-            </span>
-          </div>
+      {/* 2. TOP BAR HEADER */}
+      <header className="h-16 w-full bg-black/80 backdrop-blur-md border-b border-white/10 px-6 lg:px-10 flex items-center justify-between z-20 relative shrink-0">
+        <div className="flex items-center gap-4 min-w-0">
+          {onBackToHistory && (
+            <button 
+              onClick={onBackToHistory}
+              className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl text-white flex items-center gap-1.5 transition-all cursor-pointer border border-white/10 font-bold text-xs uppercase tracking-wider"
+              title="Back to Performance History"
+            >
+              <ChevronLeft className="w-4 h-4 text-skin-accent" />
+              <span>History</span>
+            </button>
+          )}
 
-          {/* Performances list scrollable box */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-            {mapRecords.length > 0 ? (
-              mapRecords.map((run, index) => {
-                const isActive = activeRecord?.id === run.id;
-                const dateStr = formatDate(run.timestamp);
-                const gStyle = getMiniGradeStyle(run.grade);
-
-                return (
-                  <div
-                    key={run.id}
-                    onClick={() => setSelectedRecordId(run.id)}
-                    className={`p-3 rounded-2xl border transition-all duration-150 flex items-center justify-between gap-3 relative overflow-hidden group cursor-pointer ${
-                      isActive 
-                        ? 'bg-gradient-to-r from-cyan-500/10 to-indigo-500/5 border-cyan-500/40 shadow-lg shadow-cyan-500/5'
-                        : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04] hover:border-white/10'
-                    }`}
-                  >
-                    {/* Active highlight side line */}
-                    {isActive && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-400" />
-                    )}
-
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {/* Performance rank badge */}
-                      <span className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center font-bold text-xs border font-serif italic ${gStyle}`}>
-                        {run.grade}
-                      </span>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-xs text-white truncate max-w-[130px]">
-                            {run.score.toLocaleString()}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            #{index + 1}
-                          </span>
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                          <Calendar className="h-2.5 w-2.5" />
-                          {dateStr}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right flex flex-col font-mono text-[10px] hidden sm:flex">
-                        <span className="text-cyan-400 font-extrabold">{run.accuracy.toFixed(2)}%</span>
-                        <span className="text-slate-500 text-[9px]">{run.maxCombo}x combo</span>
-                      </div>
-
-                      {onWatchReplay && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onWatchReplay(run);
-                          }}
-                          className="p-2 rounded-xl bg-white/5 border border-white/10 text-slate-300 hover:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-500/20 active:scale-90 transition-all cursor-pointer"
-                          title="Watch Replay Replay"
-                        >
-                          <Play className="h-3 w-3 fill-current" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <Trophy className="h-8 w-8 text-zinc-600 mb-2" />
-                <span className="text-xs text-slate-400 font-bold">No runs logged yet</span>
-                <span className="text-[10px] text-zinc-600 max-w-[200px] mt-1">
-                  Fully complete this song difficulty level to see your logs here.
-                </span>
-              </div>
-            )}
+          <div className="flex flex-col text-left min-w-0">
+            <h2 className="text-sm md:text-base font-black text-white font-sans truncate tracking-tight leading-tight">
+              {beatmap.title}
+            </h2>
+            <p className="text-[11px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5 truncate">
+              {beatmap.artist} • <span className="text-rose-400 font-extrabold">★ {getStarRating(beatmap).toFixed(2)}</span>
+            </p>
           </div>
         </div>
 
-        {/* CENTER / RIGHT COLUMN: DYNAMIC OSU STATS CARD */}
-        <div className="flex-1 flex flex-col bg-[#1C1C22]/95 border-l border-white/5 shadow-[0_25px_60px_rgba(0,0,0,0.65)] backdrop-blur-2xl px-6 py-6 items-center text-center overflow-y-auto scrollbar-none justify-between">
-          
-          {/* Header row with rank index */}
-          <div className="w-full flex justify-between items-center shrink-0 py-1 border-b border-white/5 mb-4 relative gap-3">
-            <div className="flex items-center gap-3">
-              {onBackToHistory && (
-                <button 
-                  onClick={onBackToHistory}
-                  className="px-3 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-white flex items-center gap-1.5 transition-all z-20 cursor-pointer border border-white/5 shadow-md"
-                  title="Back to History"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider hidden sm:block">History</span>
-                </button>
-              )}
-              <span className="text-[10px] font-black text-indigo-400 tracking-wider font-mono">
-                // STATS INSPECTING
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1 bg-white/5 border border-white/5 px-2.5 py-1 rounded-full text-[10px] text-zinc-300 font-bold shadow ml-auto">
-              <User className="h-3 w-3 text-cyan-400" />
-              <span>Player</span>
-              {mapRecords.length > 0 && activeRecord && (
-                <span className="text-cyan-300 font-mono text-[9px] border-l border-white/10 pl-1.5 ml-1.5">
-                  Rank #{activePlayRank} / {mapRecords.length}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Beatmap details */}
-          <div className="w-full text-center shrink-0 mb-4 mt-2">
-            <h2 className="text-lg md:text-xl font-black text-white font-sans max-w-full truncate">
-              {beatmap.title}
-            </h2>
-            <div className="flex items-center justify-center gap-1.5 text-xs text-zinc-400 font-bold mt-0.5">
-              <span>{beatmap.artist}</span>
-              <span className="text-zinc-600">•</span>
-              {!isNaN(Number(beatmap.difficulty)) && (
-                <span className="text-rose-400 font-black flex items-center gap-0.5">
-                  ★ {(Number(beatmap.difficulty) * 0.5 + 2).toFixed(2)}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Huge Dynamic Grade Ring */}
-          <div className="relative w-44 h-44 md:w-52 md:h-52 flex items-center justify-center mb-4 shrink-0">
-            <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full -rotate-90 drop-shadow-[0_0_15px_rgba(0,0,0,0.6)]">
-               <circle 
-                 cx="50" cy="50" r="45" 
-                 fill="none" 
-                 stroke="rgba(255,255,255,0.03)" 
-                 strokeWidth="6" 
-               />
-               <circle 
-                 cx="50" cy="50" r="45" 
-                 fill="none" 
-                 stroke={grade.ringColor}
-                 strokeWidth="6" 
-                 strokeDasharray="283"
-                 strokeDashoffset={283 - (283 * Math.max(accuracy, 100)) / 100}
-                 strokeLinecap="round"
-                 className="transition-all duration-[1200ms] ease-out"
-               />
-            </svg>
-            
-            <div className="flex flex-col items-center justify-center absolute">
-              <span className={`text-[70px] md:text-[85px] leading-none font-black italic tracking-tighter ${grade.color} select-none drop-shadow-2xl`}>
-                {grade.char}
-              </span>
-            </div>
-          </div>
-
-          {/* Huge numerical score readout */}
-          <div className="mb-4 shrink-0">
-            <span className="text-[36px] md:text-[44px] leading-none font-extralight tracking-widest text-white drop-shadow">
-              {score.toLocaleString()}
-            </span>
-            
-            {/* Display active mods list if available */}
-            {activeMods && activeMods.length > 0 && (
-              <div className="flex justify-center gap-1.5 mt-2">
-                {activeMods.map(m => (
-                  <span key={m} className="bg-amber-400/10 border border-amber-400/25 px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-mono text-amber-300 font-black shadow-md">
-                    {m}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Metrics summary widget panel */}
-          <div className="w-full flex flex-col gap-4 border-t border-white/5 pt-4">
-            
-            {/* 3 Columns details */}
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="bg-white/[0.01] border border-white/[0.04] p-2.5 rounded-2xl flex flex-col items-center">
-                <div className="flex items-center gap-1 text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
-                  <Percent className="h-3 w-3 text-cyan-400 shrink-0" />
-                  Accuracy
-                </div>
-                <div className="text-base md:text-lg font-black text-cyan-400 mt-1">{accuracy.toFixed(2)}%</div>
-              </div>
-
-              <div className="bg-white/[0.01] border border-white/[0.04] p-2.5 rounded-2xl flex flex-col items-center">
-                <div className="flex items-center gap-1 text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
-                  <Flame className="h-3 w-3 text-amber-400 shrink-0" />
-                  Max Combo
-                </div>
-                <div className="text-base md:text-lg font-black text-amber-400 mt-1">{maxCombo}x</div>
-              </div>
-
-              <div className="bg-white/[0.01] border border-white/[0.04] p-2.5 rounded-2xl flex flex-col items-center">
-                <div className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Total Hits</div>
-                <div className="text-base md:text-lg font-black text-zinc-300 mt-1">{totalHits}</div>
-              </div>
-            </div>
-
-            {/* Judgements Breakdown Grid */}
-            <div className="grid grid-cols-3 gap-3">
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#22d3ee]/10 transition-all">
-                 <span className="text-[9px] uppercase font-extrabold text-[#22d3ee] tracking-wider mb-0.5" style={{textShadow: "0 0 5px rgba(34,211,238,0.2)"}}>Marvelous</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{marvelousCount}</span>
-               </div>
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#facc15]/10 transition-all">
-                 <span className="text-[9px] uppercase font-extrabold text-[#facc15] tracking-wider mb-0.5" style={{textShadow: "0 0 5px rgba(250,204,21,0.2)"}}>Perfect</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{perfectCount}</span>
-               </div>
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#4ade80]/10 transition-all">
-                 <span className="text-[9px] uppercase font-bold text-[#4ade80] tracking-wider mb-0.5">Great</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{greatCount}</span>
-               </div>
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#3b82f6]/10 transition-all">
-                 <span className="text-[9px] uppercase font-bold text-[#3b82f6] tracking-wider mb-0.5">Good</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{goodCount}</span>
-               </div>
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#ec4899]/10 transition-all">
-                 <span className="text-[9px] uppercase font-bold text-[#ec4899] tracking-wider mb-0.5">Bad</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{badCount}</span>
-               </div>
-               <div className="flex flex-col items-center border border-white/5 rounded-2xl py-2.5 bg-black/35 group hover:border-[#ef4444]/10 transition-all">
-                 <span className="text-[9px] uppercase font-bold text-[#ef4444] tracking-wider mb-0.5">Miss</span>
-                 <span className="text-white font-mono text-xs md:text-sm font-bold">{missCount}</span>
-               </div>
-            </div>
-
-          </div>
-
-          {/* Action bottom dashboard block */}
-          <div className="flex flex-row gap-3 w-full mt-4 shrink-0">
-            <button
-              id="results-retry-btn"
-              onClick={onRetry}
-              className="flex-1 py-3 px-4 bg-zinc-850 hover:bg-zinc-800 border border-white/10 text-white font-sans font-bold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-md"
-            >
-              <RotateCcw className="h-4 w-4" /> Retry Song
-            </button>
-            
-            {onWatchReplay && activeRecord && activeRecord.replayFrames && activeRecord.replayFrames.length > 0 && (
-              <button
-                id="results-watch-replay-btn"
-                onClick={() => onWatchReplay(activeRecord)}
-                className="flex-1 py-3 px-4 bg-cyan-600/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 font-sans font-bold text-xs rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-md"
+        {/* Play log inspector dropdown if there are other runs */}
+        <div className="flex items-center gap-3">
+          {mapRecords.length > 1 && (
+            <div className="flex items-center gap-2 bg-zinc-900/90 border border-white/10 px-3 py-1.5 rounded-xl text-xs">
+              <span className="text-[9px] font-mono text-zinc-500 uppercase font-black">Compare:</span>
+              <select
+                value={selectedRecordId || ''}
+                onChange={(e) => setSelectedRecordId(e.target.value || null)}
+                className="bg-zinc-950 text-slate-200 outline-none border-none py-0.5 px-2 rounded font-bold cursor-pointer text-[11px]"
               >
-                <Video className="h-4 w-4" /> Watch Replay
-              </button>
-            )}
+                {mapRecords.map((run, idx) => (
+                  <option key={run.id} value={run.id}>
+                    Run #{idx + 1} ({run.accuracy.toFixed(1)}% - {formatDate(run.timestamp)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-            <button
-              id="results-select-btn"
-              onClick={onBack}
-              className="flex-1 py-3 px-4 bg-indigo-500 hover:bg-indigo-400 text-white font-sans font-bold text-xs rounded-2xl flex items-center justify-center gap-2 shadow-[0_4px_25px_rgba(99,102,241,0.35)] active:scale-95 transition-all outline-none cursor-pointer"
-            >
-              <ChevronLeft className="h-4 w-4" /> Back
-            </button>
+          <span className="px-3.5 py-1.5 bg-skin-accent-dim text-skin-accent text-[10px] tracking-widest font-mono font-black border border-skin-accent/25 rounded-full shadow-lg">
+            {beatmap.keyCount}K MODE
+          </span>
+        </div>
+      </header>
+
+      {/* 3. VERTICALLY CENTERED HORIZONTAL SCORE BAR CONTAINER */}
+      <div className="flex-1 w-full flex flex-col justify-center items-center z-10 px-4">
+        
+        <div className="w-full max-w-5xl py-8 md:py-10 bg-black/75 backdrop-blur-md border-y border-white/10 relative shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+          
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center w-full px-6 lg:px-12">
+            
+            {/* LEFT SECTION: CIRCULAR GRADE AND ACCURACY */}
+            <div className="md:col-span-4 flex flex-col items-center justify-center relative">
+              <div className={`relative w-40 h-40 md:w-48 md:h-48 rounded-full border-4 ${grade.borderColor} ${grade.glowShadow} flex flex-col items-center justify-center transition-all duration-500`}
+                   style={{ backgroundColor: grade.glowBg }}>
+                
+                {/* Subtle radial inner glow */}
+                <div className="absolute inset-2 rounded-full opacity-45 bg-radial from-white via-transparent to-transparent blur-sm" />
+                
+                {/* Big typography Grade character with RhythmMania logo font */}
+                <span className={`font-sans font-black tracking-tight text-7xl md:text-8xl leading-none uppercase ${grade.textColor} select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10`}>
+                  {grade.char}
+                </span>
+
+                {/* Accuracy percentage read-out positioned cleanly below grade */}
+                <span className="text-white/90 text-sm md:text-base font-sans font-black tracking-wider mt-1 drop-shadow z-10 uppercase">
+                  {accuracy.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+
+            {/* CENTER SECTION: DETAILED SCORE AND COMBO READOUT */}
+            <div className="md:col-span-4 flex flex-col items-center md:items-start text-center md:text-left gap-2.5">
+              
+              <div className="flex items-center gap-3">
+                <span className="text-zinc-500 font-sans font-black text-sm uppercase tracking-widest">
+                  Score
+                </span>
+                
+                {isNewRecord && (
+                  <span className="px-3 py-1 bg-amber-500 text-slate-950 font-sans font-black text-[9px] uppercase tracking-wider rounded-lg shadow-[0_0_15px_rgba(245,158,11,0.5)] animate-pulse border border-white/25">
+                    New Record
+                  </span>
+                )}
+              </div>
+
+              {/* Giant clean spacing numeric readout */}
+              <h1 className="text-5xl md:text-6xl font-black text-white tracking-normal font-sans leading-none">
+                {score.toLocaleString()}
+              </h1>
+
+              {/* Max Combo underneath */}
+              <div className="flex items-center gap-1.5 text-slate-400 font-sans font-bold text-sm uppercase tracking-wide mt-1">
+                <span>Max Combo</span>
+                <span className="text-slate-500">-</span>
+                <span className="text-white font-black">{maxCombo.toLocaleString()}</span>
+              </div>
+
+              {/* Active mods sub-pills row */}
+              {activeMods && activeMods.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {activeMods.map(m => (
+                    <span key={m} className="bg-pink-500/15 border border-pink-500/30 px-2.5 py-0.5 rounded text-[8px] uppercase tracking-widest font-mono text-pink-400 font-black">
+                      {m}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2">
+                  <span className="bg-zinc-800/60 border border-white/5 px-2.5 py-0.5 rounded text-[8px] uppercase tracking-widest font-mono text-zinc-500 font-black">
+                    No Mods
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT SECTION: JUDGEMENT COUNT VERTICAL ROW BADGES */}
+            <div className="md:col-span-4 flex flex-col gap-2 max-w-xs w-full mx-auto md:mx-0">
+              
+              {/* Marvelous pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-cyan-400 text-slate-950 px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Marvelous
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {marvelousCount}
+                </span>
+              </div>
+
+              {/* Perfect pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-teal-600 text-white px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Perfect
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {perfectCount}
+                </span>
+              </div>
+
+              {/* Great pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-green-600 text-white px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Great
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {greatCount}
+                </span>
+              </div>
+
+              {/* Good pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-amber-600 text-white px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Good
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {goodCount}
+                </span>
+              </div>
+
+              {/* Bad pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-purple-700 text-white px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Bad
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {badCount}
+                </span>
+              </div>
+
+              {/* Miss pill */}
+              <div className="flex items-center justify-between bg-zinc-950/40 p-1.5 rounded-2xl border border-white/[0.02]">
+                <div className="bg-red-800 text-white px-3.5 py-1 text-[10px] font-black uppercase rounded-xl tracking-wider shadow-sm min-w-[90px] text-center">
+                  Miss
+                </div>
+                <span className="font-mono text-sm md:text-base font-extrabold text-white pr-3">
+                  {missCount}
+                </span>
+              </div>
+
+            </div>
+
           </div>
 
+        </div>
+
+        {/* 4. Sleek control buttons arranged neatly underneath the horizontal bar */}
+        <div className="flex flex-row items-center justify-center gap-4 mt-8 w-full max-w-3xl px-4">
+          
+          <button
+            id="results-retry-btn"
+            onClick={onRetry}
+            className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-white font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+          >
+            <RotateCcw className="h-4 w-4 text-skin-accent" />
+            <span className="whitespace-nowrap">Retry Song</span>
+          </button>
+          
+          {onWatchReplay && activeRecord && activeRecord.replayFrames && activeRecord.replayFrames.length > 0 && (
+            <button
+              id="results-watch-replay-btn"
+              onClick={() => onWatchReplay(activeRecord)}
+              className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-cyan-600/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+            >
+              <Video className="h-4 w-4" />
+              <span className="whitespace-nowrap">Watch Replay</span>
+            </button>
+          )}
+
+          {onDeleteRecord && (
+            <button
+              id="results-delete-btn"
+              disabled={!activeRecord}
+              onClick={() => {
+                if (!activeRecord) return;
+                if (!showConfirmDelete) {
+                  setShowConfirmDelete(true);
+                  // Auto cancel after 3 seconds
+                  setTimeout(() => setShowConfirmDelete(false), 3000);
+                } else {
+                  onDeleteRecord(activeRecord.id);
+                  setSelectedRecordId(null);
+                  setShowConfirmDelete(false);
+                }
+              }}
+              className={`flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01] disabled:opacity-30 disabled:pointer-events-none transition-all duration-300 ${
+                showConfirmDelete 
+                  ? 'bg-rose-600 hover:bg-rose-700 text-white border border-rose-400 shadow-rose-500/20' 
+                  : 'bg-rose-950/20 hover:bg-rose-900/30 border border-rose-500/30 text-rose-400'
+              }`}
+              title="Delete this play record from your history"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="whitespace-nowrap">{showConfirmDelete ? 'Confirm?' : 'Delete Run'}</span>
+            </button>
+          )}
+
+          <button
+            id="results-select-btn"
+            onClick={onBack}
+            className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-all outline-none cursor-pointer border border-indigo-400/20 transform hover:scale-[1.01]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="whitespace-nowrap">Back</span>
+          </button>
+          
         </div>
 
       </div>

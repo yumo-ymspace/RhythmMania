@@ -591,6 +591,7 @@ export default function App() {
                   setViewingHistoryResult(false);
                   handleWatchReplay(record);
                 }}
+                onDeleteRecord={handleDeleteHistoryRecord}
                 onBack={() => {
                   try {
                     if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
