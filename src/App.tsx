@@ -60,6 +60,30 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Preload default backgrounds for instant, low-latency visual performance
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const defaultBgs = [
+        '/backgrounds/Arushii.webp',
+        '/backgrounds/Ferineon.webp',
+        '/backgrounds/Kourihase.webp',
+        '/backgrounds/MPDisplay.webp',
+        '/backgrounds/Porukana.webp',
+        '/backgrounds/RedcXca.webp',
+        '/backgrounds/Sm0llBanana.webp',
+        '/backgrounds/THICC Jeff.webp',
+        '/backgrounds/mimile1606.webp',
+        '/backgrounds/nikio.webp',
+        '/backgrounds/tehfire.webp',
+        '/backgrounds/wxyz.webp'
+      ];
+      defaultBgs.forEach(src => {
+        const img = new Image();
+        img.src = src;
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -408,17 +432,28 @@ export default function App() {
       className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative h-screen ${
         (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
-      style={{
-        backgroundImage: (currentScreen === 'select') 
-          ? `linear-gradient(rgba(10, 8, 16, 0.2), rgba(6, 6, 12, 0.45)), url(${songSelectBgUrl})` 
-          : 'none',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed',
-      }}
     >
+      {/* DYNAMIC CROSS-FADING BACKGROUND LAYERS */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
+        <AnimatePresence initial={false}>
+          {currentScreen === 'select' && (
+            <motion.div
+              key={songSelectBgUrl}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.85 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: "easeInOut" }}
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-fixed"
+              style={{
+                backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.4), rgba(6, 6, 12, 0.65)), url("${songSelectBgUrl}")`
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* GLOWING TECH GRADIENTS BACKDROP & GRID OVERLAY (CONTAINED TO PREVENT DOUBLE SCROLLBARS AND SPACE LEAKS UNDER THE FOOTER) */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-1">
         <div className="absolute top-[-300px] left-1/4 w-[600px] h-[600px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-100px] right-10 w-[500px] h-[500px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />

@@ -13,6 +13,7 @@
 import React from 'react';
 import * as LucideIcons from 'lucide-react';
 import { SECTIONS, SectionId } from './settingsRegistry';
+import metadata from '../../../metadata.json';
 
 interface SettingsSidebarProps {
   activeSection: SectionId;
@@ -59,8 +60,7 @@ export default function SettingsSidebar({ activeSection, onSelect, onRestoreAll 
         >
           Restore defaults
         </button>
-        {/* @ts-ignore */}
-        <div className="text-xs text-center text-slate-600 font-mono">v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</div>
+        <div className="text-xs text-center text-slate-600 font-mono">{metadata.version}</div>
       </div>
     </div>
   );

@@ -179,7 +179,7 @@ export default function ResultsScreen({
     }
   };
 
-  const currentBg = beatmap.bgUrl || '/backgrounds/nikio.png';
+  const currentBg = beatmap.bgUrl || '/backgrounds/nikio.webp';
 
   return (
     <div id="results-screen-container" className="relative flex flex-col h-full w-full text-slate-100 overflow-hidden bg-zinc-950 select-none">
@@ -188,7 +188,7 @@ export default function ResultsScreen({
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div 
           className="absolute inset-0 bg-cover bg-center opacity-45 scale-102 blur-[2px] transition-all duration-700 ease-in-out"
-          style={{ backgroundImage: `url(${currentBg})` }}
+          style={{ backgroundImage: `url("${currentBg}")` }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-zinc-900/80" />
         <div className="absolute inset-0 bg-black/50" />

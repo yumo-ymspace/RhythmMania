@@ -2456,7 +2456,7 @@ export default function GameplayCanvas({
         }}
         className="flex flex-col items-center justify-center w-full h-screen bg-[#050508] text-slate-100 p-6 relative overflow-hidden select-none cursor-pointer"
         style={{
-          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url(${beatmap.bgUrl})` : 'none',
+          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url("${beatmap.bgUrl}")` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
@@ -3230,7 +3230,7 @@ export default function GameplayCanvas({
             <div 
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
               style={{
-                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url(${beatmap.bgUrl})`,
+                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url("${beatmap.bgUrl}")`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 zIndex: 5,

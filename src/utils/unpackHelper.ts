@@ -90,14 +90,14 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
         }
       }
 
-      if (!parsedVideoUrl && bgFilename) {
+      if (bgFilename) {
         const file = resolver.findFile(bgFilename);
         if (file) {
           const b = await file.async('blob');
           parsedBgUrl = AssetLifecycleManager.registerBlob(b);
         }
       }
-      if (!parsedVideoUrl && !parsedBgUrl) {
+      if (!parsedBgUrl) {
         const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
         if (fallbackObj) {
           const b = await fallbackObj.async('blob');

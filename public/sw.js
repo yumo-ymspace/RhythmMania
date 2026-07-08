@@ -19,7 +19,19 @@ const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/beatmaps/manifest.json',
-  '/metadata.json'
+  '/metadata.json',
+  '/backgrounds/Arushii.webp',
+  '/backgrounds/Ferineon.webp',
+  '/backgrounds/Kourihase.webp',
+  '/backgrounds/MPDisplay.webp',
+  '/backgrounds/Porukana.webp',
+  '/backgrounds/RedcXca.webp',
+  '/backgrounds/Sm0llBanana.webp',
+  '/backgrounds/THICC Jeff.webp',
+  '/backgrounds/mimile1606.webp',
+  '/backgrounds/nikio.webp',
+  '/backgrounds/tehfire.webp',
+  '/backgrounds/wxyz.webp'
 ];
 
 self.addEventListener('install', (event) => {
@@ -105,7 +117,30 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Network-First, Falling Back to Cache for core web application shell (HTML, JS, CSS, and metadata)
+  // 3. Specialized Cache-First policy for backgrounds
+  const isBackgroundAsset = url.pathname.includes('/backgrounds/');
+  if (isBackgroundAsset) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then((cache) => {
+        return cache.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) {
+            console.log('[Service Worker] Serving cached background image:', url.pathname);
+            return cachedResponse;
+          }
+          console.log('[Service Worker] Fetching background image from network:', url.pathname);
+          return fetch(event.request).then((networkResponse) => {
+            if (networkResponse.status === 200 || networkResponse.status === 304 || networkResponse.type === 'opaque') {
+              cache.put(event.request, networkResponse.clone());
+            }
+            return networkResponse;
+          });
+        });
+      })
+    );
+    return;
+  }
+
+  // 4. Network-First, Falling Back to Cache for core web application shell (HTML, JS, CSS, and metadata)
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {

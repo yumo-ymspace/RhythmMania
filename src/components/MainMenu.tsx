@@ -16,7 +16,20 @@ import { Settings as SettingsIcon, Play, History } from 'lucide-react';
 import metadata from '../../metadata.json';
 
 export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 'select' | 'history') => void, onOpenSettings: () => void }) => {
-  const bgImages = ['Arushii.jpg', 'Ferineon.jpg', 'Kourihase.png', 'MPDisplay.png', 'nikio.png'];
+  const bgImages = [
+    'Arushii.webp',
+    'Ferineon.webp',
+    'Kourihase.webp',
+    'MPDisplay.webp',
+    'Porukana.webp',
+    'RedcXca.webp',
+    'Sm0llBanana.webp',
+    'THICC Jeff.webp',
+    'mimile1606.webp',
+    'nikio.webp',
+    'tehfire.webp',
+    'wxyz.webp'
+  ];
   const [bg, setBg] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -133,7 +146,10 @@ export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 
           </motion.div>
         </motion.div>
 
-
+        {/* Bottom Left Version Tag */}
+        <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-30 select-none">
+          {metadata.version}
+        </div>
 
       </div>
     </div>

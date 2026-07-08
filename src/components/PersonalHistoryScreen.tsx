@@ -29,6 +29,7 @@ import {
   Info
 } from 'lucide-react';
 import { PlayHistoryRecord, Beatmap } from '../types';
+import metadata from '../../metadata.json';
 
 interface PersonalHistoryScreenProps {
   history: PlayHistoryRecord[];
@@ -57,7 +58,20 @@ export default function PersonalHistoryScreen({
   const [randomBg, setRandomBg] = useState('');
 
   useEffect(() => {
-    const bgs = ['Arushii.jpg', 'Ferineon.jpg', 'Kourihase.png', 'MPDisplay.png', 'nikio.png'];
+    const bgs = [
+    'Arushii.webp',
+    'Ferineon.webp',
+    'Kourihase.webp',
+    'MPDisplay.webp',
+    'Porukana.webp',
+    'RedcXca.webp',
+    'Sm0llBanana.webp',
+    'THICC Jeff.webp',
+    'mimile1606.webp',
+    'nikio.webp',
+    'tehfire.webp',
+    'wxyz.webp'
+  ];
     const chosen = bgs[Math.floor(Math.random() * bgs.length)];
     setRandomBg(`/backgrounds/${chosen}`);
   }, []);
@@ -150,7 +164,7 @@ export default function PersonalHistoryScreen({
       <div 
         className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out scale-105 pointer-events-none z-0"
         style={{ 
-          backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.72), rgba(6, 6, 12, 0.88)), url(${currentBgUrl})`,
+          backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.72), rgba(6, 6, 12, 0.88)), url("${currentBgUrl}")`,
           filter: 'blur(4px)'
         }}
       />
@@ -253,7 +267,7 @@ export default function PersonalHistoryScreen({
                 {selectedRecord.bgUrl && (
                   <div 
                     className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.045] pointer-events-none scale-105 blur-md"
-                    style={{ backgroundImage: `url(${selectedRecord.bgUrl})` }}
+                    style={{ backgroundImage: `url("${selectedRecord.bgUrl}")` }}
                   />
                 )}
 
@@ -442,7 +456,7 @@ export default function PersonalHistoryScreen({
                         {rec.bgUrl && (
                           <div 
                             className="absolute inset-0 bg-cover bg-center opacity-[0.03] pointer-events-none scale-102 blur-sm"
-                            style={{ backgroundImage: `url(${rec.bgUrl})` }}
+                            style={{ backgroundImage: `url("${rec.bgUrl}")` }}
                           />
                         )}
 
@@ -497,6 +511,11 @@ export default function PersonalHistoryScreen({
 
         </div>
       )}
+
+      {/* Bottom Left Version Tag */}
+      <div className="absolute bottom-4 left-6 text-xs text-slate-500 font-mono z-20 select-none pointer-events-none">
+        {metadata.version}
+      </div>
 
     </div>
   );

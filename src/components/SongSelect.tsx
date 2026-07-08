@@ -389,7 +389,20 @@ export default function SongSelect({
         setSongSelectBgUrl(selectBgUrl);
       } else {
         if (!defaultRandomBgRef.current) {
-          const bgs = ['Arushii.jpg', 'Ferineon.jpg', 'Kourihase.png', 'MPDisplay.png', 'nikio.png'];
+          const bgs = [
+            'Arushii.webp',
+            'Ferineon.webp',
+            'Kourihase.webp',
+            'MPDisplay.webp',
+            'Porukana.webp',
+            'RedcXca.webp',
+            'Sm0llBanana.webp',
+            'THICC Jeff.webp',
+            'mimile1606.webp',
+            'nikio.webp',
+            'tehfire.webp',
+            'wxyz.webp'
+          ];
           defaultRandomBgRef.current = bgs[Math.floor(Math.random() * bgs.length)];
         }
         setSongSelectBgUrl(`/backgrounds/${defaultRandomBgRef.current}`);
@@ -801,7 +814,8 @@ export default function SongSelect({
     <div 
       className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent"
     >
-      <div className="absolute bottom-2 left-4 z-[100] text-[10px] text-white/30 font-mono font-bold pointer-events-none select-none">
+      {/* Bottom Left Version Tag */}
+      <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">
         {metadata.version}
       </div>
 
@@ -1019,7 +1033,7 @@ export default function SongSelect({
         <div 
           className="absolute inset-0 z-50 bg-[#030305]/90 backdrop-blur-xl flex flex-col justify-between p-6 overflow-y-auto animate-fade-in"
           style={{
-            backgroundImage: selectBgUrl ? `linear-gradient(rgba(3, 3, 5, 0.70), rgba(3, 3, 5, 0.96)), url(${selectBgUrl})` : 'none',
+            backgroundImage: selectBgUrl ? `linear-gradient(rgba(3, 3, 5, 0.70), rgba(3, 3, 5, 0.96)), url("${selectBgUrl}")` : 'none',
             backgroundSize: 'cover',
             backgroundPosition: 'center'
           }}
