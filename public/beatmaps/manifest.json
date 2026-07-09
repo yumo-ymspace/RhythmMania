@@ -25,5 +25,14 @@
     "oszUrl": "/beatmaps/xi - FREEDOM DiVE.osz",
     "mode": 3,
     "difficultiesSummary": ["4K Normal", "4K Hyper", "4K Another", "Fullerene's 4K DIMENSIONS", "Dain's 7K Light", "Blocko's 7K Normal", "Tear's 7K Hyper", "Blocko's 7K Another", "Blocko's 7K Black Another"]
+  },
+  {
+    "id": "server_usseewa",
+    "title": "Usseewa",
+    "artist": "Ado",
+    "creator": "Claren",
+    "oszUrl": "/beatmaps/ado - usseewa.osz",
+    "mode": 3,
+    "difficultiesSummary": ["???"]
   }
 ]

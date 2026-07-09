@@ -102,7 +102,10 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
           <>
             <motion.div 
               key="backdrop"
-              className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              className="fixed inset-0 z-40 backdrop-blur-sm"
+              style={{
+                backgroundColor: `rgba(0, 0, 0, ${settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60})`
+              }}
               onClick={onClose} 
               aria-hidden 
               onDragOver={(e) => e.preventDefault()}

@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot } from 'lucide-react';
+import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord } from './types';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,8 +20,11 @@ import GameplayCanvas from './components/GameplayCanvas';
 import ResultsScreen from './components/ResultsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PersonalHistoryScreen from './components/PersonalHistoryScreen';
+import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import { mainAudio } from './audio/AudioEngine';
 import { storageManager } from './utils/storageManager';
+import { convertBeatmapKeyCount } from './utils/beatmapParser';
+
 
 const PAGE_TRANSITION_VARIANTS = {
   initial: { opacity: 0, y: 12 },
@@ -43,12 +46,31 @@ export default function App() {
   const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/default.svg');
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showFindBeatmapOverlay, setShowFindBeatmapOverlay] = useState<boolean>(false);
 
   // Performance history states
   const [playHistory, setPlayHistory] = useState<PlayHistoryRecord[]>([]);
   const [historyLimit, setHistoryLimit] = useState<number>(50);
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
   const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
+
+  const activePlayBeatmap = React.useMemo(() => {
+    if (!selectedBeatmap) return null;
+    
+    const activeMods = activeReplayRecord
+      ? (activeReplayRecord.mods || activeReplayRecord.recordedSettings?.selectedMods || [])
+      : (settings.selectedMods || []);
+    const activeKeyChangeMod = activeMods.find(m => /^K[2-8]$/.test(m));
+    
+    if (activeKeyChangeMod) {
+      const targetKeys = parseInt(activeKeyChangeMod.substring(1), 10);
+      if (targetKeys >= 2 && targetKeys <= 8 && targetKeys !== selectedBeatmap.keyCount) {
+        return convertBeatmapKeyCount(selectedBeatmap, targetKeys);
+      }
+    }
+    return selectedBeatmap;
+  }, [selectedBeatmap, settings.selectedMods, activeReplayRecord]);
+
 
   // Load play history & latency settings on mount
   useEffect(() => {
@@ -149,8 +171,11 @@ export default function App() {
   };
 
   const handleWatchReplay = (record: PlayHistoryRecord) => {
+    const baseId = record.beatmapId.includes('_converted_')
+      ? record.beatmapId.split('_converted_')[0]
+      : record.beatmapId;
     // Look up the beatmap in our selection
-    const targetMap = [...customMaps].find(m => m.id === record.beatmapId);
+    const targetMap = [...customMaps].find(m => m.id === record.beatmapId || m.id === baseId);
     if (targetMap) {
       // Apply unpacked blob cache URLs to targetMap so replay can play back audio & video perfectly!
       const cached = storageManager.lruMediaCache.get(targetMap.id);
@@ -291,6 +316,8 @@ export default function App() {
         playfieldWidthPercent: updated.playfieldWidthPercent !== undefined ? Number(updated.playfieldWidthPercent) : 40,
         progressBarTop: updated.progressBarTop !== undefined ? Boolean(updated.progressBarTop) : false,
         selectedMods: updated.selectedMods || [],
+        bindPause: updated.bindPause !== undefined ? String(updated.bindPause) : 'escape',
+        bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
       };
 
       if (updated.bindings) {
@@ -375,13 +402,15 @@ export default function App() {
       else if (acc >= 80) gradeChar = 'B';
       else if (acc >= 70) gradeChar = 'C';
 
+      const targetBm = activePlayBeatmap || selectedBeatmap;
       const newRecord: PlayHistoryRecord = {
         id: `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
         timestamp: Date.now(),
-        beatmapId: selectedBeatmap.id,
-        beatmapTitle: selectedBeatmap.title,
-        beatmapArtist: selectedBeatmap.artist,
-        keyCount: selectedBeatmap.keyCount,
+        beatmapId: targetBm.id,
+        beatmapTitle: targetBm.title,
+        beatmapArtist: targetBm.artist,
+        keyCount: targetBm.keyCount,
+
         score: finalScore.score,
         accuracy: finalScore.accuracy,
         maxCombo: finalScore.maxCombo,
@@ -465,17 +494,33 @@ export default function App() {
           id="main-header" 
           className="h-16 flex items-center px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
         >
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
+          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4">
             <div 
               onClick={() => setCurrentScreen('menu')}
-              className="flex items-center cursor-pointer group select-none"
+              className="flex items-center cursor-pointer group select-none shrink-0"
             >
               <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white uppercase leading-none group-hover:scale-105 transition-transform duration-150">
                 Rhythm<span className="text-pink-500 font-black">Mania</span>
               </h1>
             </div>
 
-            <nav id="top-nav" className="flex items-center gap-4 text-xs uppercase tracking-widest">
+            {/* TOP MIDDLE: Find Online Beatmaps Button */}
+            <div className="flex-1 flex justify-center">
+              <button
+                id="header-find-beatmap-button"
+                onClick={() => {
+                  setShowFindBeatmapOverlay(true);
+                }}
+                className="group relative overflow-hidden px-4 md:px-5 py-2 bg-[#12121a] text-white rounded-full border border-pink-500/35 hover:border-pink-500 hover:brightness-115 transition hover:scale-[1.03] active:scale-95 cursor-pointer uppercase font-sans font-extrabold text-[10px] md:text-xs tracking-wider flex items-center gap-1.5 md:gap-2 shadow-xl"
+              >
+                <Compass className="h-3.5 w-3.5 md:h-4 md:w-4 text-pink-500 animate-pulse" />
+                <span className="hidden sm:inline">Find Online Beatmaps</span>
+                <span className="inline sm:hidden">Online</span>
+                <span className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            </div>
+
+            <nav id="top-nav" className="flex items-center gap-4 text-xs uppercase tracking-widest shrink-0">
               <button
                 id="header-nav-play"
                 onClick={() => setCurrentScreen('select')}
@@ -569,7 +614,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {currentScreen === 'play' && selectedBeatmap && (
+          {currentScreen === 'play' && selectedBeatmap && activePlayBeatmap && (
             <motion.div
               key="play"
               variants={PAGE_TRANSITION_VARIANTS}
@@ -579,7 +624,7 @@ export default function App() {
               className="w-full flex-1 flex flex-col"
             >
                 <GameplayCanvas
-                  beatmap={selectedBeatmap}
+                  beatmap={activePlayBeatmap}
                   settings={settings}
                   updateSettings={updateSettings}
                   onFinish={handleGameplayFinish}
@@ -608,7 +653,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {currentScreen === 'results' && scoreState && selectedBeatmap && (
+          {currentScreen === 'results' && scoreState && selectedBeatmap && activePlayBeatmap && (
             <motion.div
               key="results"
               variants={PAGE_TRANSITION_VARIANTS}
@@ -619,7 +664,7 @@ export default function App() {
             >
               <ResultsScreen
                 scoreState={scoreState}
-                beatmap={selectedBeatmap}
+                beatmap={activePlayBeatmap}
                 playHistory={playHistory}
                 onRetry={handleRetrySong}
                 onWatchReplay={(record) => {
@@ -676,7 +721,10 @@ export default function App() {
                 onViewResult={(record) => {
                   setActiveReplayRecord(null);
                   setScoreState(record.scoreState);
-                  const bm = customMaps.find(m => m.id === record.beatmapId);
+                  const baseId = record.beatmapId.includes('_converted_')
+                    ? record.beatmapId.split('_converted_')[0]
+                    : record.beatmapId;
+                  const bm = customMaps.find(m => m.id === record.beatmapId || m.id === baseId);
                   if (bm) {
                       setSelectedBeatmap(bm);
                       setViewingHistoryResult(true);
@@ -699,6 +747,13 @@ export default function App() {
         onClose={() => setShowSettings(false)}
         settings={settings}
         updateSettings={updateSettings}
+      />
+
+      <OnlineBeatmapCatalog
+        open={showFindBeatmapOverlay}
+        onClose={() => setShowFindBeatmapOverlay(false)}
+        customMaps={customMaps}
+        onImportBeatmap={handleImportBeatmap}
       />
 
       {/* MOBILE WARNING OVERLAY */}

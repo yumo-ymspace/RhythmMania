@@ -54,6 +54,8 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   playfieldWidthPercent: 40,
   progressBarTop: false,
   selectedMods: [],
+  bindPause: 'escape',
+  bindRetry: 'r',
 } as GameSettings);
 
 /** True when a setting's value differs from its default. */

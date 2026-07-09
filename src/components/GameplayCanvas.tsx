@@ -860,7 +860,19 @@ export default function GameplayCanvas({
         return;
       }
 
-      if (e.key === 'Escape') {
+      // 1.1 Quick Retry Check
+      const retryKey = (settings.bindRetry || 'r').toLowerCase();
+      if (e.key.toLowerCase() === retryKey) {
+        e.preventDefault();
+        restartMap();
+        return;
+      }
+
+      // 1.2 Pause/Resume Check
+      const pauseKey = (settings.bindPause || 'escape').toLowerCase();
+      const isPauseTrigger = e.key.toLowerCase() === pauseKey || e.key === 'Escape';
+
+      if (isPauseTrigger) {
         e.preventDefault();
         if (showCountdown > 0 || unpauseCountdown > 0) {
           return; // Ignore / disable Escape key during active countdowns
@@ -2551,15 +2563,39 @@ export default function GameplayCanvas({
       {/* PRE-PLAY STAGE OVERLAY */}
       {isPrePlay && (
         <div 
-          className="absolute inset-0 z-50 bg-[#050508]/85 backdrop-blur-md flex flex-col justify-between p-6 select-none animate-fade-in"
+          className="absolute inset-0 z-50 bg-[#050508] flex flex-col justify-between p-6 select-none animate-fade-in"
           style={{ borderRadius: '0px' }}
           onClick={(e) => {
             e.stopPropagation();
             // Removed handleStartGameplay() so they must click the button
           }}
         >
+          {/* Dynamic background image layer */}
+          {beatmap.bgUrl && (
+            <div 
+              className="absolute inset-0 bg-cover bg-center pointer-events-none"
+              style={{
+                backgroundImage: `url("${beatmap.bgUrl}")`,
+                zIndex: 0
+              }}
+            />
+          )}
+          {/* Dynamic real-time background dim layer */}
+          <div 
+            className="absolute inset-0 bg-black pointer-events-none transition-opacity duration-150"
+            style={{ 
+              opacity: settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60,
+              zIndex: 1
+            }}
+          />
+          {/* Backdrop blur layer */}
+          <div 
+            className="absolute inset-0 backdrop-blur-md bg-black/10 pointer-events-none"
+            style={{ zIndex: 2 }}
+          />
+
           {/* Top Row: Navigation and Fullscreen Controls */}
-          <div className="w-full flex justify-between items-center z-10">
+          <div className="w-full flex justify-between items-center z-10 relative">
             <div className="flex items-center bg-[#10101a]/95 p-1.5 rounded-xl border border-white/10 shadow-xl gap-1">
               <button
                 id="preplay-home-btn"
@@ -2595,7 +2631,7 @@ export default function GameplayCanvas({
           </div>
 
           {/* Middle Row: Start and Calibration popups */}
-          <div className="flex-1 flex flex-col items-center justify-center gap-10 max-w-lg mx-auto w-full">
+          <div className="flex-1 flex flex-col items-center justify-center gap-10 max-w-lg mx-auto w-full z-10 relative">
             {/* Beatmap details snippet */}
             <div className="text-center space-y-2">
               <span className="px-3 py-1 bg-cyan-950/40 text-cyan-400 font-mono text-xs font-bold rounded-full border border-cyan-500/20 shadow-sm shadow-cyan-500/5">
@@ -2655,7 +2691,7 @@ export default function GameplayCanvas({
           </div>
 
           {/* Bottom info */}
-          <div className="w-full flex justify-between text-[10px] text-zinc-500 font-mono px-2 relative">
+          <div className="w-full flex justify-between text-[10px] text-zinc-500 font-mono px-2 relative z-10">
             <div className="absolute -bottom-6 left-2 font-bold pointer-events-none text-white/30">{metadata.version}</div>
             <span>BPM: {beatmap.bpm}</span>
             <span>DIFFICULTY: {beatmap.difficulty}</span>
@@ -3276,6 +3312,15 @@ export default function GameplayCanvas({
               }}
             />
           )}
+
+          {/* REAL-TIME DYNAMIC BACKGROUND DIM OVERLAY LAYER (z-index: 15) */}
+          <div 
+            className="absolute inset-0 bg-black pointer-events-none transition-opacity duration-150"
+            style={{ 
+              opacity: settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60,
+              zIndex: 15
+            }}
+          />
 
           <div 
             ref={containerRef} 

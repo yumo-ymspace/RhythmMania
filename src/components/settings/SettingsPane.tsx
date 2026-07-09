@@ -148,8 +148,8 @@ export default function SettingsPane({
                 openWizard,
               });
               
-              if (row.id === 'skinPreview') {
-                return <div key={row.id}>{controlNode}</div>;
+              if (row.id === 'skinPreview' || row.id === 'bindings') {
+                return <div key={row.id} className="w-full">{controlNode}</div>;
               }
             }
 

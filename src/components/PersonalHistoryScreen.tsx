@@ -78,7 +78,10 @@ export default function PersonalHistoryScreen({
 
   const resolvedRecords = useMemo(() => {
     return history.map(rec => {
-      const matchedMap = allBeatmaps.find(b => b.id === rec.beatmapId);
+      const baseId = rec.beatmapId.includes('_converted_')
+        ? rec.beatmapId.split('_converted_')[0]
+        : rec.beatmapId;
+      const matchedMap = allBeatmaps.find(b => b.id === rec.beatmapId || b.id === baseId);
       const diffName = matchedMap?.difficulty || `${rec.keyCount}K Standard`;
       const stars = matchedMap ? (Number(matchedMap.difficulty) * 0.5 + 2) : 4.50;
       

@@ -359,8 +359,8 @@ export const ROWS: RowDef[] = [
 
   // ── INPUT ─────────────────────────────────────────────────────────────
   {
-    id: 'bindings', section: 'input', label: 'Key bindings',
-    description: 'Click a chip, then press a key. Escape cancels. Space is allowed.',
+    id: 'bindings', section: 'input', label: '',
+    description: '',
     control: { kind: 'custom', render: (api) => <BindingMatrix {...api} /> },
     defaultValue: DEFAULT_SETTINGS.bindings,
   },

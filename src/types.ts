@@ -149,6 +149,8 @@ export interface GameSettings {
   progressBarTop?: boolean; // progress bar position setting (top vs bottom)
   playfieldWidthPercent?: number; // width of lanes as percent of screen width (33 to 50)
   selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
+  bindPause?: string; // gameplay pause/resume keybind
+  bindRetry?: string; // gameplay quick retry keybind
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

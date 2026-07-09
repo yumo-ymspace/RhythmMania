@@ -569,3 +569,41 @@ function estimateStarDifficulty(notes: HitObject[], keyCount: number): number {
   const constrainedDifficulty = Math.max(1.0, Math.min(15.0, finalDifficulty));
   return parseFloat(constrainedDifficulty.toFixed(2));
 }
+
+/**
+ * Converts a beatmap to a target key count using symmetrical column mapping
+ * and dynamic note deduplication.
+ */
+export function convertBeatmapKeyCount(beatmap: Beatmap, targetKeyCount: number): Beatmap {
+  if (beatmap.keyCount === targetKeyCount) return beatmap;
+
+  const originalKeyCount = beatmap.keyCount;
+  
+  // Symmetrical column mapping: scale column to targetKeyCount
+  const convertedNotes = (beatmap.notes || []).map(note => {
+    const scaledColumn = Math.floor((note.column / originalKeyCount) * targetKeyCount);
+    const finalColumn = Math.min(targetKeyCount - 1, Math.max(0, scaledColumn));
+    return {
+      ...note,
+      column: finalColumn
+    };
+  });
+
+  // Filter out exact duplicate notes at the same timestamp in the same column
+  const seenNotes = new Set<string>();
+  const uniqueNotes = convertedNotes.filter(note => {
+    const key = `${note.time}_${note.column}`;
+    if (seenNotes.has(key)) {
+      return false;
+    }
+    seenNotes.add(key);
+    return true;
+  });
+
+  return {
+    ...beatmap,
+    keyCount: targetKeyCount,
+    notes: uniqueNotes,
+    id: `${beatmap.id}_converted_${targetKeyCount}k`
+  };
+}
