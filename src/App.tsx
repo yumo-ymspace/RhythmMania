@@ -24,6 +24,7 @@ import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import { mainAudio } from './audio/AudioEngine';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount } from './utils/beatmapParser';
+import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
 
 
 const PAGE_TRANSITION_VARIANTS = {
@@ -40,10 +41,38 @@ import { DEFAULT_SETTINGS } from './components/settings/defaultSettings';
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<GameScreen>('menu');
   const [selectedBeatmap, setSelectedBeatmap] = useState<Beatmap | null>(null);
+  const [path, setPath] = useState<string>(() => typeof window !== 'undefined' ? window.location.pathname : '/');
+
+  // Listen to popstate for browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      setPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Globally intercept local link clicks to enable single-page transitions
+  useEffect(() => {
+    const handleAnchorClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const anchor = target.closest('a');
+      if (anchor) {
+        const href = anchor.getAttribute('href');
+        if (href && href.startsWith('/')) {
+          e.preventDefault();
+          window.history.pushState({}, '', href);
+          setPath(href);
+        }
+      }
+    };
+    document.addEventListener('click', handleAnchorClick);
+    return () => document.removeEventListener('click', handleAnchorClick);
+  }, []);
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
-  const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/default.svg');
+  const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/Ferineon.webp');
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showFindBeatmapOverlay, setShowFindBeatmapOverlay] = useState<boolean>(false);
@@ -454,6 +483,28 @@ export default function App() {
     setSelectedBeatmap(null);
     setCurrentScreen('select');
   };
+
+  if (path === '/tos') {
+    return (
+      <TermsOfServicePage 
+        onBack={() => { 
+          window.history.pushState({}, '', '/'); 
+          setPath('/'); 
+        }} 
+      />
+    );
+  }
+
+  if (path === '/privacypolicy') {
+    return (
+      <PrivacyPolicyPage 
+        onBack={() => { 
+          window.history.pushState({}, '', '/'); 
+          setPath('/'); 
+        }} 
+      />
+    );
+  }
 
   return (
     <div 

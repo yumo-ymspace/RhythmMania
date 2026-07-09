@@ -56,6 +56,17 @@ export default function SongSelect({
   // Search & Basic UI State
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCustomMapId, setSelectedCustomMapId] = useState<string>('');
+  const [lastSelectedDifficultyBySong, setLastSelectedDifficultyBySong] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('rhythm_mania_v1_last_diff_by_song');
+        return saved ? JSON.parse(saved) : {};
+      } catch (e) {
+        console.warn('Failed to load last selected difficulty by song:', e);
+      }
+    }
+    return {};
+  });
   const [unpackTrigger, setUnpackTrigger] = useState<number>(0);
   const [manualExpandedSongKey, setManualExpandedSongKey] = useState<string | null>(null);
 
@@ -188,7 +199,7 @@ export default function SongSelect({
   };
 
   // Extract merged custom and virtual server/cloud maps
-  const getMergedCustomMaps = (): Beatmap[] => {
+  const mergedCustomMaps = React.useMemo((): Beatmap[] => {
     const resolvedCustomMaps: Beatmap[] = [];
     
     // 1. Incorporate local custom maps with media blob checks
@@ -241,9 +252,7 @@ export default function SongSelect({
     }
 
     return resolvedCustomMaps;
-  };
-
-  const mergedCustomMaps = getMergedCustomMaps();
+  }, [customMaps, showServerPackages, serverManifest]);
 
 
 
@@ -295,6 +304,47 @@ export default function SongSelect({
     const mapTitle = map.title || 'Untitled';
     return `${mapArtist.toLowerCase().trim()} - ${mapTitle.toLowerCase().trim()}`;
   };
+
+  // Save selected difficulty for the song
+  useEffect(() => {
+    if (selectedCustomMapId) {
+      const selectedMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
+      if (selectedMap) {
+        const songKey = getMapSongKey(selectedMap);
+        setLastSelectedDifficultyBySong(prev => {
+          const updated = { ...prev, [songKey]: selectedCustomMapId };
+          try {
+            localStorage.setItem('rhythm_mania_v1_last_diff_by_song', JSON.stringify(updated));
+          } catch (e) {
+            console.warn('Failed to save last selected difficulty by song:', e);
+          }
+          return updated;
+        });
+      }
+    }
+  }, [selectedCustomMapId, mergedCustomMaps]);
+
+  // Load last selected map ID on mount/update if none is currently selected
+  useEffect(() => {
+    if (!selectedCustomMapId && filteredCustomMaps.length > 0) {
+      const savedLastId = localStorage.getItem('rhythm_mania_v1_last_selected_map_id');
+      if (savedLastId) {
+        const exists = filteredCustomMaps.some(m => m.id === savedLastId);
+        if (exists) {
+          const savedMap = filteredCustomMaps.find(m => m.id === savedLastId);
+          if (savedMap) {
+            handleSelectCustomMap(savedMap);
+            return;
+          }
+        }
+      }
+      
+      const defaultMap = filteredCustomMaps[0];
+      if (defaultMap) {
+        handleSelectCustomMap(defaultMap);
+      }
+    }
+  }, [filteredCustomMaps, selectedCustomMapId]);
 
   // Group maps by normalized artist & title
   const songGroups = React.useMemo(() => {
@@ -368,9 +418,20 @@ export default function SongSelect({
   const expandedSongKey = manualExpandedSongKey !== null ? manualExpandedSongKey : activeSongKey;
 
   const handleSelectGroup = (group: any) => {
+    let targetMap = group.maps[0];
+    if (group.maps.length > 0) {
+      const savedMapId = lastSelectedDifficultyBySong[group.songKey];
+      if (savedMapId) {
+        const foundSavedMap = group.maps.find((m: any) => m.id === savedMapId);
+        if (foundSavedMap) {
+          targetMap = foundSavedMap;
+        }
+      }
+    }
+
     if (group.isServerPackage) {
-      if (group.maps.length > 0) {
-        handleSelectCustomMap(group.maps[0]);
+      if (targetMap) {
+        handleSelectCustomMap(targetMap);
       }
       return;
     }
@@ -378,8 +439,8 @@ export default function SongSelect({
       setManualExpandedSongKey('');
     } else {
       setManualExpandedSongKey(group.songKey);
-      if (group.maps.length > 0) {
-        handleSelectCustomMap(group.maps[0]);
+      if (targetMap) {
+        handleSelectCustomMap(targetMap);
       }
     }
   };
@@ -393,7 +454,7 @@ export default function SongSelect({
 
   useEffect(() => {
     if (typeof setSongSelectBgUrl === 'function') {
-      if (selectBgUrl && selectBgUrl !== '/backgrounds/default.svg') {
+      if (selectBgUrl && selectBgUrl !== '/backgrounds/default.svg' && selectBgUrl !== '/backgrounds/Ferineon.webp') {
         setSongSelectBgUrl(selectBgUrl);
       } else {
         if (!defaultRandomBgRef.current) {
@@ -1580,7 +1641,7 @@ export default function SongSelect({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-black tracking-wide uppercase">{mod.title}</span>
+                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
                                 <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
                               </div>
                               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
@@ -1655,7 +1716,7 @@ export default function SongSelect({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-black tracking-wide uppercase">{mod.title}</span>
+                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
                                 <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
                               </div>
                               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
@@ -1713,7 +1774,7 @@ export default function SongSelect({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[10px] font-black tracking-wide uppercase">{k} Keys (K{k})</span>
+                                <span className="text-[12px] font-black tracking-wide uppercase">{k} Keys (K{k})</span>
                                 {isDisabled ? (
                                   <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
                                 ) : (

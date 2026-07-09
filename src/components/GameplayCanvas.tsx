@@ -381,6 +381,9 @@ export default function GameplayCanvas({
     failed: false,
   });
 
+  const maxRawScoreRef = useRef<number>(1);
+  const currentRawScoreRef = useRef<number>(0);
+
   const [uiScore, setUiScore] = useState<number>(0);
   const [uiCombo, setUiCombo] = useState<number>(0);
   const [uiHp, setUiHp] = useState<number>(100);
@@ -428,15 +431,15 @@ export default function GameplayCanvas({
   const [diagnosticsErrorLog, setDiagnosticsErrorLog] = useState<string[]>([]);
 
   // Parse overall difficulty and build dynamic judgement windows in milliseconds
-  // In competitive play:
-  // OD 0: Marvelous: 18ms, Perfect: 44ms, Great: 74ms, Good: 104ms, Bad: 134ms
-  // OD 10: Marvelous: 10ms, Perfect: 20ms, Great: 35ms, Good: 53ms, Bad: 72ms
+  // In competitive play (adjusted by adding +- 5ms on top of the original scoring timings):
+  // OD 0: Marvelous: 21ms, Perfect: 49ms, Great: 79ms, Good: 109ms, Bad: 139ms
+  // OD 10: Marvelous: 21ms, Perfect: 25ms, Great: 40ms, Good: 58ms, Bad: 77ms
   const getJudgementWindows = (od: number): JudgementWindow[] => {
     return [
       {
         type: 'marvelous',
         name: 'MARVELOUS',
-        windowMs: 16,
+        windowMs: 16 + 5,
         baseScore: 320,
         hpDelta: 3,
         color: '#22d3ee', // Cyan
@@ -445,7 +448,7 @@ export default function GameplayCanvas({
       {
         type: 'perfect',
         name: 'PERFECT',
-        windowMs: Math.max(20, 44 - 2.4 * od),
+        windowMs: Math.max(20, 44 - 2.4 * od) + 5,
         baseScore: 300,
         hpDelta: 2,
         color: '#facc15', // Neon Gold
@@ -454,7 +457,7 @@ export default function GameplayCanvas({
       {
         type: 'great',
         name: 'GREAT',
-        windowMs: Math.max(35, 74 - 3.9 * od),
+        windowMs: Math.max(35, 74 - 3.9 * od) + 5,
         baseScore: 200,
         hpDelta: 1,
         color: '#4ade80', // Green
@@ -463,7 +466,7 @@ export default function GameplayCanvas({
       {
         type: 'good',
         name: 'GOOD',
-        windowMs: Math.max(53, 104 - 5.1 * od),
+        windowMs: Math.max(53, 104 - 5.1 * od) + 5,
         baseScore: 100,
         hpDelta: 0.2,
         color: '#3b82f6', // Indigo
@@ -472,7 +475,7 @@ export default function GameplayCanvas({
       {
         type: 'bad',
         name: 'BAD',
-        windowMs: Math.max(72, 134 - 6.2 * od),
+        windowMs: Math.max(72, 134 - 6.2 * od) + 5,
         baseScore: 50,
         hpDelta: -3,
         color: '#ec4899', // Pink
@@ -481,7 +484,7 @@ export default function GameplayCanvas({
       {
         type: 'miss',
         name: 'MISS',
-        windowMs: Math.max(120, 180 - 7 * od),
+        windowMs: Math.max(120, 180 - 7 * od) + 5,
         baseScore: 0,
         hpDelta: -10, // Harsh HP drain under miss conditions
         color: '#ef4444', // Hot Red
@@ -539,6 +542,13 @@ export default function GameplayCanvas({
       completed: false,
       failed: false,
     };
+
+    // Calculate maximum possible raw score for the combo-based formula
+    const totalJudgements = Math.max(1, (beatmap.notes || []).reduce((sum, note) => sum + (note.type === 'hold' ? 2 : 1), 0));
+    const B_val = 1.0;
+    const W_val = 0.1;
+    maxRawScoreRef.current = totalJudgements * B_val + W_val * (totalJudgements * (totalJudgements + 1)) / 2;
+    currentRawScoreRef.current = 0;
 
     // Reset replay tracking
     replayFramesRef.current = [{ time: 0, keysPressed: new Array(beatmap.keyCount).fill(false) }];
@@ -1135,19 +1145,26 @@ export default function GameplayCanvas({
       state.accuracy = parseFloat(((weightedSum / maxPossibleSum) * 100).toFixed(2));
     }
 
-    // Score scales up to 1,000,000 cap points in competitive mania
-    const totalCount = notesRef.current.length * 2; // holds have double weighings (hit & release)
-    const baseUnit = 1000000 / notesRef.current.length;
-    
-    // Accumulate actual score points
-    let noteScorePoints = 0;
-    if (judg.type === 'marvelous') noteScorePoints = baseUnit;
-    else if (judg.type === 'perfect') noteScorePoints = baseUnit * 0.95;
-    else if (judg.type === 'great') noteScorePoints = baseUnit * 0.7;
-    else if (judg.type === 'good') noteScorePoints = baseUnit * 0.4;
-    else if (judg.type === 'bad') noteScorePoints = baseUnit * 0.15;
-    
-    state.score = Math.floor(Math.min(1000000, state.score + noteScorePoints));
+    // Cumulative combo-based scoring formula
+    const B_factor = 1.0;
+    const W_factor = 0.1;
+    const judgementVal = judg.baseScore / 320;
+    const scoreGain = judgementVal * (B_factor + W_factor * state.combo);
+    currentRawScoreRef.current += scoreGain;
+
+    let modMultiplier = 1.0;
+    if (settings.selectedMods && settings.selectedMods.length > 0) {
+      settings.selectedMods.forEach(modId => {
+        if (modId === 'NF') modMultiplier *= 0.50;
+        else if (modId === 'EZ') modMultiplier *= 0.50;
+        else if (modId === 'HT') modMultiplier *= 0.30;
+        else if (modId === 'HR') modMultiplier *= 1.06;
+        else if (modId === 'HD') modMultiplier *= 1.06;
+        else if (modId === 'DT') modMultiplier *= 1.12;
+      });
+    }
+
+    state.score = Math.floor(Math.min(2000000, 1000000 * (currentRawScoreRef.current / maxRawScoreRef.current) * modMultiplier));
 
     // Update canvas visual trackers
     currentJudgementRef.current = {
@@ -1253,9 +1270,12 @@ export default function GameplayCanvas({
       const state = scoreStateRef.current;
 
       notesRef.current.forEach((n) => {
-        // 1. Normal notes missed
+        // 1. Normal and hold notes missed at start
         if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
           n.isMissed = true;
+          if (n.type === 'hold') {
+            n.isHoldFailed = true;
+          }
           applyJudgement(missJudg, n.column);
         }
         
@@ -1465,8 +1485,46 @@ export default function GameplayCanvas({
       
       const visualTime = songTime - (settings.visualOffset || 0);
 
+      // Helper to calculate opacity under Hidden (HD) mod for trails at any Y coordinate
+      const getHiddenOpacity = (yVal: number) => {
+        if (!settings.selectedMods?.includes('HD')) return 1.0;
+        const distancePercent = settings.upsurfaceNoteMode 
+          ? (height - yVal) / (height - (receptorY || 500))
+          : yVal / (receptorY || 500);
+
+        if (distancePercent < 0.35) {
+          return 1.0;
+        } else if (distancePercent < 0.70) {
+          const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
+          return Math.max(0, fadeFactor);
+        } else {
+          return 0.0;
+        }
+      };
+
+      // Helper to dynamically inject alpha into gradient stops based on coordinates
+      const applyFade = (colorStr: string, stopOpacity: number) => {
+        if (colorStr.startsWith('#')) {
+          return hexToRgba(colorStr, stopOpacity);
+        }
+        if (colorStr.startsWith('rgba(')) {
+          const parts = colorStr.substring(5, colorStr.length - 1).split(',');
+          if (parts.length === 4) {
+            const existingAlpha = parseFloat(parts[3]);
+            parts[3] = (existingAlpha * stopOpacity).toFixed(3);
+            return `rgba(${parts.join(',')})`;
+          }
+        }
+        if (colorStr.startsWith('rgb(')) {
+          const parts = colorStr.substring(4, colorStr.length - 1).split(',');
+          return `rgba(${parts.join(',')},${stopOpacity})`;
+        }
+        return colorStr;
+      };
+
       notesRef.current.forEach((n) => {
-        if (n.isMissed && !n.isHit) return;
+        // Keep missed holds visible!
+        if (n.isMissed && !n.isHit && n.type !== 'hold') return;
 
         let startY = 0;
         let endY = 0;
@@ -1509,58 +1567,61 @@ export default function GameplayCanvas({
                                  settings.skinId === 'glassy-spheres' || 
                                  settings.skinId === 'hollow-rings';
 
+            const fadeStart = getHiddenOpacity(visualStartY);
+            const fadeEnd = getHiddenOpacity(endY);
+
             if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
               const rpColor = settings.rhythmplusColor || '#ffff00';
               if (n.isHit && !n.isReleased) {
                 if (n.releaseGraceUntil) {
                   const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, flicker ? rpColor : hexToRgba(rpColor, 0.5));
-                  holdGrad.addColorStop(1, flicker ? rpColor : hexToRgba(rpColor, 0.5));
+                  holdGrad.addColorStop(0, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeStart));
+                  holdGrad.addColorStop(1, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeEnd));
                 } else {
-                  holdGrad.addColorStop(0, rpColor);
-                  holdGrad.addColorStop(1, rpColor);
+                  holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
+                  holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
                 }
-              } else if (n.isHoldFailed) {
-                holdGrad.addColorStop(0, 'rgba(100,116,139,0.5)');
-                holdGrad.addColorStop(1, 'rgba(100,116,139,0.5)');
+              } else if (n.isHoldFailed || n.isMissed) {
+                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.5)', fadeStart));
+                holdGrad.addColorStop(1, applyFade('rgba(100,116,139,0.5)', fadeEnd));
               } else {
-                holdGrad.addColorStop(0, rpColor);
-                holdGrad.addColorStop(1, rpColor);
+                holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
+                holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
               }
             } else if (settings.playfieldStyle !== 'circle') {
               const rmColor = settings.rhythmmaniaNoteColor || '#00b0ff';
               if (n.isHit && !n.isReleased) {
                 if (n.releaseGraceUntil) {
                   const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, flicker ? hexToRgba(rmColor, 0.8) : hexToRgba(rmColor, 0.2));
-                  holdGrad.addColorStop(1, hexToRgba(rmColor, 0.3));
+                  holdGrad.addColorStop(0, applyFade(flicker ? hexToRgba(rmColor, 0.8) : hexToRgba(rmColor, 0.2), fadeStart));
+                  holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
                 } else {
-                  holdGrad.addColorStop(0, hexToRgba(rmColor, 0.8));
-                  holdGrad.addColorStop(1, hexToRgba(rmColor, 0.3));
+                  holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.8), fadeStart));
+                  holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
                 }
-              } else if (n.isHoldFailed) {
-                holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
-                holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
+              } else if (n.isHoldFailed || n.isMissed) {
+                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
+                holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
               } else {
-                holdGrad.addColorStop(0, hexToRgba(rmColor, 0.6));
-                holdGrad.addColorStop(1, hexToRgba(rmColor, 0.2));
+                holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.6), fadeStart));
+                holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.2), fadeEnd));
               }
             } else {
               if (n.isHit && !n.isReleased) {
                 if (n.releaseGraceUntil) {
                   const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)');
-                  holdGrad.addColorStop(1, 'rgba(161,117,14,0.3)');
+                  holdGrad.addColorStop(0, applyFade(flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)', fadeStart));
+                  holdGrad.addColorStop(1, applyFade('rgba(161,117,14,0.3)', fadeEnd));
                 } else {
-                  holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)');
-                  holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)');
+                  holdGrad.addColorStop(0, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)', fadeStart));
+                  holdGrad.addColorStop(1, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)', fadeEnd));
                 }
-              } else if (n.isHoldFailed) {
-                holdGrad.addColorStop(0, 'rgba(100,116,139,0.3)');
-                holdGrad.addColorStop(1, 'rgba(71,85,105,0.1)');
+              } else if (n.isHoldFailed || n.isMissed) {
+                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
+                holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
               } else {
-                holdGrad.addColorStop(0, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)');
-                holdGrad.addColorStop(1, settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)');
+                holdGrad.addColorStop(0, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)', fadeStart));
+                holdGrad.addColorStop(1, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)', fadeEnd));
               }
             }
             
@@ -1596,9 +1657,14 @@ export default function GameplayCanvas({
             ctx.fill();
             
             if (!(settings.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-              ctx.strokeStyle = n.isHit && !n.isReleased 
+              const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, endY);
+              const baseStrokeColor = n.isHit && !n.isReleased 
                 ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee') 
                 : 'rgba(56,189,248,0.4)';
+              strokeGrad.addColorStop(0, applyFade(baseStrokeColor, fadeStart));
+              strokeGrad.addColorStop(1, applyFade(baseStrokeColor, fadeEnd));
+              
+              ctx.strokeStyle = strokeGrad;
               ctx.lineWidth = 2;
               ctx.beginPath();
               ctx.moveTo(xPos + colW / 2, visualStartY);
@@ -1612,38 +1678,20 @@ export default function GameplayCanvas({
       });
 
       // 3. DRAW NOTES INDIVIDUAL BODIES
-      notesRef.current.forEach((n) => {
-        if (n.isHit && n.type === 'normal') return;
-        if (n.isMissed) return;
-
-        if (n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-          return;
-        }
-
-        let noteY = 0;
-        if (settings.upsurfaceNoteMode) {
-          noteY = receptorY + (n.time - visualTime) * speedFactor;
-        } else {
-          noteY = receptorY - (n.time - visualTime) * speedFactor;
-        }
-
-        const padding = 60;
-        if (noteY < -padding || noteY > height + padding) return;
-
-        const xPos = colX[n.column];
-        const colW = colStyles[n.column].width;
-        const notePadding = isFocusMode ? 1.5 : 6;
-        const rx = xPos + notePadding;
-        const ry = noteY - 10;
-        const rw = colW - notePadding * 2;
+      const drawEndReceptor = (ey: number, xPosVal: number, colWVal: number, notePaddingVal: number, noteObj: any) => {
+        const rx = xPosVal + notePaddingVal;
+        const ry = ey - 10;
+        const rw = colWVal - notePaddingVal * 2;
         const rh = 20;
 
         ctx.save();
+        
+        // Apply Hidden Mod fade factor for the end receptor!
         let currentOpacity = settings.noteOpacity ?? 1.0;
         if (settings.selectedMods?.includes('HD')) {
           const distancePercent = settings.upsurfaceNoteMode 
-            ? (height - noteY) / (height - (receptorY || 500))
-            : noteY / (receptorY || 500);
+            ? (height - ey) / (height - (receptorY || 500))
+            : ey / (receptorY || 500);
 
           if (distancePercent < 0.35) {
             currentOpacity = currentOpacity;
@@ -1654,20 +1702,13 @@ export default function GameplayCanvas({
             currentOpacity = 0.0;
           }
         }
-        ctx.globalAlpha = currentOpacity;
         
-        // Define a local helper to enforce custom note rounding overrides
-        const drawNoteShape = (radiusDefault: number) => {
-          ctx.beginPath();
-          if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-            ctx.rect(rx, ry + rh / 2 - 4, rw, 8); // RhythmPlus style notes are thin lines
-          } else {
-            ctx.roundRect(rx, ry, rw, rh, radiusDefault);
-          }
-        };
-
-        let noteFill: string = '';
-        let noteStroke: string = colStyles[n.column].color;
+        // If the hold failed or was missed, make the end receptor look dimmed/faded!
+        if (noteObj.isHoldFailed || noteObj.isMissed) {
+          currentOpacity *= 0.35;
+        }
+        
+        ctx.globalAlpha = currentOpacity;
 
         const isNoteCircleMode = settings.playfieldStyle === 'circle' || 
                                  settings.skinId === 'circles' || 
@@ -1675,104 +1716,276 @@ export default function GameplayCanvas({
                                  settings.skinId === 'hollow-rings';
 
         if (isNoteCircleMode) {
-          noteFill = settings.circleNoteColor || '#00b0ff';
-          noteStroke = settings.circleNoteColor || '#00b0ff';
-        } else if (settings.squareRenderStyle === 'rhythmplus') {
-          noteFill = settings.rhythmplusColor || '#ffff00';
-          noteStroke = settings.rhythmplusColor || '#ffff00';
-        } else {
-          noteFill = settings.rhythmmaniaNoteColor || '#00b0ff';
-          noteStroke = settings.rhythmmaniaNoteColor || '#00b0ff';
-        }
-
-        // Apply skin theme aesthetic note gradients
-        const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
-        if (settings.skinId === 'minimalist') {
-          ctx.fillStyle = noteFill;
-          ctx.strokeStyle = noteStroke;
-          ctx.lineWidth = 2;
-          
-          drawNoteShape(3);
-          ctx.fill();
-          ctx.stroke();
-        } else if (settings.skinId === 'classic-bar') {
-          grad.addColorStop(0, '#ffffff');
-          grad.addColorStop(0.35, noteFill);
-          grad.addColorStop(1, 'rgba(8, 8, 12, 0.9)');
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = noteStroke;
-          ctx.lineWidth = 1.5;
-
-          drawNoteShape(0); // 0 means square if standard
-          ctx.fill();
-          ctx.stroke();
-
-          // Authentic white target stripe
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
-        } else if (settings.playfieldStyle === 'circle' || settings.skinId === 'circles' || settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') {
+          // Circle mode end receptor: Concentric target ring with a dashed outer border
+          // Very distinct, readable, and aesthetic!
           const cx = rx + rw / 2;
           const cy = ry + rh / 2;
-          const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+          const r = (colWVal * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
 
-          const noteColor = colStyles[n.column].color;
+          const noteColor = colStyles[noteObj.column].color;
 
           ctx.beginPath();
           ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          
-          ctx.fillStyle = noteColor;
-          ctx.shadowColor = noteColor;
-          ctx.shadowBlur = 10;
-          ctx.fill();
-          ctx.shadowBlur = 0;
+          ctx.strokeStyle = noteColor;
+          ctx.lineWidth = 3;
+          ctx.setLineDash([4, 4]); // Dashed outer ring for differentiation!
+          ctx.stroke();
+          ctx.setLineDash([]); // Reset dash
 
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-          grad.addColorStop(0, noteFill);
-          grad.addColorStop(1, noteFill);
-          ctx.fillStyle = grad;
-          drawNoteShape(0);
+          // Luminous inner circle
+          ctx.beginPath();
+          ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = noteColor;
+          ctx.shadowBlur = 12;
           ctx.fill();
-        } else if (settings.playfieldStyle !== 'circle') {
-          grad.addColorStop(0, noteFill);
-          grad.addColorStop(1, noteFill);
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = noteStroke;
-          ctx.lineWidth = 2.5;
-          drawNoteShape(4);
-          ctx.fill();
-          ctx.stroke();
-          
-          // Subtle glow
-          ctx.shadowColor = noteFill;
-          ctx.shadowBlur = 8;
-          ctx.stroke();
           ctx.shadowBlur = 0;
         } else {
-          // Default Neon and Cyberpunk flows
-          grad.addColorStop(0, noteStroke);
-          grad.addColorStop(0.3, noteFill);
-          if (settings.skinId === 'cyberpunk') {
-            grad.addColorStop(0.85, 'rgba(15, 23, 42, 0.95)');
+          // Bar mode end receptor: Hollow bar with an elegant inner glowing double-border
+          // and diagonal hatch pattern or dashed borders!
+          ctx.beginPath();
+          if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+            ctx.strokeStyle = settings.rhythmplusColor || '#ffff00';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(rx, ry + rh / 2);
+            ctx.lineTo(rx + rw, ry + rh / 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
           } else {
-            grad.addColorStop(1, 'rgba(15,23,42,0.85)');
+            const noteColor = colStyles[noteObj.column].color;
+            
+            ctx.roundRect(rx, ry, rw, rh, 4);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            // Solid inner capsule that has a distinct color & dash pattern
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(rx + 4, ry + 4, rw - 8, rh - 8, 2);
+            ctx.fillStyle = noteColor;
+            ctx.globalAlpha = currentOpacity * 0.75;
+            ctx.fill();
+            ctx.restore();
+
+            // Draw distinct cross/hatch lines inside the end receptor for high differentiation!
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            // Left and right side double-stripes to mark unhold/release
+            ctx.moveTo(rx + 6, ry + 3);
+            ctx.lineTo(rx + 12, ry + rh - 3);
+            ctx.moveTo(rx + 10, ry + 3);
+            ctx.lineTo(rx + 16, ry + rh - 3);
+
+            ctx.moveTo(rx + rw - 6, ry + 3);
+            ctx.lineTo(rx + rw - 12, ry + rh - 3);
+            ctx.moveTo(rx + rw - 10, ry + 3);
+            ctx.lineTo(rx + rw - 16, ry + rh - 3);
+            ctx.stroke();
           }
-
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = noteStroke;
-          ctx.lineWidth = 1.5;
-          
-          drawNoteShape(5);
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
         }
 
         ctx.restore();
+      };
+
+      notesRef.current.forEach((n) => {
+        // Skip normal notes that are hit or missed
+        if (n.type === 'normal' && (n.isHit || n.isMissed)) {
+          return;
+        }
+
+        // Skip completely consumed holds
+        if (n.type === 'hold' && n.isHit && n.isReleased) {
+          return;
+        }
+
+        const xPos = colX[n.column];
+        const colW = colStyles[n.column].width;
+        const notePadding = isFocusMode ? 1.5 : 6;
+
+        // Draw start head for unhit hold notes or normal notes
+        const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
+        
+        if (shouldDrawHead) {
+          let noteY = 0;
+          if (settings.upsurfaceNoteMode) {
+            noteY = receptorY + (n.time - visualTime) * speedFactor;
+          } else {
+            noteY = receptorY - (n.time - visualTime) * speedFactor;
+          }
+
+          const padding = 60;
+          const isVisible = noteY >= -padding && noteY <= height + padding;
+
+          if (isVisible && !(n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle')) {
+            const rx = xPos + notePadding;
+            const ry = noteY - 10;
+            const rw = colW - notePadding * 2;
+            const rh = 20;
+
+            ctx.save();
+            let currentOpacity = settings.noteOpacity ?? 1.0;
+            if (settings.selectedMods?.includes('HD')) {
+              const distancePercent = settings.upsurfaceNoteMode 
+                ? (height - noteY) / (height - (receptorY || 500))
+                : noteY / (receptorY || 500);
+
+              if (distancePercent < 0.35) {
+                currentOpacity = currentOpacity;
+              } else if (distancePercent < 0.70) {
+                const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
+                currentOpacity *= Math.max(0, fadeFactor);
+              } else {
+                currentOpacity = 0.0;
+              }
+            }
+            
+            // If it's a hold head and has failed / missed, dim it beautifully!
+            if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
+              currentOpacity *= 0.35;
+            }
+
+            ctx.globalAlpha = currentOpacity;
+            
+            // Define a local helper to enforce custom note rounding overrides
+            const drawNoteShape = (radiusDefault: number) => {
+              ctx.beginPath();
+              if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+                ctx.rect(rx, ry + rh / 2 - 4, rw, 8); // RhythmPlus style notes are thin lines
+              } else {
+                ctx.roundRect(rx, ry, rw, rh, radiusDefault);
+              }
+            };
+
+            let noteFill: string = '';
+            let noteStroke: string = colStyles[n.column].color;
+
+            const isNoteCircleMode = settings.playfieldStyle === 'circle' || 
+                                     settings.skinId === 'circles' || 
+                                     settings.skinId === 'glassy-spheres' || 
+                                     settings.skinId === 'hollow-rings';
+
+            if (isNoteCircleMode) {
+              noteFill = settings.circleNoteColor || '#00b0ff';
+              noteStroke = settings.circleNoteColor || '#00b0ff';
+            } else if (settings.squareRenderStyle === 'rhythmplus') {
+              noteFill = settings.rhythmplusColor || '#ffff00';
+              noteStroke = settings.rhythmplusColor || '#ffff00';
+            } else {
+              noteFill = settings.rhythmmaniaNoteColor || '#00b0ff';
+              noteStroke = settings.rhythmmaniaNoteColor || '#00b0ff';
+            }
+
+            // Apply skin theme aesthetic note gradients
+            const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
+            if (settings.skinId === 'minimalist') {
+              ctx.fillStyle = noteFill;
+              ctx.strokeStyle = noteStroke;
+              ctx.lineWidth = 2;
+              
+              drawNoteShape(3);
+              ctx.fill();
+              ctx.stroke();
+            } else if (settings.skinId === 'classic-bar') {
+              grad.addColorStop(0, '#ffffff');
+              grad.addColorStop(0.35, noteFill);
+              grad.addColorStop(1, 'rgba(8, 8, 12, 0.9)');
+              ctx.fillStyle = grad;
+              ctx.strokeStyle = noteStroke;
+              ctx.lineWidth = 1.5;
+
+              drawNoteShape(0); // 0 means square if standard
+              ctx.fill();
+              ctx.stroke();
+
+              // Authentic white target stripe
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
+            } else if (settings.playfieldStyle === 'circle' || settings.skinId === 'circles' || settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') {
+              const cx = rx + rw / 2;
+              const cy = ry + rh / 2;
+              const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+
+              const noteColor = colStyles[n.column].color;
+
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, 0, Math.PI * 2);
+              
+              ctx.fillStyle = noteColor;
+              ctx.shadowColor = noteColor;
+              ctx.shadowBlur = 10;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+              grad.addColorStop(0, noteFill);
+              grad.addColorStop(1, noteFill);
+              ctx.fillStyle = grad;
+              drawNoteShape(0);
+              ctx.fill();
+            } else if (settings.playfieldStyle !== 'circle') {
+              grad.addColorStop(0, noteFill);
+              grad.addColorStop(1, noteFill);
+              ctx.fillStyle = grad;
+              ctx.strokeStyle = noteStroke;
+              ctx.lineWidth = 2.5;
+              drawNoteShape(4);
+              ctx.fill();
+              ctx.stroke();
+              
+              // Subtle glow
+              ctx.shadowColor = noteFill;
+              ctx.shadowBlur = 8;
+              ctx.stroke();
+              ctx.shadowBlur = 0;
+            } else {
+              // Default Neon and Cyberpunk flows
+              grad.addColorStop(0, noteStroke);
+              grad.addColorStop(0.3, noteFill);
+              if (settings.skinId === 'cyberpunk') {
+                grad.addColorStop(0.85, 'rgba(15, 23, 42, 0.95)');
+              } else {
+                grad.addColorStop(1, 'rgba(15,23,42,0.85)');
+              }
+
+              ctx.fillStyle = grad;
+              ctx.strokeStyle = noteStroke;
+              ctx.lineWidth = 1.5;
+              
+              drawNoteShape(5);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
+            }
+
+            ctx.restore();
+          }
+        }
+
+        // Draw end receptor for hold notes
+        if (n.type === 'hold' && n.endTime && !n.isReleased) {
+          let endNoteY = 0;
+          if (settings.upsurfaceNoteMode) {
+            endNoteY = receptorY + (n.endTime - visualTime) * speedFactor;
+          } else {
+            endNoteY = receptorY - (n.endTime - visualTime) * speedFactor;
+          }
+
+          const padding = 60;
+          const isEndVisible = endNoteY >= -padding && endNoteY <= height + padding;
+
+          if (isEndVisible) {
+            drawEndReceptor(endNoteY, xPos, colW, notePadding, n);
+          }
+        }
       });
 
       // 4. DRAW GAMEPLAY RECEPTOR BUTTONS (HIT LINE INDICATION)
@@ -2208,6 +2421,8 @@ export default function GameplayCanvas({
       return;
     }
 
+    let simCurrentRawScore = 0;
+
     // Helper functions for chronological simulation
     const simApplyJudgement = (judg: JudgementWindow) => {
       const state = scoreStateRef.current;
@@ -2240,15 +2455,26 @@ export default function GameplayCanvas({
         state.accuracy = parseFloat(((weightedSum / maxPossibleSum) * 100).toFixed(2));
       }
 
-      const baseUnit = 1000000 / notesRef.current.length;
-      let noteScorePoints = 0;
-      if (judg.type === 'marvelous') noteScorePoints = baseUnit;
-      else if (judg.type === 'perfect') noteScorePoints = baseUnit * 0.95;
-      else if (judg.type === 'great') noteScorePoints = baseUnit * 0.7;
-      else if (judg.type === 'good') noteScorePoints = baseUnit * 0.4;
-      else if (judg.type === 'bad') noteScorePoints = baseUnit * 0.15;
-      
-      state.score = Math.floor(Math.min(1000000, state.score + noteScorePoints));
+      // Replay simulation scoring matching gameplay
+      const B_factor = 1.0;
+      const W_factor = 0.1;
+      const judgementVal = judg.baseScore / 320;
+      const scoreGain = judgementVal * (B_factor + W_factor * state.combo);
+      simCurrentRawScore += scoreGain;
+
+      let modMultiplier = 1.0;
+      if (settings.selectedMods && settings.selectedMods.length > 0) {
+        settings.selectedMods.forEach(modId => {
+          if (modId === 'NF') modMultiplier *= 0.50;
+          else if (modId === 'EZ') modMultiplier *= 0.50;
+          else if (modId === 'HT') modMultiplier *= 0.30;
+          else if (modId === 'HR') modMultiplier *= 1.06;
+          else if (modId === 'HD') modMultiplier *= 1.06;
+          else if (modId === 'DT') modMultiplier *= 1.12;
+        });
+      }
+
+      state.score = Math.floor(Math.min(2000000, 1000000 * (simCurrentRawScore / maxRawScoreRef.current) * modMultiplier));
     };
 
     const simTriggerHit = (colIndex: number, frameTime: number) => {
@@ -2312,6 +2538,9 @@ export default function GameplayCanvas({
       notesRef.current.forEach((n) => {
         if (!n.isHit && !n.isMissed && currentTime - n.time > missJudg.windowMs) {
           n.isMissed = true;
+          if (n.type === 'hold') {
+            n.isHoldFailed = true;
+          }
           simApplyJudgement(missJudg);
         }
         if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime && currentTime - n.endTime > missJudg.windowMs) {

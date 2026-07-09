@@ -151,6 +151,19 @@ export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 
           {metadata.version}
         </div>
 
+        {/* Bottom Right Legal Notice */}
+        <div className="absolute bottom-6 right-6 text-[10px] md:text-xs text-white/40 font-sans z-30 select-text text-right max-w-[280px] md:max-w-md pointer-events-auto">
+          By using RhythmMania, you acknowledge and agree to the{' '}
+          <a href="/tos" className="text-white/60 hover:text-white underline transition-colors">
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <a href="/privacypolicy" className="text-white/60 hover:text-white underline transition-colors">
+            Privacy Policy
+          </a>
+          .
+        </div>
+
       </div>
     </div>
   );
