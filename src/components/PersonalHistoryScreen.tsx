@@ -245,10 +245,7 @@ export default function PersonalHistoryScreen({
 
       {/* CORE WORKSPACE GRID - SPLIT LAYOUT LIKE SONG SELECT */}
       {resolvedRecords.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center py-24 gap-4 opacity-75 bg-[#0c0c12]/80 backdrop-blur-md p-12 rounded-2xl border border-white/10 shadow-2xl h-[400px] my-auto max-w-2xl mx-auto w-full z-10">
-          <span className="p-4 bg-skin-accent-dim text-skin-accent rounded-full border border-skin-accent/20 shadow animate-pulse">
-            <Database className="h-8 w-8" />
-          </span>
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-24 gap-3 opacity-75 my-auto max-w-2xl mx-auto w-full z-10">
           <h3 className="text-sm font-sans font-black text-white tracking-widest uppercase">
             No replay history found
           </h3>

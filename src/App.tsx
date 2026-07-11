@@ -550,8 +550,8 @@ export default function App() {
               onClick={() => setCurrentScreen('menu')}
               className="flex items-center cursor-pointer group select-none shrink-0"
             >
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white uppercase leading-none group-hover:scale-105 transition-transform duration-150">
-                Rhythm<span className="text-pink-500 font-black">Mania</span>
+              <h1 className="text-2xl md:text-3xl font-bold font-sans tracking-tight text-white leading-none group-hover:scale-105 transition-transform duration-150">
+                Rhythm<span className="text-[#ff4da6] font-bold">Mania</span>
               </h1>
             </div>
 

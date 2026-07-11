@@ -317,6 +317,9 @@ export default function OnlineBeatmapCatalog({
                   <h1 className="text-xl font-black tracking-widest text-white font-sans uppercase">
                     Find Server Beatmaps
                   </h1>
+                  <p className="text-xs text-slate-450 mt-0.5 font-sans font-medium tracking-wide">
+                    Discover your favourite song!
+                  </p>
                 </div>
               </div>
 
