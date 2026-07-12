@@ -219,6 +219,18 @@ export default function GameplayCanvas({
     return propSettings;
   }, [propSettings, replayRecord]);
 
+  // Find earliest note time in the beatmap
+  const firstNoteTime = React.useMemo(() => {
+    const notes = beatmap.notes || [];
+    if (notes.length === 0) return 0;
+    return Math.min(...notes.map(n => n.time));
+  }, [beatmap]);
+
+  const startDelayMs = React.useMemo(() => {
+    // If the first note starts in less than 2000ms, provide a lead-in delay of up to 2000ms.
+    return Math.max(0, 2000 - firstNoteTime);
+  }, [firstNoteTime]);
+
   const replayData = replayRecord?.replayFrames || null;
   const replayMods = replayRecord?.mods || [];
 
@@ -771,7 +783,7 @@ export default function GameplayCanvas({
         setShowCountdown(prev => {
           if (prev === 1) {
             // Play audio as soon as countdown wraps up
-            mainAudio.play(beatmap.bpm, settings.audioOffset);
+            mainAudio.play(beatmap.bpm, settings.audioOffset, startDelayMs);
             isPlayingRef.current = true;
             if (videoRef.current) {
               videoRef.current.playbackRate = mainAudio.playbackRate;
@@ -785,7 +797,7 @@ export default function GameplayCanvas({
       }, 700);
       return () => clearTimeout(t);
     }
-  }, [showCountdown]);
+  }, [showCountdown, beatmap.bpm, settings.audioOffset, startDelayMs]);
 
   // Handle unpause countdown intervals
   useEffect(() => {
@@ -1322,7 +1334,9 @@ export default function GameplayCanvas({
       if (showCountdown > 0 && countdownStartTimeRef.current !== null) {
         const elapsed = performance.now() - countdownStartTimeRef.current;
         // The total countdown ticks count to 3 * 700ms = 2100ms
-        songTime = -2100 + elapsed;
+        // We offset the countdown sequence by the audio start delay so that notes transition seamlessly
+        // into the gameplay loop when countdown wraps up.
+        songTime = -startDelayMs - 2100 + elapsed;
       }
 
       audioTimeRef.current = songTime;
@@ -2317,7 +2331,7 @@ export default function GameplayCanvas({
       cancelAnimationFrame(requestId);
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [beatmap, settings, isPaused, showCountdown]);
+  }, [beatmap, settings, isPaused, showCountdown, startDelayMs]);
 
   // Pause / Resume Handlers
   const pauseGameplay = () => {

@@ -543,81 +543,88 @@ export default function App() {
       {currentScreen !== 'play' && (
         <header 
           id="main-header" 
-          className="h-16 flex items-center px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
+          className="h-16 flex items-center px-4 md:px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
         >
           <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4">
             <div 
               onClick={() => setCurrentScreen('menu')}
               className="flex items-center cursor-pointer group select-none shrink-0"
             >
-              <h1 className="text-2xl md:text-3xl font-bold font-sans tracking-tight text-white leading-none group-hover:scale-105 transition-transform duration-150">
+              <h1 className="text-xl md:text-3xl font-bold font-sans tracking-tight text-white leading-none group-hover:scale-105 transition-transform duration-150">
                 Rhythm<span className="text-[#ff4da6] font-bold">Mania</span>
               </h1>
             </div>
 
             {/* TOP MIDDLE: Find Online Beatmaps Button */}
-            <div className="flex-1 flex justify-center">
-              <button
-                id="header-find-beatmap-button"
-                onClick={() => {
-                  setShowFindBeatmapOverlay(true);
-                }}
-                className="group relative overflow-hidden px-4 md:px-5 py-2 bg-[#12121a] text-white rounded-full border border-pink-500/35 hover:border-pink-500 hover:brightness-115 transition hover:scale-[1.03] active:scale-95 cursor-pointer uppercase font-sans font-extrabold text-[10px] md:text-xs tracking-wider flex items-center gap-1.5 md:gap-2 shadow-xl"
-              >
-                <Compass className="h-3.5 w-3.5 md:h-4 md:w-4 text-pink-500 animate-pulse" />
-                <span className="hidden sm:inline">Find Online Beatmaps</span>
-                <span className="inline sm:hidden">Online</span>
-                <span className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </div>
+            {!isMobile && (
+              <div className="flex-1 flex justify-center">
+                <button
+                  id="header-find-beatmap-button"
+                  onClick={() => {
+                    setShowFindBeatmapOverlay(true);
+                  }}
+                  className="group relative overflow-hidden px-2.5 py-1.5 md:px-5 md:py-2 bg-[#12121a] text-white rounded-full border border-pink-500/35 hover:border-pink-500 hover:brightness-115 transition hover:scale-[1.03] active:scale-95 cursor-pointer uppercase font-sans font-extrabold text-[9px] md:text-xs tracking-wider flex items-center gap-1 shadow-xl"
+                >
+                  <Compass className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
+                  <span className="tracking-wide">FIND ONLINE BEATMAPS</span>
+                  <span className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              </div>
+            )}
 
-            <nav id="top-nav" className="flex items-center gap-4 text-xs uppercase tracking-widest shrink-0">
+            <nav id="top-nav" className="flex items-center gap-2 md:gap-4 text-xs uppercase tracking-widest shrink-0">
               <button
                 id="header-nav-play"
                 onClick={() => setCurrentScreen('select')}
-                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
+                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'select' 
                     ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-400 border-pink-500/40 shadow-md shadow-pink-500/10' 
-                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
+                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
                 }`}
                 title="Mania Select (Keys mode)"
               >
                 <Keyboard className="h-5 w-5" />
-                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                  Mania mode
-                </span>
+                {!isMobile && (
+                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                    Mania mode
+                  </span>
+                )}
               </button>
               
               <button
                 id="header-nav-settings"
                 onClick={() => setShowSettings(prev => !prev)}
-                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
+                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   showSettings 
                     ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-400 border-cyan-500/40 shadow-md shadow-cyan-500/10' 
-                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
+                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
                 }`}
                 title="System Settings"
               >
                 <SettingsIcon className="h-5 w-5" />
-                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                  Settings
-                </span>
+                {!isMobile && (
+                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                    Settings
+                  </span>
+                )}
               </button>
 
               <button
                 id="header-nav-history"
                 onClick={() => setCurrentScreen('history')}
-                className={`p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
+                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'history' 
                     ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40 shadow-md shadow-emerald-500/10' 
-                    : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
+                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
                 }`}
                 title="Personal Performance"
               >
                 <History className="h-5 w-5" />
-                <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                  History
-                </span>
+                {!isMobile && (
+                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                    History
+                  </span>
+                )}
               </button>
             </nav>
           </div>
@@ -661,6 +668,8 @@ export default function App() {
                 onDeleteSongGroup={handleDeleteSongGroup}
                 filterMode={3}
                 setSongSelectBgUrl={setSongSelectBgUrl}
+                onBack={() => setCurrentScreen('menu')}
+                onOpenOnlineCatalog={() => setShowFindBeatmapOverlay(true)}
               />
             </motion.div>
           )}
@@ -760,33 +769,53 @@ export default function App() {
               initial="initial"
               animate="animate"
               exit="exit"
-              className="w-full h-full"
+              className="w-full h-full overflow-hidden"
             >
-              <PersonalHistoryScreen
-                history={playHistory}
-                allBeatmaps={customMaps}
-                onWatchReplay={(record) => {
-                  setViewingHistoryResult(false);
-                  handleWatchReplay(record);
-                }}
-                onViewResult={(record) => {
-                  setActiveReplayRecord(null);
-                  setScoreState(record.scoreState);
-                  const baseId = record.beatmapId.includes('_converted_')
-                    ? record.beatmapId.split('_converted_')[0]
-                    : record.beatmapId;
-                  const bm = customMaps.find(m => m.id === record.beatmapId || m.id === baseId);
-                  if (bm) {
-                      setSelectedBeatmap(bm);
-                      setViewingHistoryResult(true);
-                      setCurrentScreen('results');
-                  }
-                }}
-                onClearHistory={handleClearHistory}
-                onDeleteRecord={handleDeleteHistoryRecord}
-                historyLimit={historyLimit}
-                onSetHistoryLimit={handleSetHistoryLimit}
-              />
+              {isMobile ? (
+                <div className="w-full h-full flex items-center justify-center p-4">
+                  <div className="flex flex-col items-center justify-center text-center p-8 w-full max-w-md bg-slate-950/60 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl">
+                    <div className="p-4 rounded-full bg-pink-500/10 border border-pink-500/20 mb-5 animate-pulse">
+                      <History className="h-8 w-8 text-pink-500" />
+                    </div>
+                    <h2 className="text-xl font-sans font-black text-white uppercase tracking-wider">Work in Progress</h2>
+                    <p className="text-xs text-slate-400 font-mono mt-3 max-w-xs leading-relaxed uppercase">
+                      The detailed personal performance history is currently being optimized for mobile devices. Please check back soon!
+                    </p>
+                    <button
+                      onClick={() => setCurrentScreen('menu')}
+                      className="mt-6 px-6 py-2.5 bg-pink-500 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl hover:bg-pink-600 active:scale-95 transition"
+                    >
+                      Back to Menu
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <PersonalHistoryScreen
+                  history={playHistory}
+                  allBeatmaps={customMaps}
+                  onWatchReplay={(record) => {
+                    setViewingHistoryResult(false);
+                    handleWatchReplay(record);
+                  }}
+                  onViewResult={(record) => {
+                    setActiveReplayRecord(null);
+                    setScoreState(record.scoreState);
+                    const baseId = record.beatmapId.includes('_converted_')
+                      ? record.beatmapId.split('_converted_')[0]
+                      : record.beatmapId;
+                    const bm = customMaps.find(m => m.id === record.beatmapId || m.id === baseId);
+                    if (bm) {
+                        setSelectedBeatmap(bm);
+                        setViewingHistoryResult(true);
+                        setCurrentScreen('results');
+                    }
+                  }}
+                  onClearHistory={handleClearHistory}
+                  onDeleteRecord={handleDeleteHistoryRecord}
+                  historyLimit={historyLimit}
+                  onSetHistoryLimit={handleSetHistoryLimit}
+                />
+              )}
             </motion.div>
           )}
 
@@ -807,25 +836,7 @@ export default function App() {
         onImportBeatmap={handleImportBeatmap}
       />
 
-      {/* MOBILE WARNING OVERLAY */}
-      {isMobile && (
-        <div className="fixed inset-0 z-50 bg-[#050508] flex flex-col justify-center items-center p-6 text-center select-none">
-          <div className="max-w-md bg-[#0c0c12]/90 border border-white/10 rounded-2xl p-8 backdrop-blur-md shadow-2xl relative">
-            <div className="absolute top-0 right-0 left-0 h-1.5 bg-gradient-to-r from-pink-500 via-rose-500 to-indigo-500 rounded-t-2xl" />
-            <div className="w-16 h-16 rounded-full bg-pink-500/10 border border-pink-500/20 flex items-center justify-center mx-auto mb-6 text-pink-400">
-              <span className="text-2xl">📱</span>
-            </div>
-            <h2 className="text-2xl font-black text-white mb-3 tracking-tight uppercase">Mobile Redesign</h2>
-            <div className="h-px bg-white/10 w-16 mx-auto mb-4" />
-            <p className="text-slate-300 text-sm leading-relaxed mb-6 font-sans">
-              The RhythmMania mobile interface is currently being fully redesigned to bring high-fidelity touch mechanisms and perfect audio synchronizations to portable viewports.
-            </p>
-            <p className="text-pink-500 text-xs font-mono tracking-widest font-black uppercase">
-              Please enter from a Desktop screen
-            </p>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }

@@ -39,6 +39,8 @@ interface SongSelectProps {
   onDeleteSongGroup?: (mapIds: string[]) => void;
   filterMode: number;
   setSongSelectBgUrl?: (url: string) => void;
+  onBack?: () => void;
+  onOpenOnlineCatalog?: () => void;
 }
 
 export default function SongSelect({
@@ -51,11 +53,23 @@ export default function SongSelect({
   onDeleteCustomMap,
   onDeleteSongGroup,
   filterMode,
-  setSongSelectBgUrl
+  setSongSelectBgUrl,
+  onBack,
+  onOpenOnlineCatalog
 }: SongSelectProps) {
   // Search & Basic UI State
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCustomMapId, setSelectedCustomMapId] = useState<string>('');
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [lastSelectedDifficultyBySong, setLastSelectedDifficultyBySong] = useState<Record<string, string>>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -899,6 +913,440 @@ export default function SongSelect({
   // Extract selected beatmap statistics
   const currentStarRating = selectedCustomMap ? getStarRating(selectedCustomMap) : 0.0;
   const filteredScores = localScores.filter(s => s.beatmapId === selectedCustomMapId);
+
+  if (isMobile) {
+    const playButtonText = downloadingMapId 
+      ? 'DOWNLOADING' 
+      : (selectedCustomMap && ((selectedCustomMap as any).isServerPackage || ((selectedCustomMap as any).isServerMap && !(selectedCustomMap as any).isCached)))
+        ? 'GET'
+        : 'PLAY';
+
+    return (
+      <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
+        {/* BACKGROUND EFFECT LAYER */}
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-none z-0" />
+
+        {/* 1. SELECTED SONG CARD */}
+        {selectedCustomMap ? (
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-4 flex flex-col gap-3 shadow-2xl z-10 shrink-0">
+            {/* Ambient Background Glow of Current Artwork */}
+            {selectBgUrl && (
+              <div 
+                className="absolute inset-0 bg-cover bg-center opacity-10 blur-xl scale-110 pointer-events-none"
+                style={{ backgroundImage: `url("${selectBgUrl}")` }}
+              />
+            )}
+
+            {/* Song Cover & Text Info Row */}
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="w-14 h-14 rounded-xl border border-white/10 bg-slate-900/80 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
+                {selectBgUrl ? (
+                  <img src={selectBgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="Artwork" />
+                ) : (
+                  <Music className="h-6 w-6 text-pink-500" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0 text-left flex flex-col justify-center">
+                <span className="text-[10px] uppercase font-mono tracking-widest text-pink-500 font-black leading-none mb-1">
+                  {selectedCustomMap.artist || 'Unknown Artist'}
+                </span>
+                <h2 className="font-sans font-black text-base text-white tracking-tight truncate leading-tight">
+                  {selectedCustomMap.title}
+                </h2>
+                <span className="text-[10px] text-slate-400 font-mono uppercase mt-0.5 tracking-wide">
+                  mapped by {selectedCustomMap.creator || 'alevi'}
+                </span>
+              </div>
+            </div>
+
+            {/* Controls Row: Difficulty Selector & Big Play Button */}
+            <div className="flex items-center justify-between gap-3 relative z-10">
+              {/* Custom styled capsule difficulty dropdown */}
+              <div className="flex-1 min-w-0">
+                <select 
+                  value={selectedCustomMap.id}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const foundMap = currentSongMaps.find(m => m.id === selectedId);
+                    if (foundMap) {
+                      handleSelectCustomMap(foundMap);
+                    }
+                  }}
+                  className="w-full bg-[#12121a] border border-white/10 px-3 py-2.5 rounded-xl text-xs font-mono font-bold text-slate-200 outline-none focus:border-pink-500 transition-all cursor-pointer shadow-lg appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%25239cbdca%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_10px] bg-[right_12px_center] bg-no-repeat pr-8"
+                >
+                  {[...currentSongMaps].sort((a, b) => getStarRating(a) - getStarRating(b)).map((map) => {
+                    const rating = getStarRating(map);
+                    return (
+                      <option key={map.id} value={map.id} className="bg-[#0c0c12] text-slate-100">
+                        {map.difficulty} (★ {rating.toFixed(2)})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Big Solid Pink PLAY Button */}
+              <button
+                onClick={() => handleStartPlay()}
+                className="px-6 py-2.5 bg-pink-500 hover:bg-pink-600 active:brightness-90 active:scale-95 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-pink-500/20 flex items-center justify-center gap-1.5 transform transition duration-150 cursor-pointer border border-white/10 select-none shrink-0"
+              >
+                <Play className="h-4 w-4 fill-current text-slate-950" />
+                <span>{playButtonText}</span>
+              </button>
+            </div>
+
+            {/* Download Progress Bar overlay */}
+            {downloadingMapId && downloadProgress && (
+              <div className="w-full bg-black/40 border border-pink-500/20 p-2.5 rounded-xl flex flex-col gap-1 mt-1">
+                <div className="flex justify-between text-[9px] font-mono font-black text-pink-400 uppercase">
+                  <span>DOWNLOADING BEATMAP SET</span>
+                  <span>{downloadProgress.percentage}%</span>
+                </div>
+                <div className="w-full bg-slate-850 h-1 rounded-full overflow-hidden">
+                  <div className="bg-pink-500 h-full transition-all" style={{ width: `${downloadProgress.percentage}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
+            <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No song selected</p>
+          </div>
+        )}
+
+        {/* 2. SEARCH & FIND ONLINE BEATMAPS ACTION ROW */}
+        <div className="flex items-center gap-2 z-10 shrink-0">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400" />
+            <input 
+              type="text"
+              placeholder="Search tracks..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-[#0f0e15] border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/30 transition-all shadow-lg"
+            />
+          </div>
+
+          {onOpenOnlineCatalog && (
+            <button
+              onClick={onOpenOnlineCatalog}
+              className="px-3.5 py-2.5 bg-[#12121a] hover:brightness-110 active:scale-95 border border-pink-500/35 rounded-xl text-[10px] font-sans font-black tracking-wider text-white uppercase flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0"
+            >
+              <Compass className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
+              <span>ONLINE MAPS</span>
+            </button>
+          )}
+        </div>
+
+        {/* 3. AVAILABLE TRACKS HEADING */}
+        <div className="flex items-center justify-between text-[10px] font-mono font-black text-slate-400 tracking-wider uppercase z-10 px-1 shrink-0">
+          <span>AVAILABLE TRACKS</span>
+          <span className="text-pink-400 font-bold bg-pink-550/10 px-2 py-0.5 rounded border border-pink-500/10">{songGroups.length} groups</span>
+        </div>
+
+        {/* 4. HIGH-DENSITY SCROLLABLE BEATMAP LIST */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 z-10 pb-[90px] pr-0.5 min-h-0">
+          {songGroups.length > 0 ? (
+            songGroups.map((group) => {
+              const isGroupActive = selectedGroup?.songKey === group.songKey;
+              const activeMap = group.maps[0];
+              const rating = activeMap ? getStarRating(activeMap) : 0.0;
+
+              return (
+                <div 
+                  key={group.songKey}
+                  onClick={() => handleSelectGroup(group)}
+                  className={`group relative border rounded-xl overflow-hidden cursor-pointer select-none transition-all p-3 flex items-center justify-between gap-3 shadow-md active:scale-[0.99] duration-150 ${
+                    isGroupActive
+                      ? 'border-pink-500 bg-pink-500/5 shadow-[0_0_15px_rgba(236,72,153,0.15)] text-pink-400'
+                      : 'border-white/[0.05] bg-[#0c0c12]/85 hover:bg-[#12121a]/90 hover:border-white/10 text-slate-100'
+                  }`}
+                >
+                  {group.bgUrl && (
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center opacity-5 blur-sm pointer-events-none"
+                      style={{ backgroundImage: `url("${group.bgUrl}")` }}
+                    />
+                  )}
+
+                  <div className="flex items-center gap-3 relative z-10 min-w-0 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-slate-900 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
+                      {group.bgUrl ? (
+                        <img src={group.bgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
+                      ) : (
+                        <Music className="h-4 w-4 text-pink-500" />
+                      )}
+                    </div>
+                    <div className="text-left min-w-0 flex-1">
+                      <h4 className="font-bold font-sans text-sm text-white tracking-tight truncate leading-snug">
+                        {group.title}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono truncate uppercase mt-0.5">
+                        {group.artist || 'Unknown Artist'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 z-10 select-none">
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${getDifficultyColor(rating)}`}>
+                      ★ {rating.toFixed(1)}
+                    </span>
+                    {group.isServerPackage && (
+                      <span className="px-1.5 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[8px] font-mono font-black rounded uppercase">
+                        CLOUD
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="bg-[#0c0c12]/60 border border-white/10 p-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-500 shadow-xl z-10 py-12">
+              <Info className="h-6 w-6 mb-2 text-slate-600 animate-pulse" />
+              <p className="text-[10px] font-sans font-black tracking-widest uppercase">No tracks discovered</p>
+              <p className="text-[8px] text-slate-600 font-mono mt-1 uppercase max-w-xs">Adjust search terms or visit the online store to fetch map packages</p>
+            </div>
+          )}
+        </div>
+
+        {/* 5. FLOATING BOTTOM NAVIGATION ACTION BAR (BACK, MODS, RANDOM) */}
+        <div className="fixed bottom-0 inset-x-0 bg-[#09090d]/95 backdrop-blur-md border-t border-white/10 p-4 pb-6 flex items-center justify-between gap-3 z-40 shadow-2xl">
+          <button
+            onClick={() => {
+              if (onBack) onBack();
+            }}
+            className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-left text-pink-500">
+              <path d="m15 18-6-6 6-6"/>
+            </svg>
+            <span>Back</span>
+          </button>
+
+          <button
+            onClick={() => setShowModsModal(true)}
+            className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md relative"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-[#a3e635]" />
+            <span>Mods</span>
+            {(settings.selectedMods || []).length > 0 && (
+              <span className="absolute -top-1.5 right-2 px-1.5 py-0.5 bg-lime-500 rounded-full text-[8px] font-black font-mono text-black leading-none border border-black/40 z-10">
+                {(settings.selectedMods || []).length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={handleSelectRandom}
+            className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"
+          >
+            <Shuffle className="h-4 w-4 text-[#38bdf8]" />
+            <span>Random</span>
+          </button>
+        </div>
+
+        {/* RENDER MODS OVERLAY CONTAINER */}
+        <AnimatePresence>
+          {showModsModal && (
+            <>
+              <motion.div 
+                key="mods-backdrop-mobile"
+                className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm cursor-pointer"
+                onClick={() => setShowModsModal(false)}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+              />
+
+              <motion.div
+                key="mods-panel-mobile"
+                className="fixed inset-x-0 bottom-0 z-[110] w-full max-h-[85vh] bg-gradient-to-t from-[#0c0c12]/98 to-[#06060a]/98 border-t border-white/10 shadow-2xl flex flex-col rounded-t-3xl overflow-hidden font-sans text-slate-200"
+                initial={{ y: '100vh', opacity: 0.6 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: '100vh', opacity: 0 }}
+                transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
+              >
+                <div className="h-1 w-full bg-[#ff80a5] shadow-sm flex-none" />
+
+                <div className="flex-none px-5 py-4 border-b border-white/5 flex items-center justify-between bg-black/20">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="h-5 w-5 text-[#ff80a5]" />
+                    <h1 className="text-sm font-black tracking-widest text-[#ff80a5] font-sans uppercase">
+                      GAMEPLAY MODS
+                    </h1>
+                  </div>
+
+                  <button
+                    onClick={() => setShowModsModal(false)}
+                    className="p-1.5 rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-5 py-4 bg-black/5 flex flex-col gap-4">
+                  <div className="bg-[#1a1525] border border-[#ff80a5]/20 p-3 rounded-xl flex items-center justify-between gap-3 shadow-md text-left">
+                    <span className="text-[10px] font-bold text-slate-300 font-mono uppercase">
+                      MULTIPLIER: {(() => {
+                        let factor = 1.0;
+                        const active = settings.selectedMods || [];
+                        if (active.includes('NF')) factor *= 0.5;
+                        if (active.includes('EZ')) factor *= 0.5;
+                        if (active.includes('HT')) factor *= 0.3;
+                        if (active.includes('HR')) factor *= 1.06;
+                        if (active.includes('HD')) factor *= 1.06;
+                        if (active.includes('DT')) factor *= 1.12;
+                        return factor.toFixed(2) + 'x';
+                      })()}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateSettings({ selectedMods: [] })}
+                      className="px-2.5 py-1 bg-slate-900 border border-white/10 rounded-lg text-[9px] font-bold text-slate-400 hover:text-white"
+                    >
+                      RESET
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-2 text-left">
+                    <span className="text-[9px] font-black tracking-wider text-emerald-400 uppercase font-mono">REDUCTION MODS</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'NF', name: 'NoFail (NF)', desc: 'Cannot fail the song' },
+                        { id: 'EZ', name: 'Easy (EZ)', desc: 'Large windows, less HP drain', exclusiveWith: 'HR' },
+                        { id: 'HT', name: 'HalfTime (HT)', desc: '0.75x speed play speed', exclusiveWith: 'DT' }
+                      ].map((mod) => {
+                        const isActive = (settings.selectedMods || []).includes(mod.id);
+                        return (
+                          <button
+                            key={mod.id}
+                            onClick={() => {
+                              let mods = [...(settings.selectedMods || [])];
+                              if (isActive) {
+                                mods = mods.filter(m => m !== mod.id);
+                              } else {
+                                if (mod.exclusiveWith) mods = mods.filter(m => m !== mod.exclusiveWith);
+                                mods.push(mod.id);
+                              }
+                              updateSettings({ selectedMods: mods });
+                            }}
+                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-emerald-500/10 border-emerald-500/60 text-emerald-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
+                          >
+                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
+                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 text-left">
+                    <span className="text-[9px] font-black tracking-wider text-rose-400 uppercase font-mono">CHALLENGE MODS</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'HR', name: 'HardRock (HR)', desc: 'Tighter timing, fast HP loss', exclusiveWith: 'EZ' },
+                        { id: 'HD', name: 'Hidden (HD)', desc: 'Notes fade out before hit' },
+                        { id: 'DT', name: 'DoubleTime (DT)', desc: '1.5x play speed simulation', exclusiveWith: 'HT' }
+                      ].map((mod) => {
+                        const isActive = (settings.selectedMods || []).includes(mod.id);
+                        return (
+                          <button
+                            key={mod.id}
+                            onClick={() => {
+                              let mods = [...(settings.selectedMods || [])];
+                              if (isActive) {
+                                mods = mods.filter(m => m !== mod.id);
+                              } else {
+                                if (mod.exclusiveWith) mods = mods.filter(m => m !== mod.exclusiveWith);
+                                mods.push(mod.id);
+                              }
+                              updateSettings({ selectedMods: mods });
+                            }}
+                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-rose-500/10 border-rose-500/60 text-rose-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
+                          >
+                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
+                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 text-left">
+                    <span className="text-[9px] font-black tracking-wider text-cyan-400 uppercase font-mono">KEY CONVERSION</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[2, 3, 4, 5, 6, 7, 8].map((k) => {
+                        const modId = `K${k}`;
+                        const isActive = (settings.selectedMods || []).includes(modId);
+                        const isDisabled = availableKeyCounts.includes(k);
+                        
+                        return (
+                          <button
+                            type="button"
+                            key={modId}
+                            disabled={isDisabled}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (isDisabled) return;
+                              
+                              let mods = [...(settings.selectedMods || [])];
+                              if (isActive) {
+                                mods = mods.filter(m => m !== modId);
+                              } else {
+                                // Remove all other key change mods first
+                                mods = mods.filter(m => !/^K[2-8]$/.test(m));
+                                mods.push(modId);
+                              }
+                              updateSettings({ selectedMods: mods });
+                            }}
+                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${
+                              isDisabled
+                                ? 'bg-black/45 border-white/5 text-slate-600 opacity-45 cursor-not-allowed'
+                                : isActive 
+                                  ? 'bg-cyan-500/10 border-cyan-500/60 text-cyan-400' 
+                                  : 'bg-[#12121c] border-white/5 text-slate-350'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1 flex flex-col">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-[11px] font-bold uppercase">{k} Keys (K{k})</span>
+                                {isDisabled ? (
+                                  <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
+                                ) : (
+                                  <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">1.00x Mult</span>
+                                )}
+                              </div>
+                              <span className="text-[8px] text-slate-500 font-mono mt-0.5">
+                                {isDisabled 
+                                  ? `Native ${k}K difficulty is already available` 
+                                  : `Forces playfield to utilize ${k}-lane layout.`}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-none px-5 py-4 bg-[#101016]/85 border-t border-white/5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowModsModal(false)}
+                    className="px-6 py-2.5 bg-[#ff80a5] text-slate-950 font-black font-sans text-xs rounded-xl transition cursor-pointer uppercase tracking-wider shadow-lg"
+                  >
+                    Apply Selection
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
 
   return (
     <div 

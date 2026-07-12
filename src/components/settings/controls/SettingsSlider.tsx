@@ -71,11 +71,11 @@ export default function SettingsSlider({ value, min, max, step, onChange, format
   const displayValue = format ? format(value) : `${value}${suffix ?? ''}`;
   
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 w-full">
       <button 
         type="button"
         onClick={handleDecrement}
-        className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] active:scale-95 transition-all"
+        className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] active:scale-95 transition-all shrink-0"
         aria-label="Decrease value"
       >
         <Minus className="w-4 h-4" />
@@ -88,13 +88,13 @@ export default function SettingsSlider({ value, min, max, step, onChange, format
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-24 md:w-36 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-[var(--skin-accent)] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md"
+        className="flex-1 w-full md:w-36 md:flex-none min-w-0 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-[var(--skin-accent)] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md"
         style={{ accentColor: 'var(--skin-accent)' }}
       />
       <button 
         type="button"
         onClick={handleIncrement}
-        className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] active:scale-95 transition-all"
+        className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] active:scale-95 transition-all shrink-0"
         aria-label="Increase value"
       >
         <Plus className="w-4 h-4" />

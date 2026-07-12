@@ -28,6 +28,7 @@ export class AudioEngine {
   private audioOffsetMs: number = 0; // Calibration offset
   private lastAudioTime: number = 0;
   private lastSystemTime: number = 0;
+  private remainingStartDelayMs: number = 0;
   public playbackRate: number = 1.0; // Playback rate scaling coefficient (DT/HT support)
 
   // Procedural backup synthesizer tracker
@@ -186,7 +187,7 @@ export class AudioEngine {
   /**
    * Start song playback with offset adjustment
    */
-  public play(bpm: number = 120, offsetMs: number = 0) {
+  public play(bpm: number = 120, offsetMs: number = 0, startDelayMs: number = 0) {
     this.init();
     if (!this.ctx || this.isPlaying) return;
 
@@ -198,23 +199,29 @@ export class AudioEngine {
     this.audioOffsetMs = offsetMs;
     this.isPlaying = true;
     
+    if (startDelayMs > 0) {
+      this.remainingStartDelayMs = startDelayMs;
+    } else if (this.pauseTime === 0 && startDelayMs === 0) {
+      this.remainingStartDelayMs = 0;
+    }
+    
     const audioContextTime = this.ctx.currentTime;
     
     if (this.musicBuffer) {
       // Real Audio Buffer mode
-      this.startTime = audioContextTime;
+      this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / this.playbackRate;
       this.musicSource = this.ctx.createBufferSource();
       this.musicSource.buffer = this.musicBuffer;
       this.musicSource.connect(this.musicGain!);
       this.musicSource.playbackRate.value = this.playbackRate;
       
       // Start node at the previous paused position (in buffer seconds)
-      this.musicSource.start(0, this.pauseTime);
+      this.musicSource.start(this.startTime, this.pauseTime);
     } else {
       // Procedural fallback drum & melody sequencer mode
       // Synchronized to timing clock ticks
-      this.startTime = audioContextTime;
-      this.proceduralTimeStart = audioContextTime - (this.pauseTime / this.playbackRate);
+      this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / this.playbackRate;
+      this.proceduralTimeStart = this.startTime - (this.pauseTime / this.playbackRate);
       this.startBackupSynthSequencer();
     }
 
@@ -228,8 +235,16 @@ export class AudioEngine {
     this.isPlaying = false;
     
     const audioContextTime = this.ctx.currentTime;
-    // pauseTime is always stored in raw buffer-time seconds
-    this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
+    
+    if (audioContextTime < this.startTime) {
+      // Paused during the lead-in delay period!
+      this.remainingStartDelayMs = (this.startTime - audioContextTime) * this.playbackRate * 1000;
+      // pauseTime remains unchanged
+    } else {
+      // Paused after the audio had already started playing!
+      this.remainingStartDelayMs = 0;
+      this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
+    }
     
     if (this.musicSource) {
       try {
@@ -262,6 +277,7 @@ export class AudioEngine {
 
   public seekTo(timeSeconds: number) {
     this.pauseTime = timeSeconds;
+    this.remainingStartDelayMs = 0; // Seek cancels any remaining lead-in start delay!
     
     if (this.isPlaying && this.ctx) {
       // Stop current playback to restart it from the new seek point
@@ -283,7 +299,7 @@ export class AudioEngine {
         this.musicSource.buffer = this.musicBuffer;
         this.musicSource.connect(this.musicGain!);
         this.musicSource.playbackRate.value = this.playbackRate;
-        this.musicSource.start(0, this.pauseTime);
+        this.musicSource.start(this.startTime, this.pauseTime);
       } else {
         this.proceduralTimeStart = audioContextTime - (this.pauseTime / this.playbackRate);
         this.startBackupSynthSequencer();
@@ -294,6 +310,7 @@ export class AudioEngine {
   public stop() {
     this.pause();
     this.pauseTime = 0;
+    this.remainingStartDelayMs = 0;
   }
 
   public reset() {
@@ -301,6 +318,7 @@ export class AudioEngine {
     this.musicBuffer = null;
     this.startTime = 0;
     this.pauseTime = 0;
+    this.remainingStartDelayMs = 0;
     this.isPlaying = false;
     this.lastAudioTime = 0;
     this.lastSystemTime = 0;
@@ -321,6 +339,9 @@ export class AudioEngine {
    */
   public getCurrentTimeMs(): number {
     if (!this.isPlaying || !this.ctx) {
+      if (this.remainingStartDelayMs > 0) {
+        return -this.remainingStartDelayMs;
+      }
       return this.pauseTime * 1000;
     }
     
@@ -364,6 +385,8 @@ export class AudioEngine {
       if (!this.isPlaying || !this.ctx || !this.musicGain) return;
       
       const currentTimeMs = this.getCurrentTimeMs();
+      if (currentTimeMs < 0) return; // Wait for the lead-in delay to expire!
+      
       const beatProgress = (currentTimeMs / 1000) * (this.proceduralBpm / 60);
       const index = Math.floor(beatProgress * 2);
 

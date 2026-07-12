@@ -44,6 +44,105 @@ export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 
 
   if (!bg) return null;
 
+  if (isMobile) {
+    return (
+      <div className="absolute inset-0 w-full h-full overflow-hidden flex flex-col bg-black">
+        {/* Background with subtle zoom animation */}
+        <motion.img 
+          initial={{ scale: 1.05, opacity: 0 }}
+          animate={{ scale: 1, opacity: 0.55 }}
+          transition={{ duration: 1.2, ease: "easeOut" }}
+          src={bg} 
+          className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" 
+        />
+
+        {/* Ambient bottom gradient shade */}
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/95 via-black/40 to-transparent z-0 pointer-events-none" />
+
+        {/* Outer Grid overlay for cohesive tech mood */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff02_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none z-0" />
+
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pt-4 pb-12 select-none h-full">
+          <div className="flex flex-col items-center justify-center gap-8 w-full">
+            {/* Center Glowing Neon Circle */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: showOptions ? 0.92 : 1, opacity: 1 }}
+              whileTap={{ scale: 0.88 }}
+              transition={{ type: "spring", stiffness: 450, damping: 24 }}
+              onClick={() => setShowOptions(!showOptions)}
+              className="w-72 h-72 rounded-full flex flex-col items-center justify-center bg-[#ff4da6]/10 backdrop-blur-md border-[8px] border-white/20 shadow-[0_0_60px_rgba(255,77,166,0.5)] active:border-white/40 active:shadow-[0_0_80px_rgba(255,77,166,0.7)] relative cursor-pointer group"
+            >
+              {/* Inner ambient pulse */}
+              <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#ff1a75]/50 to-transparent pointer-events-none" />
+              
+              <h1 className="text-5xl font-black italic tracking-tighter text-white text-center leading-[1.05] mt-2 select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10">
+                Rhythm<br />Mania
+              </h1>
+              <p className="mt-3 text-white/90 font-mono text-xs font-bold tracking-[0.2em] z-10 select-none drop-shadow">
+                {metadata.version}
+              </p>
+            </motion.div>
+
+            {/* Bottom slanted buttons - styled precisely like the reference image, positioned closer */}
+            <div className="w-full max-w-[420px] flex flex-col items-center min-h-[80px]">
+              <AnimatePresence>
+                {showOptions && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="w-full flex items-center justify-between gap-3"
+                  >
+                    {/* Settings button */}
+                    <button
+                      onClick={() => onOpenSettings()}
+                      className="flex-1 bg-[#4a5260]/85 hover:bg-[#525a69]/90 border border-white/20 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-black/40 cursor-pointer"
+                    >
+                      <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
+                        <SettingsIcon className="w-5 h-5 text-white mb-0.5" />
+                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Settings</span>
+                      </div>
+                    </button>
+
+                    {/* Mania button */}
+                    <button
+                      onClick={() => onNavigate('select')}
+                      className="flex-1 bg-[#7e3ff2]/90 hover:bg-[#8d52ff]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-purple-500/20 cursor-pointer"
+                      style={{
+                        boxShadow: '0 0 15px rgba(126, 63, 242, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
+                      }}
+                    >
+                      <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
+                        <Play className="w-5 h-5 text-white fill-current mb-0.5" />
+                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Mania</span>
+                      </div>
+                    </button>
+
+                    {/* History button */}
+                    <button
+                      onClick={() => onNavigate('history')}
+                      className="flex-1 bg-[#c25e1a]/95 hover:bg-[#d66a20]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-orange-500/20 cursor-pointer"
+                      style={{
+                        boxShadow: '0 0 15px rgba(194, 94, 26, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
+                      }}
+                    >
+                      <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
+                        <History className="w-5 h-5 text-white mb-0.5" />
+                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">History</span>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-black">
       {/* Background with zoom animation */}
