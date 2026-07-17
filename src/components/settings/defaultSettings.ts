@@ -56,6 +56,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   selectedMods: [],
   bindPause: 'escape',
   bindRetry: 'r',
+  renderEngine: 'canvas',
 } as GameSettings);
 
 /** True when a setting's value differs from its default. */

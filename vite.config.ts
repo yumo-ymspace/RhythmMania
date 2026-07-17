@@ -16,8 +16,8 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import { readFileSync } from 'fs';
 
-const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
-const appVersion = pkg.version || '1.0.0';
+const metadata = JSON.parse(readFileSync('./metadata.json', 'utf-8'));
+const appVersion = metadata.version || '1.0.0';
 const buildTime = new Date().toISOString();
 
 export default defineConfig(() => {

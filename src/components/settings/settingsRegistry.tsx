@@ -135,7 +135,7 @@ export const ROWS: RowDef[] = [
     defaultValue: DEFAULT_SETTINGS.backgroundDim,
   },
   {
-    id: 'disableVideo', section: 'graphics', label: 'Background video',
+    id: 'disableVideo', section: 'graphics', label: 'Disable background video',
     description: 'Enable or disable the beatmap background video entirely.',
     control: { kind: 'toggle' },
     defaultValue: DEFAULT_SETTINGS.disableVideo,
@@ -155,8 +155,8 @@ export const ROWS: RowDef[] = [
     showWhen: (s) => !s.disableVideo,
   },
   {
-    id: 'disableParticles', section: 'graphics', label: 'Hit particles',
-    description: 'Show burst effects on hits. Disable to save GPU.',
+    id: 'disableParticles', section: 'graphics', label: 'Disable hit particles',
+    description: 'Completely turn off burst effects on hits to save GPU performance.',
     control: { kind: 'toggle' },
     defaultValue: DEFAULT_SETTINGS.disableParticles,
   },
@@ -165,6 +165,16 @@ export const ROWS: RowDef[] = [
     description: 'Limit the canvas to 1× device pixels. Big perf win on HiDPI displays.',
     control: { kind: 'toggle' },
     defaultValue: DEFAULT_SETTINGS.limitDprToOne,
+  },
+  {
+    id: 'renderEngine', section: 'graphics', label: 'Rendering engine',
+    description: 'Choose the gameplay rendering engine. PixiJS v8 offers high-performance WebGL rendering.',
+    control: { kind: 'select', options: [
+      { value: 'canvas', label: 'Canvas 2D' },
+      { value: 'pixi',  label: 'PixiJS v8' },
+    ]},
+    defaultValue: DEFAULT_SETTINGS.renderEngine || 'canvas',
+    keywords: ['renderer', 'engine', 'pixi', 'canvas', 'graphics', 'webgl'],
   },
 
   // ── GAMEPLAY ──────────────────────────────────────────────────────────

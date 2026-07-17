@@ -210,7 +210,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         <div className="relative">
                           <SettingsSelect
                             id={`setting-mobile-${row.id}`}
-                            value={String(currentValue)}
+                            value={currentValue !== undefined ? String(currentValue) : (row.defaultValue !== undefined ? String(row.defaultValue) : '')}
                             options={row.control.options}
                             onChange={(v) => updateSettings({ [row.id]: v })}
                           />

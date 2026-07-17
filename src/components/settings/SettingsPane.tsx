@@ -112,7 +112,7 @@ export default function SettingsPane({
               controlNode = (
                 <SettingsSelect
                   id={`setting-${row.id}`}
-                  value={String(currentValue)}
+                  value={currentValue !== undefined ? String(currentValue) : (row.defaultValue !== undefined ? String(row.defaultValue) : '')}
                   options={row.control.options}
                   onChange={(v) => update({ [row.id]: v })}
                 />

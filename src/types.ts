@@ -151,6 +151,7 @@ export interface GameSettings {
   selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
   bindPause?: string; // gameplay pause/resume keybind
   bindRetry?: string; // gameplay quick retry keybind
+  renderEngine?: 'canvas' | 'pixi';
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

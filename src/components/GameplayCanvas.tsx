@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
+import { Application, Graphics, Text } from 'pixi.js';
 import { mainAudio } from '../audio/AudioEngine';
 import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
 import { VideoSyncController } from '../utils/videoSyncController';
@@ -441,6 +442,91 @@ export default function GameplayCanvas({
   const [isVideoMissing, setIsVideoMissing] = useState<boolean>(false);
   const [isVideoError, setIsVideoError] = useState<boolean>(false);
   const [diagnosticsErrorLog, setDiagnosticsErrorLog] = useState<string[]>([]);
+
+  // PixiJS References
+  const pixiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pixiAppRef = useRef<any | null>(null);
+  const pixiGfxRef = useRef<any | null>(null);
+  const pixiTextObjectsRef = useRef<any[] | null>(null);
+
+  useEffect(() => {
+    if (settings.renderEngine !== 'pixi') {
+      if (pixiAppRef.current) {
+        try {
+          pixiAppRef.current.destroy(true, { children: true, texture: true });
+        } catch (e) {
+          console.warn('Error during PixiJS destroy:', e);
+        }
+        pixiAppRef.current = null;
+        pixiGfxRef.current = null;
+        pixiTextObjectsRef.current = null;
+      }
+      return;
+    }
+
+    let active = true;
+    const initPixi = async () => {
+      const canvas = pixiCanvasRef.current;
+      if (!canvas) return;
+
+      try {
+        const app = new Application();
+        const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+        const container = containerRef.current;
+        const width = container ? container.getBoundingClientRect().width : (canvas.clientWidth || 400);
+        const height = container ? container.getBoundingClientRect().height : (canvas.clientHeight || 700);
+
+        await app.init({
+          canvas: canvas,
+          width: width,
+          height: height,
+          resolution: dpr,
+          autoDensity: true,
+          backgroundAlpha: 0,
+          preference: 'webgl', // Force stable WebGL over WebGPU to avoid iframe sandbox crashes/hangs
+        });
+
+        if (!active) {
+          try {
+            app.destroy(true, { children: true, texture: true });
+          } catch (e) {}
+          return;
+        }
+
+        const graphics = new Graphics();
+        app.stage.addChild(graphics);
+
+        pixiAppRef.current = app;
+        pixiGfxRef.current = graphics;
+
+        // Force initial resize and position alignment
+        app.renderer.resize(width, height);
+
+        // Stop the automatic ticker so we can render manually in our own requestAnimationFrame loop
+        app.ticker.stop();
+      } catch (err) {
+        console.error('Failed to initialize PixiJS v8:', err);
+        if (updateSettings) {
+          console.warn('PixiJS initialization failed. Falling back to 2D Canvas engine...');
+          updateSettings({ renderEngine: 'canvas' });
+        }
+      }
+    };
+
+    initPixi();
+
+    return () => {
+      active = false;
+      if (pixiAppRef.current) {
+        try {
+          pixiAppRef.current.destroy(true, { children: true, texture: true });
+        } catch (e) {}
+        pixiAppRef.current = null;
+        pixiGfxRef.current = null;
+        pixiTextObjectsRef.current = null;
+      }
+    };
+  }, [settings.renderEngine, settings.limitDprToOne, updateSettings, isAudioLoaded]);
 
   // Parse overall difficulty and build dynamic judgement windows in milliseconds
   // In competitive play (adjusted by adding +- 5ms on top of the original scoring timings):
@@ -1251,10 +1337,10 @@ export default function GameplayCanvas({
   // Main rendering loop (RequestAnimationFrame)
   useEffect(() => {
     let requestId: number;
-    const canvas = canvasRef.current;
+    const canvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const ctx = settings.renderEngine === 'pixi' ? null : canvas.getContext('2d');
+    if (settings.renderEngine !== 'pixi' && !ctx) return;
 
     // Handle high-dpi monitors for pristine retina canvas crispness with performance caps
     const resizeCanvas = () => {
@@ -1264,13 +1350,18 @@ export default function GameplayCanvas({
       const rect = container.getBoundingClientRect();
       const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
       
-      // Custom boundary scaling
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas.style.width = `${rect.width}px`;
-      canvas.style.height = `${rect.height}px`;
-      
-      ctx.scale(dpr, dpr);
+      if (settings.renderEngine === 'pixi') {
+        if (pixiAppRef.current) {
+          pixiAppRef.current.renderer.resize(rect.width, rect.height);
+        }
+      } else {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+        
+        if (ctx) ctx.scale(dpr, dpr);
+      }
     };
 
     resizeCanvas();
@@ -1311,17 +1402,17 @@ export default function GameplayCanvas({
 
     // Canvas Draw Thread
     const render = () => {
-      if (!ctx || !canvas) return;
+      const activeCanvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
+      if (!activeCanvas) return;
+      if (settings.renderEngine !== 'pixi' && !ctx) return;
 
       const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
-      const width = canvas.width / dpr;
-      const height = canvas.height / dpr;
-
-      // Clear canvas with elegant translucent dark overlay to shine video/bg background underneath
-      ctx.clearRect(0, 0, width, height);
-      const shieldDim = settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60;
-      ctx.fillStyle = `rgba(0, 0, 0, ${shieldDim})`; // solid black playfield shield
-      ctx.fillRect(0, 0, width, height);
+      let width = activeCanvas.width / dpr;
+      let height = activeCanvas.height / dpr;
+      if (settings.renderEngine === 'pixi' && pixiAppRef.current) {
+        width = pixiAppRef.current.screen.width;
+        height = pixiAppRef.current.screen.height;
+      }
 
       // Smoothly slide the rendering offset towards the actual audioOffset to prevent note visual teleportations mid-flight:
       smoothOffsetRef.current += (settings.audioOffset - smoothOffsetRef.current) * 0.08;
@@ -1424,16 +1515,6 @@ export default function GameplayCanvas({
         } catch (e) {}
       }
 
-      // 1. Apply visual screen shake matrix
-      ctx.save();
-      if (screenShakeRef.current > 0) {
-        const shakeX = (Math.random() - 0.5) * screenShakeRef.current;
-        const shakeY = (Math.random() - 0.5) * screenShakeRef.current;
-        ctx.translate(shakeX, shakeY);
-        screenShakeRef.current *= 0.9; // decay shake force
-        if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
-      }
-
       // 1. Calculate symmetrical lane widths and cumulative X-coordinates
       const keyCount = beatmap.keyCount;
       let totalWeight = 0;
@@ -1456,9 +1537,566 @@ export default function GameplayCanvas({
 
       const receptorY = settings.upsurfaceNoteMode ? 60 : height - 155;
 
-      // Draw lane background rails & column glows
-      for (let i = 0; i < keyCount; i++) {
-        const xPos = colX[i];
+      if (settings.renderEngine === 'pixi') {
+        const g = pixiGfxRef.current;
+        if (g) {
+          try {
+            g.clear();
+
+          // Apply visual screen shake matrix
+          if (screenShakeRef.current > 0) {
+            const shakeX = (Math.random() - 0.5) * screenShakeRef.current;
+            const shakeY = (Math.random() - 0.5) * screenShakeRef.current;
+            g.position.set(shakeX, shakeY);
+            screenShakeRef.current *= 0.9; // decay shake force
+            if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
+          } else {
+            g.position.set(0, 0);
+          }
+
+          // Background dim shield
+          const shieldDim = settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60;
+          g.rect(0, 0, width, height).fill({ color: 0x000000, alpha: shieldDim });
+
+          // 1. Lane background rails & column glows
+          const separatorOpacity = settings.laneSeparatorOpacity ?? 0.30;
+          for (let i = 0; i < keyCount; i++) {
+            const xPos = colX[i];
+            const colW = colStyles[i].width;
+
+            // Subtle lane background separators
+            g.moveTo(xPos, 0)
+             .lineTo(xPos, height)
+             .stroke({ color: '#475569', width: 1, alpha: separatorOpacity });
+
+            // Lane-pressed glowing flashes
+            if (laneGlowRef.current[i] > 0) {
+              const alphaValue = laneGlowRef.current[i] * 0.15;
+              const glowY = settings.upsurfaceNoteMode ? 0 : receptorY;
+              const glowH = settings.upsurfaceNoteMode ? receptorY : height - receptorY;
+              g.rect(xPos, glowY, colW, glowH).fill({ color: '#3b82f6', alpha: alphaValue });
+              laneGlowRef.current[i] *= 0.88; // decay lane glows
+            }
+          }
+
+          // Last border outline
+          g.rect(0, 0, width, height).stroke({ color: '#475569', width: 1.5, alpha: separatorOpacity * 1.5 });
+
+          // Helper definitions
+          const travelDistance = settings.upsurfaceNoteMode ? (height - receptorY) : receptorY;
+          const scrollTimeMs = 1100 - (settings.scrollSpeed ?? 18) * 25;
+          const speedFactor = travelDistance / scrollTimeMs;
+          const visualTime = songTime - (settings.visualOffset || 0);
+
+          const getScrollY = (timeMs: number): number => {
+            if (settings.upsurfaceNoteMode) {
+              return receptorY + (timeMs - visualTime) * speedFactor;
+            } else {
+              return receptorY - (timeMs - visualTime) * speedFactor;
+            }
+          };
+
+          const getHiddenOpacity = (y: number): number => {
+            if (!settings.selectedMods?.includes('HD')) return 1.0;
+            const distPercent = settings.upsurfaceNoteMode
+              ? (height - y) / (height - receptorY)
+              : y / receptorY;
+
+            if (distPercent < 0.35) return 1.0;
+            if (distPercent < 0.70) return Math.max(0, 1 - (distPercent - 0.35) / 0.35);
+            return 0.0;
+          };
+
+          const isFocusModeValue = isFocusMode;
+
+          // 2. Draw long holds bodies
+          notesRef.current.forEach((n) => {
+            if (n.type === 'hold' && n.isHit && n.isReleased) {
+              return;
+            }
+            if (n.type === 'hold' && n.endTime) {
+              const startY = getScrollY(n.time);
+              const endY = getScrollY(n.endTime);
+              const xPos = colX[n.column];
+              const colW = colStyles[n.column].width;
+
+              let visualStartY = startY;
+              if (n.isHit && !n.isReleased && !n.isHoldFailed) {
+                visualStartY = receptorY;
+              }
+
+              const isOff = settings.upsurfaceNoteMode
+                ? (endY < receptorY && visualStartY < receptorY && n.isReleased)
+                : (endY > receptorY && visualStartY > receptorY && n.isReleased);
+
+              if (!isOff) {
+                const clipHeight = visualStartY - endY;
+                const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
+                  ? settings.customSkinColors[4]
+                  : '#38bdf8';
+
+                const isCircleMode = settings.playfieldStyle === 'circle' ||
+                                     settings.skinId === 'circles' ||
+                                     settings.skinId === 'glassy-spheres' ||
+                                     settings.skinId === 'hollow-rings';
+
+                const fadeStart = getHiddenOpacity(visualStartY);
+                const fadeEnd = getHiddenOpacity(endY);
+                const avgFade = (fadeStart + fadeEnd) / 2;
+
+                let bodyColor = '#38bdf8';
+                let holdAlphaMultiplier = 1.0;
+                
+                if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+                  bodyColor = settings.rhythmplusColor || '#ffff00';
+                  if (n.isHit && !n.isReleased) {
+                    if (n.releaseGraceUntil) {
+                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                      holdAlphaMultiplier = flicker ? 1.0 : 0.5;
+                    }
+                  } else if (n.isHoldFailed || n.isMissed) {
+                    bodyColor = '#64748b';
+                    holdAlphaMultiplier = 0.5;
+                  }
+                } else if (settings.playfieldStyle !== 'circle') {
+                  bodyColor = settings.rhythmmaniaNoteColor || '#00b0ff';
+                  if (n.isHit && !n.isReleased) {
+                    if (n.releaseGraceUntil) {
+                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                      holdAlphaMultiplier = flicker ? 0.8 : 0.2;
+                    } else {
+                      holdAlphaMultiplier = 0.8;
+                    }
+                  } else if (n.isHoldFailed || n.isMissed) {
+                    bodyColor = '#64748b';
+                    holdAlphaMultiplier = 0.3;
+                  } else {
+                    holdAlphaMultiplier = 0.6;
+                  }
+                } else {
+                  bodyColor = settings.skinId === 'custom' ? customHoldColor : '#3b82f6';
+                  if (n.isHit && !n.isReleased) {
+                    if (n.releaseGraceUntil) {
+                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
+                      bodyColor = flicker ? '#eab308' : '#a1750e';
+                      holdAlphaMultiplier = flicker ? 0.75 : 0.2;
+                    } else {
+                      bodyColor = settings.skinId === 'custom' ? customHoldColor : '#22d3ee';
+                      holdAlphaMultiplier = 0.7;
+                    }
+                  } else if (n.isHoldFailed || n.isMissed) {
+                    bodyColor = '#64748b';
+                    holdAlphaMultiplier = 0.3;
+                  } else {
+                    bodyColor = settings.skinId === 'custom' ? customHoldColor : '#3b82f6';
+                    holdAlphaMultiplier = 0.5;
+                  }
+                }
+
+                const padding = isFocusModeValue ? 3 : 12;
+                const notePadding = isFocusModeValue ? 1.5 : 6;
+                const useNotePadding = settings.squareRenderStyle === 'rhythmplus' && !isCircleMode;
+
+                const rx = xPos + (useNotePadding ? notePadding : padding);
+                const rw = colW - (useNotePadding ? notePadding : padding) * 2;
+
+                let drawY = Math.min(visualStartY, endY);
+                let drawH = Math.abs(clipHeight);
+
+                if (useNotePadding) {
+                  drawY -= 4;
+                  drawH += 8;
+                }
+
+                const noteOpacityVal = settings.noteOpacity ?? 1.0;
+                const finalAlpha = noteOpacityVal * holdAlphaMultiplier * avgFade;
+
+                if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+                  g.rect(rx, drawY, rw, drawH).fill({ color: bodyColor, alpha: finalAlpha });
+                } else {
+                  if (isCircleMode) {
+                    g.roundRect(rx, drawY, rw, drawH, rw / 2).fill({ color: bodyColor, alpha: finalAlpha });
+                  } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
+                    g.rect(rx, drawY, rw, drawH).fill({ color: bodyColor, alpha: finalAlpha });
+                  } else {
+                    g.roundRect(rx, drawY, rw, drawH, 6).fill({ color: bodyColor, alpha: finalAlpha });
+                  }
+                }
+
+                if (!(settings.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
+                  const lineAlpha = n.isHit && !n.isReleased
+                    ? (n.releaseGraceUntil ? 0.6 : 0.8)
+                    : 0.4;
+                  const lineColor = n.isHit && !n.isReleased
+                    ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
+                    : '#38bdf8';
+                  g.moveTo(xPos + colW / 2, visualStartY)
+                   .lineTo(xPos + colW / 2, endY)
+                   .stroke({ color: lineColor, width: 2, alpha: lineAlpha * avgFade });
+                }
+              }
+            }
+          });
+
+          // 3. Draw normal notes & hold heads
+          notesRef.current.forEach((n) => {
+            if (n.type === 'normal' && (n.isHit || n.isMissed)) {
+              return;
+            }
+            const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
+            if (shouldDrawHead) {
+              const noteY = getScrollY(n.time);
+              const xPos = colX[n.column];
+              const colW = colStyles[n.column].width;
+              const notePadding = isFocusModeValue ? 3 : 6;
+
+              const paddingLimit = 60;
+              const isVisible = noteY >= -paddingLimit && noteY <= height + paddingLimit;
+
+              if (isVisible && !(n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle')) {
+                const rx = xPos + notePadding;
+                const ry = noteY - 10;
+                const rw = colW - notePadding * 2;
+                const rh = 20;
+
+                let currentOpacity = settings.noteOpacity ?? 1.0;
+                if (settings.selectedMods?.includes('HD')) {
+                  const distancePercent = settings.upsurfaceNoteMode
+                    ? (height - noteY) / (height - receptorY)
+                    : noteY / receptorY;
+
+                  if (distancePercent < 0.35) {
+                    currentOpacity = currentOpacity;
+                  } else if (distancePercent < 0.70) {
+                    const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
+                    currentOpacity *= Math.max(0, fadeFactor);
+                  } else {
+                    currentOpacity = 0.0;
+                  }
+                }
+
+                if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
+                  currentOpacity *= 0.35;
+                }
+
+                let fillCol = colStyles[n.column].color;
+                let strokeCol = fillCol;
+
+                const isNoteCircleMode = settings.playfieldStyle === 'circle' ||
+                                         settings.skinId === 'circles' ||
+                                         settings.skinId === 'glassy-spheres' ||
+                                         settings.skinId === 'hollow-rings';
+
+                if (isNoteCircleMode) {
+                  fillCol = settings.circleNoteColor || '#00b0ff';
+                  strokeCol = settings.circleNoteColor || '#00b0ff';
+                } else if (settings.squareRenderStyle === 'rhythmplus') {
+                  fillCol = settings.rhythmplusColor || '#ffff00';
+                  strokeCol = settings.rhythmplusColor || '#ffff00';
+                } else {
+                  fillCol = settings.rhythmmaniaNoteColor || '#00b0ff';
+                  strokeCol = settings.rhythmmaniaNoteColor || '#00b0ff';
+                }
+
+                if (isNoteCircleMode) {
+                  const cx = rx + rw / 2;
+                  const cy = ry + rh / 2;
+                  const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+                  g.circle(cx, cy, r).fill({ color: fillCol, alpha: currentOpacity })
+                                     .stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
+                } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+                  g.rect(rx, ry + rh / 2 - 4, rw, 8).fill({ color: fillCol, alpha: currentOpacity });
+                } else if (settings.skinId === 'classic-bar') {
+                  g.rect(rx, ry, rw, rh).fill({ color: fillCol, alpha: currentOpacity })
+                                        .stroke({ color: strokeCol, width: 1.5, alpha: currentOpacity });
+                  g.rect(rx, ry + rh / 2 - 1.5, rw, 3).fill({ color: '#ffffff', alpha: currentOpacity });
+                } else {
+                  const radius = settings.skinId === 'minimalist' ? 3 : 4;
+                  g.roundRect(rx, ry, rw, rh, radius).fill({ color: fillCol, alpha: currentOpacity })
+                                                     .stroke({ color: strokeCol, width: 2, alpha: currentOpacity });
+                }
+              }
+            }
+          });
+
+          // 4. Draw end receptors for holds
+          notesRef.current.forEach((n) => {
+            if (n.type === 'hold' && n.endTime && !n.isReleased) {
+              const endNoteY = getScrollY(n.endTime);
+              const xPos = colX[n.column];
+              const colW = colStyles[n.column].width;
+              const notePadding = isFocusModeValue ? 3 : 6;
+
+              const paddingLimit = 60;
+              const isEndVisible = endNoteY >= -paddingLimit && endNoteY <= height + paddingLimit;
+
+              if (isEndVisible) {
+                const rx = xPos + notePadding;
+                const ry = endNoteY - 10;
+                const rw = colW - notePadding * 2;
+                const rh = 20;
+
+                let currentOpacity = settings.noteOpacity ?? 1.0;
+                if (settings.selectedMods?.includes('HD')) {
+                  const distancePercent = settings.upsurfaceNoteMode
+                    ? (height - endNoteY) / (height - receptorY)
+                    : endNoteY / receptorY;
+
+                  if (distancePercent < 0.35) {
+                    currentOpacity = currentOpacity;
+                  } else if (distancePercent < 0.70) {
+                    const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
+                    currentOpacity *= Math.max(0, fadeFactor);
+                  } else {
+                    currentOpacity = 0.0;
+                  }
+                }
+
+                if (n.isHoldFailed || n.isMissed) {
+                  currentOpacity *= 0.35;
+                }
+
+                const isNoteCircleMode = settings.playfieldStyle === 'circle' ||
+                                         settings.skinId === 'circles' ||
+                                         settings.skinId === 'glassy-spheres' ||
+                                         settings.skinId === 'hollow-rings';
+
+                if (isNoteCircleMode) {
+                  const cx = rx + rw / 2;
+                  const cy = ry + rh / 2;
+                  const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
+                  const noteColor = colStyles[n.column].color;
+
+                  g.circle(cx, cy, r).stroke({ color: noteColor, width: 3, alpha: currentOpacity });
+                  g.circle(cx, cy, r * 0.5).fill({ color: '#ffffff', alpha: currentOpacity });
+                } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
+                  const rpColor = settings.rhythmplusColor || '#ffff00';
+                  g.rect(rx, ry + rh / 2 - 2, rw, 4).fill({ color: rpColor, alpha: currentOpacity });
+                } else {
+                  const noteColor = colStyles[n.column].color;
+                  g.roundRect(rx, ry, rw, rh, 4).stroke({ color: '#ffffff', width: 2.5, alpha: currentOpacity });
+                  g.roundRect(rx + 4, ry + 4, rw - 8, rh - 8, 2).fill({ color: noteColor, alpha: currentOpacity * 0.75 });
+
+                  g.moveTo(rx + 6, ry + 3).lineTo(rx + 12, ry + rh - 3).stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
+                  g.moveTo(rx + rw - 6, ry + 3).lineTo(rx + rw - 12, ry + rh - 3).stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
+                }
+              }
+            }
+          });
+
+          // 5. Draw column receptors
+          for (let i = 0; i < keyCount; i++) {
+            const xPos = colX[i];
+            const colW = colStyles[i].width;
+            const isPressed = activeColumnsRef.current[i];
+
+            const isCircleMode = settings.playfieldStyle === 'circle' ||
+                                 settings.skinId === 'circles' ||
+                                 settings.skinId === 'glassy-spheres' ||
+                                 settings.skinId === 'hollow-rings';
+
+            let rcColor = colStyles[i].color;
+            if (isCircleMode) {
+              rcColor = settings.circleReceptorColor || '#00b0ff';
+            } else if (settings.squareRenderStyle !== 'rhythmplus') {
+              rcColor = settings.rhythmmaniaReceptorColor || '#00b0ff';
+            }
+
+            const rcOpacity = settings.receptorOpacity ?? 1.0;
+
+            if (isCircleMode) {
+              const cx = xPos + colW / 2;
+              const cy = receptorY;
+              const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
+
+              if (isPressed) {
+                g.circle(cx, cy, r).fill({ color: rcColor, alpha: rcOpacity })
+                                   .stroke({ color: '#ffffff', width: 3, alpha: rcOpacity });
+                g.circle(cx, cy, r * 0.35).fill({ color: '#ffffff', alpha: rcOpacity });
+              } else {
+                g.circle(cx, cy, r).stroke({ color: '#ffffff', width: 1.5, alpha: rcOpacity * 0.45 });
+                g.circle(cx, cy, r).fill({ color: '#0f172a', alpha: rcOpacity * 0.15 });
+              }
+            } else if (settings.squareRenderStyle === 'rhythmplus') {
+              const rx = xPos + 1;
+              const ry = receptorY - 2;
+              const rw = colW - 2;
+              const rh = 4;
+
+              const fillAlpha = isPressed ? 1.0 : 0.4;
+              g.rect(rx, ry, rw, rh).fill({ color: '#ffffff', alpha: fillAlpha * rcOpacity });
+            } else {
+              const rx = xPos + 6;
+              const ry = receptorY - 14;
+              const rw = colW - 12;
+              const rh = 28;
+
+              const strokeCol = isPressed ? '#ffffff' : rcColor;
+              const strokeWidth = isPressed ? 3.5 : 2;
+              const fillCol = isPressed ? rcColor : '#0f172a';
+              const fillAlpha = isPressed ? 0.45 : 0.85;
+
+              g.roundRect(rx, ry, rw, rh, 6).fill({ color: fillCol, alpha: fillAlpha * rcOpacity })
+                                            .stroke({ color: strokeCol, width: strokeWidth, alpha: rcOpacity });
+
+              const dotColor = isPressed ? '#ffffff' : rcColor;
+              const dotR = isPressed ? 5.5 : 3.5;
+              g.circle(xPos + colW / 2, receptorY, dotR).fill({ color: dotColor, alpha: rcOpacity });
+            }
+          }
+
+          // Dynamic Text Layout Bindings
+          if (pixiAppRef.current && (!pixiTextObjectsRef.current || pixiTextObjectsRef.current.length !== keyCount)) {
+            if (pixiTextObjectsRef.current) {
+              pixiTextObjectsRef.current.forEach((t: any) => {
+                try { t.destroy(); } catch (e) {}
+              });
+            }
+
+            const layoutKeys = settings.bindings[keyCount] || [];
+            const textObjects: any[] = [];
+            for (let i = 0; i < keyCount; i++) {
+              const label = (layoutKeys[i] || '').toUpperCase();
+              const text = new Text({
+                text: label,
+                style: {
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontSize: 22,
+                  fontWeight: '900',
+                  fill: '#ffffff',
+                  align: 'center',
+                }
+              });
+              text.alpha = 0.25;
+              text.anchor.set(0.5);
+              pixiAppRef.current.stage.addChild(text);
+              textObjects.push(text);
+            }
+            pixiTextObjectsRef.current = textObjects;
+          }
+
+          if (pixiTextObjectsRef.current && pixiTextObjectsRef.current.length === keyCount) {
+            for (let i = 0; i < keyCount; i++) {
+              const txt = pixiTextObjectsRef.current[i];
+              if (txt) {
+                const hasPressed = hasKeyPressedOnceRef.current && hasKeyPressedOnceRef.current[i];
+                if (hasPressed) {
+                  txt.visible = false;
+                } else {
+                  txt.visible = true;
+                  const xPos = colX[i];
+                  const colW = colStyles[i].width;
+                  txt.x = xPos + colW / 2;
+                  txt.y = settings.upsurfaceNoteMode ? receptorY + 50 : receptorY - 50;
+                  txt.alpha = activeColumnsRef.current[i] ? 0.7 : 0.25;
+                }
+              }
+            }
+          }
+
+          // 6. Particle bursts
+          if (!settings.disableParticles) {
+            particlesRef.current = particlesRef.current.filter((p) => {
+              p.x += p.vx;
+              p.y += p.vy;
+              p.alpha -= p.decay;
+
+              if (p.alpha <= 0) return false;
+
+              g.circle(p.x, p.y, p.size).fill({ color: p.color, alpha: p.alpha });
+              return true;
+            });
+          } else if (particlesRef.current.length > 0) {
+            particlesRef.current = [];
+          }
+
+          // 7. Hit Error timing meter
+          const maxMs = 150;
+          const barWidth = 300;
+          const barHeight = 8;
+          const centerX = width / 2;
+          const barY = settings.upsurfaceNoteMode ? receptorY - 55 : receptorY + 55;
+
+          g.roundRect(centerX - barWidth / 2, barY, barWidth, barHeight, 4)
+           .fill({ color: '#0f172a', alpha: 0.75 })
+           .stroke({ color: '#ffffff', width: 1, alpha: 0.15 });
+
+          const orangeColor = '#ec9a29';
+          const greenColor = '#22c55e';
+          const blueColor = '#3b82f6';
+
+          const badWin = badJudg.windowMs;
+          const badX1 = centerX - (badWin / maxMs) * (barWidth / 2);
+          const badX2 = centerX + (badWin / maxMs) * (barWidth / 2);
+          g.rect(badX1, barY, badX2 - badX1, barHeight).fill({ color: orangeColor, alpha: 0.35 });
+
+          const greatWin = greatJudg.windowMs;
+          const greatX1 = centerX - (greatWin / maxMs) * (barWidth / 2);
+          const greatX2 = centerX + (greatWin / maxMs) * (barWidth / 2);
+          g.rect(greatX1, barY, greatX2 - greatX1, barHeight).fill({ color: greenColor, alpha: 0.5 });
+
+          const perfectWin = perfectJudg.windowMs;
+          const perfectX1 = centerX - (perfectWin / maxMs) * (barWidth / 2);
+          const perfectX2 = centerX + (perfectWin / maxMs) * (barWidth / 2);
+          g.rect(perfectX1, barY, perfectX2 - perfectX1, barHeight).fill({ color: blueColor, alpha: 0.7 });
+
+          g.moveTo(centerX, barY - 3).lineTo(centerX, barY + barHeight + 3).stroke({ color: '#ffffff', width: 1.5, alpha: 1.0 });
+
+          const currentTimeScale = Date.now();
+          hitErrorTicksRef.current = hitErrorTicksRef.current.filter(t => currentTimeScale - t.timestamp < 2000);
+          hitErrorTicksRef.current.forEach(t => {
+            const age = currentTimeScale - t.timestamp;
+            const tickAlpha = Math.max(0, 1 - age / 2000);
+            const clampedError = Math.max(-maxMs, Math.min(maxMs, t.error));
+            const tickX = centerX + (clampedError / maxMs) * (barWidth / 2);
+
+            g.moveTo(tickX, barY - 2).lineTo(tickX, barY + barHeight + 2).stroke({ color: t.color, width: 1.5, alpha: tickAlpha });
+          });
+
+          const avgErrorValues = hitErrorTicksRef.current.slice(-30).map(t => t.error);
+          if (avgErrorValues.length > 0) {
+            const avgError = avgErrorValues.reduce((s, v) => s + v, 0) / avgErrorValues.length;
+            const clampedAvg = Math.max(-maxMs, Math.min(maxMs, avgError));
+            const avgX = centerX + (clampedAvg / maxMs) * (barWidth / 2);
+
+            g.moveTo(avgX, barY - 1)
+             .lineTo(avgX - 4, barY - 7)
+             .lineTo(avgX + 4, barY - 7)
+             .closePath()
+             .fill({ color: '#ffffff', alpha: 1.0 })
+             .stroke({ color: '#000000', width: 1, alpha: 0.6 });
+
+            g.moveTo(avgX, barY - 1)
+             .lineTo(avgX, barY + barHeight + 1)
+             .stroke({ color: '#ffffff', width: 1, alpha: 0.4 });
+          }
+
+          if (pixiAppRef.current) {
+            pixiAppRef.current.render();
+          }
+        } catch (err) {
+          console.error("Error drawing PixiJS graphics:", err); if (typeof window !== "undefined") { (window as any).lastPixiError = err; }
+        }
+      }
+    } else {
+        // --- CANVAS 2D DRAWING ---
+        ctx.clearRect(0, 0, width, height);
+        const shieldDim = settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60;
+        ctx.fillStyle = `rgba(0, 0, 0, ${shieldDim})`; // solid black playfield shield
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        if (screenShakeRef.current > 0) {
+          const shakeX = (Math.random() - 0.5) * screenShakeRef.current;
+          const shakeY = (Math.random() - 0.5) * screenShakeRef.current;
+          ctx.translate(shakeX, shakeY);
+          screenShakeRef.current *= 0.9; // decay shake force
+          if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
+        }
+
+        // Draw lane background rails & column glows
+        for (let i = 0; i < keyCount; i++) {
+          const xPos = colX[i];
         const colW = colStyles[i].width;
 
         // Subtle lane background separators
@@ -2300,6 +2938,7 @@ export default function GameplayCanvas({
       }
       
       ctx.restore();
+    }
 
       // Check if song completed naturally or run loops
       const songDurationMs = beatmap.duration * 1000;
@@ -3590,7 +4229,11 @@ export default function GameplayCanvas({
 
             {/* PIANO TILES ACTIVE TOUCH ZONE BOUNDARY INDICATOR (Invisible / Logical Only) */}
 
-            <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
+            {settings.renderEngine === 'pixi' ? (
+              <canvas ref={pixiCanvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
+            ) : (
+              <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
+            )}
 
             {/* DYNAMIC HIGH-PERFORMANCE DOM COMBO & JUDGEMENT POPUPS */}
             <div 

@@ -139,6 +139,29 @@ export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 
             </div>
           </div>
         </div>
+
+        {/* Bottom Wiki and Legal Notice on Mobile */}
+        <div className="absolute bottom-4 inset-x-6 flex flex-col items-center gap-1.5 z-30 pointer-events-auto">
+          <p className="text-[10px] text-white/50 font-sans text-center max-w-[300px]">
+            If you want to get started but don't know how, check out the{' '}
+            <a href="https://wiki.rhythm-mania.com" target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:text-pink-300 underline transition-colors font-medium">
+              wiki
+            </a>
+            .
+          </p>
+          <p className="text-[9px] text-white/35 font-sans text-center max-w-[300px]">
+            By using RhythmMania, you acknowledge and agree to the{' '}
+            <a href="/tos" className="text-white/50 hover:text-white underline transition-colors">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="/privacypolicy" className="text-white/50 hover:text-white underline transition-colors">
+              Privacy Policy
+            </a>
+            .
+          </p>
+        </div>
+
       </div>
     );
   }
@@ -245,9 +268,16 @@ export const MainMenu = ({ onNavigate, onOpenSettings }: { onNavigate: (screen: 
           </motion.div>
         </motion.div>
 
-        {/* Bottom Left Version Tag */}
-        <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-30 select-none">
-          {metadata.version}
+        {/* Bottom Left Version Tag and Wiki Info */}
+        <div className="absolute bottom-6 left-6 text-xs text-white/40 font-sans z-30 select-text text-left max-w-[280px] md:max-w-md pointer-events-auto flex flex-col gap-1">
+          <div className="font-mono text-white/30">{metadata.version}</div>
+          <div className="text-[10px] md:text-xs">
+            If you want to get started but don't know how, check out the{' '}
+            <a href="https://wiki.rhythm-mania.com" target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:text-pink-300 underline transition-colors font-medium">
+              wiki
+            </a>
+            .
+          </div>
         </div>
 
         {/* Bottom Right Legal Notice */}
