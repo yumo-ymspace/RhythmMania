@@ -10,15 +10,23 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
+import { MAX_SKIN_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize } from '../../utils/securityLimits';
+
 export async function loadSkinFile(file: File): Promise<{ colors?: string[], name?: string } | null> {
   if (file.name.endsWith('.ini')) {
     const text = await file.text();
     return processSkinIniAndColors(text, file.name);
   } else if (file.name.endsWith('.osk') || file.name.endsWith('.zip')) {
+    if (file.size > MAX_SKIN_COMPRESSED_SIZE_BYTES) {
+      alert(`Security Exception: Skin file size exceeds limit (${(file.size / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_SKIN_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+      return null;
+    }
     try {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       await zip.loadAsync(file);
+      validateZipLimits(zip, true);
+      
       let skinIniFile = zip.file('skin.ini');
       if (!skinIniFile) {
         const files = Object.keys(zip.files);
@@ -31,11 +39,12 @@ export async function loadSkinFile(file: File): Promise<{ colors?: string[], nam
         alert('Could not find any "skin.ini" file inside the zip/osk skin file container.');
         return null;
       }
+      validateZipEntrySize(skinIniFile, skinIniFile.name);
       const txt = await skinIniFile.async('text');
       return processSkinIniAndColors(txt, file.name);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed unpacking zip/osk:', err);
-      alert('Unsupported ZIP archive schema, or file is corrupted.');
+      alert(err?.message || 'Unsupported ZIP archive schema, or file is corrupted.');
       return null;
     }
   } else {

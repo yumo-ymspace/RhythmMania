@@ -23,6 +23,8 @@ import { Beatmap, GameSettings } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
 import { AssetLifecycleManager } from '../utils/assetLifecycle';
+import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
+import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
 import { unpackBeatmap } from '../utils/unpackHelper';
@@ -114,7 +116,6 @@ export default function SongSelect({
   const [showPreplayOptions, setShowPreplayOptions] = useState<boolean>(false);
   const [minStar, setMinStar] = useState<number>(0.0);
   const [maxStar, setMaxStar] = useState<number>(10.0);
-  const [showConverts, setShowConverts] = useState<boolean>(true);
   const [sortBy, setSortBy] = useState<string>('Title');
   const [groupBy, setGroupBy] = useState<string>('None');
   const [collectionFilter, setCollectionFilter] = useState<string>('Downloaded');
@@ -159,7 +160,10 @@ export default function SongSelect({
       if (storedHistoryText) {
         const parsed = JSON.parse(storedHistoryText);
         if (Array.isArray(parsed)) {
-          setLocalScores(parsed);
+          const sanitized = parsed
+            .map(item => sanitizeHistoryRecord(item, DEFAULT_SETTINGS))
+            .filter((item): item is any => item !== null);
+          setLocalScores(sanitized);
         }
       }
     } catch (e) {
@@ -625,6 +629,7 @@ export default function SongSelect({
         setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
 
         try {
+          assertSafeAssetUrl(oszUrl, 'SongSelect download');
           const response = await fetch(oszUrl);
           if (!response.ok) {
             throw new Error(`Failed to request map pack. Status: ${response.status}`);
@@ -632,6 +637,9 @@ export default function SongSelect({
 
           const contentLength = response.headers.get('content-length');
           const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+          if (totalBytes > MAX_COMPRESSED_SIZE_BYTES) {
+            throw new Error(`Security Exception: Download size exceeds limit (${(totalBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+          }
           const reader = response.body?.getReader();
           if (!reader) {
             throw new Error('ReadableStream parser is unsupported.');
@@ -646,6 +654,10 @@ export default function SongSelect({
             if (value) {
               chunks.push(value);
               loadedBytes += value.length;
+              if (loadedBytes > MAX_COMPRESSED_SIZE_BYTES) {
+                reader.cancel();
+                throw new Error(`Security Exception: Download size limit exceeded (${(loadedBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+              }
               const percentage = totalBytes ? Math.round((loadedBytes / totalBytes) * 100) : 0;
               setDownloadProgress({
                 loaded: loadedBytes,
@@ -662,6 +674,7 @@ export default function SongSelect({
 
           // Unzip and delete all .wav files
           const zip = await JSZip.loadAsync(blob);
+          validateZipLimits(zip);
           const zipKeys = Object.keys(zip.files);
           let wavsDeletedCount = 0;
           for (const key of zipKeys) {
@@ -744,7 +757,7 @@ export default function SongSelect({
         } catch (err: any) {
           console.error('Downloader error:', err?.message || String(err));
           try {
-            await storageManager.deleteBeatmapAndCleanup(serverMapId);
+            await storageManager.deletePackageAndAllBeatmaps(serverMapId);
           } catch {
             // Ignore clean error
           }
@@ -829,7 +842,11 @@ export default function SongSelect({
         setImportStatus({ type: 'ok', msg: `Successfully imported "${parsedMap.title}" - [${parsedMap.difficulty}] difficulty!` });
         setSelectedCustomMapId(parsedMap.id);
       } else {
+        if (file.size > MAX_COMPRESSED_SIZE_BYTES) {
+          throw new Error(`Security Exception: Uploaded file size exceeds limit (${(file.size / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+        }
         const zip = await JSZip.loadAsync(file);
+        validateZipLimits(zip);
         
         // Remove all .wav files from the uploaded zip
         const zipKeys = Object.keys(zip.files);
@@ -849,6 +866,7 @@ export default function SongSelect({
 
         for (const name of fileNames) {
           if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
+            validateZipEntrySize(zip.files[name], name);
             const content = await zip.files[name].async('text');
             beatmapFiles.push({ name, content });
           }
@@ -933,7 +951,7 @@ export default function SongSelect({
             {selectBgUrl && (
               <div 
                 className="absolute inset-0 bg-cover bg-center opacity-10 blur-xl scale-110 pointer-events-none"
-                style={{ backgroundImage: `url("${selectBgUrl}")` }}
+                style={{ backgroundImage: `url("${sanitizeCssUrl(selectBgUrl)}")` }}
               />
             )}
 
@@ -1065,7 +1083,7 @@ export default function SongSelect({
                   {group.bgUrl && (
                     <div 
                       className="absolute inset-0 bg-cover bg-center opacity-5 blur-sm pointer-events-none"
-                      style={{ backgroundImage: `url("${group.bgUrl}")` }}
+                      style={{ backgroundImage: `url("${sanitizeCssUrl(group.bgUrl)}")` }}
                     />
                   )}
 
@@ -1370,7 +1388,7 @@ export default function SongSelect({
             <div 
               className="absolute inset-0 bg-cover bg-center pointer-events-none"
               style={{
-                backgroundImage: `url("${selectBgUrl}")`,
+                backgroundImage: `url("${sanitizeCssUrl(selectBgUrl)}")`,
                 zIndex: 0
               }}
             />
@@ -1425,13 +1443,23 @@ export default function SongSelect({
               </div>
 
               {/* Text Info */}
-              <div className="space-y-1">
+              <div className="space-y-1 text-center">
                 <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-none">
                   {selectedCustomMap.title}
                 </h1>
                 <p className="text-base text-pink-400 font-medium uppercase tracking-widest">
                   {selectedCustomMap.artist}
                 </p>
+                {/* Active Rendering Engine Badge Indicator */}
+                <div className="flex justify-center gap-2 pt-2 pb-1 select-none">
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-widest border shadow-lg transition-all ${
+                    settings.renderEngine === 'pixi'
+                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-cyan-500/5 animate-pulse'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-amber-500/5'
+                  }`}>
+                    Engine: {settings.renderEngine === 'pixi' ? 'PixiJS v8 (WebGL)' : 'Canvas 2D'}
+                  </span>
+                </div>
               </div>
 
               {/* Miniature card showcase */}
@@ -1571,6 +1599,32 @@ export default function SongSelect({
                     >
                       <span className="w-4.5 h-4.5 rounded-full bg-slate-950 block shadow shadow-black" />
                     </button>
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 border-t border-white/[0.03]">
+                    <span className="text-[11px] font-mono uppercase tracking-wider text-slate-300">Gameplay Render Engine:</span>
+                    <div className="flex gap-1.5 select-none">
+                      <button 
+                        onClick={() => updateSettings({ renderEngine: 'canvas' })}
+                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
+                          settings.renderEngine === 'canvas'
+                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
+                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Canvas 2D
+                      </button>
+                      <button 
+                        onClick={() => updateSettings({ renderEngine: 'pixi' })}
+                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
+                          settings.renderEngine === 'pixi'
+                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
+                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        PixiJS v8
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

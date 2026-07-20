@@ -181,7 +181,7 @@ export const ROWS: RowDef[] = [
   {
     id: 'scrollSpeed', section: 'gameplay', label: 'Scroll speed',
     description: 'How fast notes travel down the lanes. Higher = faster.',
-    control: { kind: 'slider', min: 5, max: 60, step: 1, format: num },
+    control: { kind: 'slider', min: 5, max: 80, step: 1, format: num },
     defaultValue: DEFAULT_SETTINGS.scrollSpeed,
   },
   {

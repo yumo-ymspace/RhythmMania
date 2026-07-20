@@ -10,6 +10,8 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
+const VERTICAL_TOUCH_ZONE_THRESHOLD = 0.60;
+
 export class TouchInputAdapter {
   // Active touches: maps raw touch identifiers to lane columns (indices)
   private activeTouches: Map<number, number> = new Map();
@@ -63,8 +65,8 @@ export class TouchInputAdapter {
       const verticalRatio = relativeY / containerRect.height;
 
       // PIANO TILES CONSTRAINT: Only register taps in the bottom 40% of the playfield
-      if (verticalRatio < 0.60) {
-        console.log("Tap ignored: Outside of active bottom receptor zone (verticalRatio < 0.65).");
+      if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
+        console.log(`Tap ignored: Outside of active bottom receptor zone (verticalRatio ${verticalRatio.toFixed(2)} < ${VERTICAL_TOUCH_ZONE_THRESHOLD}).`);
         continue;
       }
 
@@ -72,8 +74,11 @@ export class TouchInputAdapter {
       const lane = this.getLaneIndex(relativeX, containerRect.width, keyCount);
 
       if (lane >= 0 && lane < keyCount) {
+        const laneHasTouch = Array.from(this.activeTouches.values()).includes(lane);
         this.activeTouches.set(touch.identifier, lane);
-        this.onKeyDown(lane);
+        if (!laneHasTouch) {
+          this.onKeyDown(lane);
+        }
       }
     }
   }
@@ -93,9 +98,12 @@ export class TouchInputAdapter {
         const verticalRatio = relativeY / containerRect.height;
 
         // PIANO TILES CONSTRAINT: If they slide out of the active bottom 40% zone, release keypress
-        if (verticalRatio < 0.60) {
-          this.onKeyUp(previousLane);
+        if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
           this.activeTouches.delete(touch.identifier);
+          const laneStillHasTouch = Array.from(this.activeTouches.values()).includes(previousLane);
+          if (!laneStillHasTouch) {
+            this.onKeyUp(previousLane);
+          }
           continue;
         }
 
@@ -104,9 +112,17 @@ export class TouchInputAdapter {
 
         if (currentLane >= 0 && currentLane < keyCount && currentLane !== previousLane) {
           // Release previous lane, slide into current lane dynamically
-          this.onKeyUp(previousLane);
-          this.onKeyDown(currentLane);
+          this.activeTouches.delete(touch.identifier);
+          const previousStillHasTouch = Array.from(this.activeTouches.values()).includes(previousLane);
+          if (!previousStillHasTouch) {
+            this.onKeyUp(previousLane);
+          }
+
+          const currentHasTouch = Array.from(this.activeTouches.values()).includes(currentLane);
           this.activeTouches.set(touch.identifier, currentLane);
+          if (!currentHasTouch) {
+            this.onKeyDown(currentLane);
+          }
         }
       }
     }
@@ -123,8 +139,11 @@ export class TouchInputAdapter {
       const lane = this.activeTouches.get(touch.identifier);
 
       if (lane !== undefined) {
-        this.onKeyUp(lane);
         this.activeTouches.delete(touch.identifier);
+        const laneStillHasTouch = Array.from(this.activeTouches.values()).includes(lane);
+        if (!laneStillHasTouch) {
+          this.onKeyUp(lane);
+        }
       }
     }
   }
@@ -141,9 +160,10 @@ export class TouchInputAdapter {
    * Safe complete cleanup to release all active touch indicators
    */
   public reset() {
-    this.activeTouches.forEach((lane) => {
+    const uniqueLanes = Array.from(new Set(this.activeTouches.values()));
+    this.activeTouches.clear();
+    uniqueLanes.forEach((lane) => {
       this.onKeyUp(lane);
     });
-    this.activeTouches.clear();
   }
 }

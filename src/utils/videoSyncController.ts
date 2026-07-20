@@ -16,7 +16,8 @@ export class VideoSyncController {
   private videoEl: HTMLVideoElement;
   private getAudioTimeMs: () => number;
   private videoStartTimeMs: number; // Parsed from map text (e.g., -1500)
-  private settings: GameSettings;
+  private getSettings: () => GameSettings;
+  private getAudioPlaybackRate: () => number;
   
   private lastSyncTime: number = 0;
   private syncIntervalMs: number = 180; // Run PLL checks roughly 5.5 times per second
@@ -29,12 +30,14 @@ export class VideoSyncController {
     video: HTMLVideoElement,
     getAudioTimeMs: () => number,
     videoStartTimeMs: number,
-    settings: GameSettings
+    getSettings: () => GameSettings,
+    getAudioPlaybackRate: () => number
   ) {
     this.videoEl = video;
     this.getAudioTimeMs = getAudioTimeMs;
     this.videoStartTimeMs = videoStartTimeMs;
-    this.settings = settings;
+    this.getSettings = getSettings;
+    this.getAudioPlaybackRate = getAudioPlaybackRate;
   }
 
   /**
@@ -50,8 +53,11 @@ export class VideoSyncController {
 
     const audioTimeSec = this.getAudioTimeMs() / 1000;
     
+    const settings = this.getSettings();
+    const baseRate = this.getAudioPlaybackRate();
+
     // Target position: audio time - (parsed videoStartTime offset) - (user-customizable adjustment offset)
-    const userOffsetSec = (this.settings.videoOffset || 0) / 1000;
+    const userOffsetSec = (settings.videoOffset || 0) / 1000;
     const targetVideoTimeSec = audioTimeSec - (this.videoStartTimeMs / 1000) - userOffsetSec;
     
     // Ignore updates & pause if target time is negative (video hasn't started yet)
@@ -77,18 +83,18 @@ export class VideoSyncController {
     if (driftMs >= this.DEADBAND_CATASTROPHIC_MS) {
       // Catastrophic drift: Force a single discrete seek
       this.videoEl.currentTime = targetVideoTimeSec;
-      this.videoEl.playbackRate = 1.0;
+      this.videoEl.playbackRate = baseRate;
     } else if (driftMs > this.DEADBAND_FINE_MS) {
       // Proportional controller: Adjust playback rate gently to close the gap
-      // Map drift driftSec to a maximum adjustment of +/- 0.15 of the normal speed 
+      // Map drift driftSec to a maximum adjustment of +/- 0.15 of the base speed 
       const pAdjustment = (driftSec / 1.0) * 0.25; // Proportional gain term
-      const targetRate = 1.0 + Math.min(Math.max(pAdjustment, -0.15), 0.15); // clamp rate [0.85x, 1.15x]
+      const targetRate = baseRate + Math.min(Math.max(pAdjustment, -0.15 * baseRate), 0.15 * baseRate); // clamp rate +/- 15% of base rate
       
       this.videoEl.playbackRate = targetRate;
     } else {
-      // Fine Align: within acceptable bounds, run at design 1.0x native rate
-      if (this.videoEl.playbackRate !== 1.0) {
-        this.videoEl.playbackRate = 1.0;
+      // Fine Align: within acceptable bounds, run at design base rate
+      if (this.videoEl.playbackRate !== baseRate) {
+        this.videoEl.playbackRate = baseRate;
       }
     }
   }

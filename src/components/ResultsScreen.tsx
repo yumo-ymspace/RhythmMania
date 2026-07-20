@@ -13,6 +13,7 @@
 import React, { useState, useMemo } from 'react';
 import { RotateCcw, ChevronLeft, Play, Calendar, Trophy, Percent, Flame, Video, ArrowLeft, Trash2 } from 'lucide-react';
 import { Beatmap, ScoreState, PlayHistoryRecord } from '../types';
+import { sanitizeCssUrl } from '../utils/securityLimits';
 
 interface ResultsScreenProps {
   scoreState: ScoreState;
@@ -69,6 +70,10 @@ export default function ResultsScreen({
   const activeRecord = useMemo(() => {
     if (selectedRecordId) {
       return mapRecords.find(r => r.id === selectedRecordId) || null;
+    }
+    if (scoreState.recordId) {
+      const matchById = mapRecords.find(r => r.id === scoreState.recordId);
+      if (matchById) return matchById;
     }
     const matching = mapRecords.find(r => r.score === scoreState.score && Math.abs(r.accuracy - scoreState.accuracy) < 0.05);
     return matching || mapRecords[0] || null;
@@ -188,7 +193,7 @@ export default function ResultsScreen({
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div 
           className="absolute inset-0 bg-cover bg-center opacity-45 scale-102 blur-[2px] transition-all duration-700 ease-in-out"
-          style={{ backgroundImage: `url("${currentBg}")` }}
+          style={{ backgroundImage: `url("${sanitizeCssUrl(currentBg)}")` }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-zinc-900/80" />
         <div className="absolute inset-0 bg-black/50" />

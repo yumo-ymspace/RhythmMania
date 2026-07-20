@@ -20,6 +20,7 @@ import { Beatmap } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
 import { storageManager } from '../utils/storageManager';
+import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl } from '../utils/securityLimits';
 
 interface OnlineBeatmapCatalogProps {
   open: boolean;
@@ -128,6 +129,7 @@ export default function OnlineBeatmapCatalog({
     setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
 
     try {
+      assertSafeAssetUrl(oszUrl, 'OnlineBeatmapCatalog download');
       const response = await fetch(oszUrl);
       if (!response.ok) {
         throw new Error(`Failed to request map pack. Status: ${response.status}`);
@@ -135,6 +137,9 @@ export default function OnlineBeatmapCatalog({
 
       const contentLength = response.headers.get('content-length');
       const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+      if (totalBytes > MAX_COMPRESSED_SIZE_BYTES) {
+        throw new Error(`Security Exception: Download size exceeds limit (${(totalBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+      }
       const reader = response.body?.getReader();
       if (!reader) {
         throw new Error('ReadableStream parser is unsupported.');
@@ -149,6 +154,10 @@ export default function OnlineBeatmapCatalog({
         if (value) {
           chunks.push(value);
           loadedBytes += value.length;
+          if (loadedBytes > MAX_COMPRESSED_SIZE_BYTES) {
+            reader.cancel();
+            throw new Error(`Security Exception: Download size limit exceeded (${(loadedBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+          }
           const percentage = totalBytes ? Math.round((loadedBytes / totalBytes) * 100) : 0;
           setDownloadProgress({
             loaded: loadedBytes,
@@ -165,6 +174,7 @@ export default function OnlineBeatmapCatalog({
 
       // Unzip and delete all .wav files
       const zip = await JSZip.loadAsync(blob);
+      validateZipLimits(zip);
       const zipKeys = Object.keys(zip.files);
       let wavsDeletedCount = 0;
       for (const key of zipKeys) {
@@ -188,6 +198,7 @@ export default function OnlineBeatmapCatalog({
 
       for (const name of fileNames) {
         if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
+          validateZipEntrySize(zip.files[name], name);
           const content = await zip.files[name].async('text');
           beatmapFiles.push({ name, content });
         }
@@ -246,7 +257,7 @@ export default function OnlineBeatmapCatalog({
     } catch (err: any) {
       console.error('Downloader error:', err?.message || String(err));
       try {
-        await storageManager.deleteBeatmapAndCleanup(serverMapId);
+        await storageManager.deletePackageAndAllBeatmaps(serverMapId);
       } catch {
         // Ignore clean error
       }

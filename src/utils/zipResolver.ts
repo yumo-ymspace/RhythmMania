@@ -60,17 +60,14 @@ export class RobustZipResolver {
     if (candidates.length === 1) return candidates[0].file;
 
     let largestFile: JSZip.JSZipObject | null = null;
-    let maxBytes = 0;
+    let maxBytes = -1;
 
     for (const cand of candidates) {
-      try {
-        const arr = await cand.file.async('uint8array');
-        if (arr.length > maxBytes) {
-          maxBytes = arr.length;
-          largestFile = cand.file;
-        }
-      } catch (err) {
-        // Safe skip failure
+      const fileObj = cand.file as any;
+      const size = fileObj._data?.uncompressedSize ?? 0;
+      if (size > maxBytes) {
+        maxBytes = size;
+        largestFile = cand.file;
       }
     }
 

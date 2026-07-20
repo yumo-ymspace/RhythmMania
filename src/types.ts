@@ -85,6 +85,7 @@ export interface ScoreState {
   accuracy: number;
   completed: boolean;
   failed: boolean;
+  recordId?: string;
 }
 
 export interface ReplayFrame {

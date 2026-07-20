@@ -209,6 +209,41 @@ class StorageManager {
       }
     }
   }
+
+  public async deletePackageAndAllBeatmaps(serverMapId: string): Promise<void> {
+    const database = await this.getDB();
+    const packageId = `pkg_${serverMapId}`;
+
+    // 1. Clear TempMemoryCache
+    TempMemoryCache.remove(packageId);
+
+    // 2. Evict LRU cache
+    this.lruMediaCache.evict(serverMapId);
+
+    // 3. Find and delete all beatmaps matching id prefix, parentPackageId, or packageId
+    const allMaps = await this.getAllBeatmaps();
+    const mapsToDelete = allMaps.filter(
+      m => m.id === serverMapId || m.id.startsWith(`${serverMapId}_idx`) || m.parentPackageId === serverMapId || m.packageId === packageId
+    );
+
+    for (const m of mapsToDelete) {
+      this.lruMediaCache.evict(m.id);
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction('beatmaps', 'readwrite');
+        tx.objectStore('beatmaps').delete(m.id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    // 4. Delete the package itself
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('packages', 'readwrite');
+      tx.objectStore('packages').delete(packageId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
 }
 
 export const storageManager = new StorageManager();

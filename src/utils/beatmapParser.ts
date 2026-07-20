@@ -11,6 +11,7 @@
  */
 
 import { Beatmap, HitObject, NoteType } from '../types';
+import { MAX_BEATMAP_NOTES, MAX_BEATMAP_TIMING_POINTS, MAX_OSU_TEXT_BYTES } from './securityLimits';
 
 export interface ParsedMediaPaths {
   audioFilename: string;
@@ -66,6 +67,10 @@ export function parseMediaPaths(beatmapFileContent: string): ParsedMediaPaths {
  * Parses raw text from a standard mania beatmap or creates general fallback structures
  */
 export function parseBeatmap(content: string, customId: string): Beatmap {
+  if (content.length > MAX_OSU_TEXT_BYTES) {
+    throw new Error(`Security Exception: Beatmap file size exceeds limit (${(content.length / (1024 * 1024)).toFixed(2)} MB, limit: ${(MAX_OSU_TEXT_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
+  }
+
   const lines = content.split(/\r?\n/);
   
   let title = 'Unknown Title';
@@ -75,7 +80,7 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let keyCount = 4; // CircleSize (standard header detection)
   let overallDifficulty = 8;
   let hpDrainRate = 8;
-  let mode = 0; // Default to 0 (standard)
+  let parsedMode: number | undefined = undefined;
   let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
   
   const rawNotes: Array<{
@@ -137,8 +142,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             hpDrainRate = parseFloat(value) || 8;
             break;
           case 'mode':
-            mode = parseInt(value, 10);
-            if (isNaN(mode)) mode = 0;
+            const pm = parseInt(value, 10);
+            if (!isNaN(pm)) parsedMode = pm;
             break;
           case 'slidermultiplier':
             sliderMultiplier = parseFloat(value) || 1.4;
@@ -154,6 +159,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
         
         if (!isNaN(beatLength) && !isNaN(time)) {
           allTimingPoints.push({ time, beatLength });
+          if (allTimingPoints.length > MAX_BEATMAP_TIMING_POINTS) {
+            throw new Error(`Security Exception: Beatmap timing points exceed limit (${MAX_BEATMAP_TIMING_POINTS})`);
+          }
           // Uninherited timing points ALWAYS map positive beatLength representing mills per beat.
           // Negative elements represent slider/velocity multipliers and are not BPM-defining.
           if (beatLength > 0) {
@@ -183,6 +191,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             slides: isNaN(slides) ? 1 : slides,
             pixelLength: isNaN(pixelLength) ? 0 : pixelLength
           });
+          if (rawNotes.length > MAX_BEATMAP_NOTES) {
+            throw new Error(`Security Exception: Beatmap notes exceed limit (${MAX_BEATMAP_NOTES})`);
+          }
         }
       }
     }
@@ -210,6 +221,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       }
     }
   }
+
+  const mode = parsedMode !== undefined ? parsedMode : 3;
 
   const detectedKeyCount = clusteredX.length;
   let finalKeyCount = keyCount;
@@ -248,26 +261,20 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       activeBeatLength = timingPoints[0].beatLength;
     }
 
-    // 2. Find the active SV (Slider Velocity Multiplier)
+    // 2. Find the active SV (Slider Velocity Multiplier) - SV from last negative beatLength before t
     let activeSV = 1.0;
-    let lastPoint: { time: number; beatLength: number } | null = null;
+    let lastNegativePoint: { time: number; beatLength: number } | null = null;
     for (let i = allTimingPoints.length - 1; i >= 0; i--) {
-      if (allTimingPoints[i].time <= startTime) {
-        lastPoint = allTimingPoints[i];
+      if (allTimingPoints[i].time <= startTime && allTimingPoints[i].beatLength < 0) {
+        lastNegativePoint = allTimingPoints[i];
         break;
       }
     }
-    if (!lastPoint && allTimingPoints.length > 0) {
-      lastPoint = allTimingPoints[0];
-    }
 
-    if (lastPoint) {
-      if (lastPoint.beatLength < 0) {
-        // SV multiplier is -100 / beatLength
-        activeSV = -100 / lastPoint.beatLength;
-      } else {
-        activeSV = 1.0;
-      }
+    if (lastNegativePoint) {
+      activeSV = -100 / lastNegativePoint.beatLength;
+    } else {
+      activeSV = 1.0;
     }
 
     if (activeSV <= 0 || isNaN(activeSV)) {
@@ -358,7 +365,14 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
 
   notes.sort((a, b) => a.time - b.time);
 
-  const duration = notes.length > 0 ? (notes[notes.length - 1].time / 1000) + 3 : 60;
+  let maxTimeMs = 0;
+  for (const note of notes) {
+    const t = note.endTime !== undefined ? note.endTime : note.time;
+    if (t > maxTimeMs) {
+      maxTimeMs = t;
+    }
+  }
+  const duration = notes.length > 0 ? (maxTimeMs / 1000) + 3 : 60;
   const songDurationMs = duration * 1000;
 
   const media = parseMediaPaths(content);

@@ -16,6 +16,7 @@ import { RobustZipResolver } from './zipResolver';
 import { AssetLifecycleManager } from './assetLifecycle';
 import { storageManager } from './storageManager';
 import { TempMemoryCache } from './tempMemoryCache';
+import { validateZipLimits, validateZipEntrySize } from './securityLimits';
 
 export async function unpackBeatmap(map: Beatmap): Promise<void> {
   const mapWithPkg = map as any;
@@ -51,6 +52,8 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
 
     if (zipBuffer) {
       const zip = await JSZip.loadAsync(zipBuffer);
+      validateZipLimits(zip);
+
       const resolver = new RobustZipResolver(zip);
       const audioFilename = mapWithPkg.audioFilename || '';
       const videoFilename = mapWithPkg.videoFilename || '';
@@ -63,6 +66,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (audioFilename) {
         const file = resolver.findFile(audioFilename);
         if (file) {
+          validateZipEntrySize(file, audioFilename);
           const b = await file.async('blob');
           parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
         }
@@ -70,6 +74,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (videoFilename) {
         const file = resolver.findFile(videoFilename);
         if (file) {
+          validateZipEntrySize(file, videoFilename);
           const b = await file.async('blob');
           parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
         }
@@ -78,6 +83,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (!parsedAudioUrl) {
         const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
         if (fallbackObj) {
+          validateZipEntrySize(fallbackObj, fallbackObj.name);
           const b = await fallbackObj.async('blob');
           parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
         }
@@ -85,6 +91,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (!parsedVideoUrl) {
         const fallbackObj = await resolver.findLargestFileByExtensions(['.mp4', '.webm', '.avi', '.mkv']) || resolver.findFallbackByExtensions(['.mp4', '.webm', '.avi'])?.file;
         if (fallbackObj) {
+          validateZipEntrySize(fallbackObj, fallbackObj.name);
           const b = await fallbackObj.async('blob');
           parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
         }
@@ -93,6 +100,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (bgFilename) {
         const file = resolver.findFile(bgFilename);
         if (file) {
+          validateZipEntrySize(file, bgFilename);
           const b = await file.async('blob');
           parsedBgUrl = AssetLifecycleManager.registerBlob(b);
         }
@@ -100,6 +108,7 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
       if (!parsedBgUrl) {
         const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
         if (fallbackObj) {
+          validateZipEntrySize(fallbackObj, fallbackObj.name);
           const b = await fallbackObj.async('blob');
           parsedBgUrl = AssetLifecycleManager.registerBlob(b);
         }

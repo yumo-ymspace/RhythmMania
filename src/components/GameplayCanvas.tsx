@@ -12,7 +12,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
-import { Application, Graphics, Text } from 'pixi.js';
 import { mainAudio } from '../audio/AudioEngine';
 import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
 import { VideoSyncController } from '../utils/videoSyncController';
@@ -26,7 +25,15 @@ import { RobustZipResolver } from '../utils/zipResolver';
 import { AssetLifecycleManager } from '../utils/assetLifecycle';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
+import { validateZipLimits, validateZipEntrySize, sanitizeCssUrl } from '../utils/securityLimits';
 import metadata from '../../metadata.json';
+
+// HIGH PERFORMANCE INTEGRATED RENDERER IMPORTS
+import { IPlayfieldRenderer, ColumnLayout } from '../render/types';
+import { Canvas2DRenderer } from '../render/Canvas2DRenderer';
+import { PixiPlayfieldRenderer } from '../render/pixi/PixiPlayfieldRenderer';
+import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
+import { getVisibleNotes } from '../render/noteVisibility';
 
 export interface ColumnStyle {
   width: number;
@@ -49,6 +56,43 @@ export function hexToRgba(hex: string, alpha: number): string {
     return `rgba(${r},${g},${b},${alpha})`;
   }
   return hex;
+}
+
+export function checkNotesAutonomousMisses(
+  notes: HitObject[],
+  currentTime: number,
+  missBound: number,
+  onMiss: (n: HitObject, isDoubleMiss: boolean) => void
+) {
+  notes.forEach((n) => {
+    // 1. Normal and hold notes missed at start
+    if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
+      n.isMissed = true;
+      if (n.type === 'hold') {
+        n.isHoldFailed = true;
+        n.isReleased = true; // Fully closed
+        onMiss(n, true); // Head miss + Tail miss
+      } else {
+        onMiss(n, false);
+      }
+    }
+    
+    // 2. Continuous hold note missed intermediate bounds
+    if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime) {
+      // If in a release grace period and it expired
+      if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
+        n.isHoldFailed = true;
+        n.isReleased = true; // completed with fail
+        onMiss(n, false);
+      }
+      // Or if reached end without hit or release failure, and time elapsed past miss boundary.
+      else if (!n.releaseGraceUntil && currentTime - n.endTime > missBound) {
+        n.isHoldFailed = true;
+        n.isReleased = true;
+        onMiss(n, false);
+      }
+    }
+  });
 }
 
 export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: string, customSkinColors?: string[]): ColumnStyle[] {
@@ -198,13 +242,20 @@ interface HitErrorTick {
 }
 
 export default function GameplayCanvas({
-  beatmap,
+  beatmap: originalBeatmap,
   settings: propSettings,
   updateSettings,
   onFinish,
   onBack,
   replayRecord = null
 }: GameplayCanvasProps) {
+  const beatmap = React.useMemo(() => {
+    return {
+      ...originalBeatmap,
+      notes: originalBeatmap.notes ? originalBeatmap.notes.map(n => ({ ...n })) : []
+    };
+  }, [originalBeatmap]);
+
   // Override settings if we're watching a replay
   const settings = React.useMemo(() => {
     if (replayRecord?.recordedSettings) {
@@ -219,6 +270,16 @@ export default function GameplayCanvas({
     }
     return propSettings;
   }, [propSettings, replayRecord]);
+
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const updateSettingsRef = useRef(updateSettings);
+  useEffect(() => {
+    updateSettingsRef.current = updateSettings;
+  }, [updateSettings]);
 
   // Find earliest note time in the beatmap
   const firstNoteTime = React.useMemo(() => {
@@ -261,6 +322,10 @@ export default function GameplayCanvas({
   const animationFrameRef = useRef<number | null>(null);
 
   const handleExit = () => {
+    if (finishTimeoutRef.current) {
+      clearTimeout(finishTimeoutRef.current);
+      finishTimeoutRef.current = null;
+    }
     executeTeardown(
       mainAudio,
       animationFrameRef.current,
@@ -273,12 +338,19 @@ export default function GameplayCanvas({
     
     // If they failed or are at 0 HP, submit as finished fail record so they see performance telemetry and replay
     if (scoreStateRef.current.failed) {
-      onFinish(scoreStateRef.current, replayFramesRef.current);
+      if (isMountedRef.current) {
+        onFinish(scoreStateRef.current, replayFramesRef.current);
+      }
     } else {
       onBack();
     }
   };
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+  const isFocusModeRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    isFocusModeRef.current = isFocusMode;
+  }, [isFocusMode]);
 
   // Synchronize dynamic focus view modes with the programmatic Fullscreen API
   useEffect(() => {
@@ -412,9 +484,28 @@ export default function GameplayCanvas({
   const hasKeyPressedOnceRef = useRef<boolean[]>([]);
   const progressBarRef = useRef<any>(null);
   const isScrubbingRef = useRef<boolean>(false);
+  const lastVideoSeekTimeRef = useRef<number>(0);
   const wasPlayingRef = useRef<boolean>(false);
   const timeLabelRef = useRef<HTMLSpanElement>(null);
   const isReplayMode = !!replayRecord;
+  const finishTimeoutRef = useRef<any>(null);
+  const uiJudgementTimeoutRef = useRef<any>(null);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (finishTimeoutRef.current) {
+        clearTimeout(finishTimeoutRef.current);
+        finishTimeoutRef.current = null;
+      }
+      if (uiJudgementTimeoutRef.current) {
+        clearTimeout(uiJudgementTimeoutRef.current);
+        uiJudgementTimeoutRef.current = null;
+      }
+    };
+  }, []);
   
   // Dynamic visual visualizers
   const particlesRef = useRef<Particle[]>([]);
@@ -426,6 +517,7 @@ export default function GameplayCanvas({
 
   // Hit error timing logs
   const hitErrorTicksRef = useRef<HitErrorTick[]>([]);
+  const colsLayoutBufferRef = useRef<ColumnLayout[]>([]);
   const countdownStartTimeRef = useRef<number | null>(null);
 
   const [loadingAudioProgress, setLoadingAudioProgress] = useState<number>(0);
@@ -443,90 +535,68 @@ export default function GameplayCanvas({
   const [isVideoError, setIsVideoError] = useState<boolean>(false);
   const [diagnosticsErrorLog, setDiagnosticsErrorLog] = useState<string[]>([]);
 
-  // PixiJS References
+  // Playfield Renderer References
   const pixiCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const pixiAppRef = useRef<any | null>(null);
-  const pixiGfxRef = useRef<any | null>(null);
-  const pixiTextObjectsRef = useRef<any[] | null>(null);
+  const activeRendererRef = useRef<IPlayfieldRenderer | null>(null);
 
   useEffect(() => {
-    if (settings.renderEngine !== 'pixi') {
-      if (pixiAppRef.current) {
-        try {
-          pixiAppRef.current.destroy(true, { children: true, texture: true });
-        } catch (e) {
-          console.warn('Error during PixiJS destroy:', e);
-        }
-        pixiAppRef.current = null;
-        pixiGfxRef.current = null;
-        pixiTextObjectsRef.current = null;
-      }
-      return;
-    }
-
     let active = true;
-    const initPixi = async () => {
-      const canvas = pixiCanvasRef.current;
+
+    const initRenderer = async () => {
+      // 1. Destroy existing renderer if any
+      if (activeRendererRef.current) {
+        try {
+          activeRendererRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying active playfield renderer:', e);
+        }
+        activeRendererRef.current = null;
+      }
+
+      const isPixi = settings.renderEngine === 'pixi';
+      const canvas = isPixi ? pixiCanvasRef.current : canvasRef.current;
       if (!canvas) return;
 
       try {
-        const app = new Application();
-        const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
-        const container = containerRef.current;
-        const width = container ? container.getBoundingClientRect().width : (canvas.clientWidth || 400);
-        const height = container ? container.getBoundingClientRect().height : (canvas.clientHeight || 700);
-
-        await app.init({
-          canvas: canvas,
-          width: width,
-          height: height,
-          resolution: dpr,
-          autoDensity: true,
-          backgroundAlpha: 0,
-          preference: 'webgl', // Force stable WebGL over WebGPU to avoid iframe sandbox crashes/hangs
-        });
-
+        const renderer = isPixi ? new PixiPlayfieldRenderer() : new Canvas2DRenderer();
+        const keyCount = beatmap.keyCount;
+        await renderer.init(canvas, { settings, keyCount });
+        
         if (!active) {
-          try {
-            app.destroy(true, { children: true, texture: true });
-          } catch (e) {}
+          renderer.destroy();
           return;
         }
 
-        const graphics = new Graphics();
-        app.stage.addChild(graphics);
+        activeRendererRef.current = renderer;
 
-        pixiAppRef.current = app;
-        pixiGfxRef.current = graphics;
-
-        // Force initial resize and position alignment
-        app.renderer.resize(width, height);
-
-        // Stop the automatic ticker so we can render manually in our own requestAnimationFrame loop
-        app.ticker.stop();
+        // Force initial resize
+        const container = containerRef.current;
+        const width = container ? container.getBoundingClientRect().width : (canvas.clientWidth || 400);
+        const height = container ? container.getBoundingClientRect().height : (canvas.clientHeight || 700);
+        const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+        renderer.resize(width, height, dpr);
       } catch (err) {
-        console.error('Failed to initialize PixiJS v8:', err);
-        if (updateSettings) {
+        console.error('Failed to initialize playfield renderer:', err);
+        // Fallback to canvas
+        if (settings.renderEngine === 'pixi' && updateSettingsRef.current) {
           console.warn('PixiJS initialization failed. Falling back to 2D Canvas engine...');
-          updateSettings({ renderEngine: 'canvas' });
+          updateSettingsRef.current({ renderEngine: 'canvas' });
         }
       }
     };
 
-    initPixi();
+    initRenderer();
 
     return () => {
       active = false;
-      if (pixiAppRef.current) {
+      if (activeRendererRef.current) {
         try {
-          pixiAppRef.current.destroy(true, { children: true, texture: true });
+          activeRendererRef.current.destroy();
         } catch (e) {}
-        pixiAppRef.current = null;
-        pixiGfxRef.current = null;
-        pixiTextObjectsRef.current = null;
+        activeRendererRef.current = null;
       }
     };
-  }, [settings.renderEngine, settings.limitDprToOne, updateSettings, isAudioLoaded]);
+  }, [settings.renderEngine, settings.limitDprToOne, beatmap.keyCount, isAudioLoaded]);
 
   // Parse overall difficulty and build dynamic judgement windows in milliseconds
   // In competitive play (adjusted by adding +- 5ms on top of the original scoring timings):
@@ -731,6 +801,7 @@ export default function GameplayCanvas({
           }
           if (zipBuffer) {
             const zip = await JSZip.loadAsync(zipBuffer);
+            validateZipLimits(zip);
             const resolver = new RobustZipResolver(zip);
             const audioFilename = mapWithPkg.audioFilename || '';
             const videoFilename = mapWithPkg.videoFilename || '';
@@ -741,8 +812,9 @@ export default function GameplayCanvas({
             let parsedBgUrl = beatmap.bgUrl || '';
 
             if (audioFilename && !parsedAudioUrl) {
-              const file = !audioFilename.toLowerCase().endsWith('.wav') ? resolver.findFile(audioFilename) : null;
+              const file = resolver.findFile(audioFilename);
               if (file) {
+                validateZipEntrySize(file, audioFilename);
                 const b = await file.async('blob');
                 parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.audioUrl = parsedAudioUrl;
@@ -751,6 +823,7 @@ export default function GameplayCanvas({
             if (!parsedAudioUrl) {
               const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
               if (fallbackObj) {
+                validateZipEntrySize(fallbackObj, fallbackObj.name);
                 const b = await fallbackObj.async('blob');
                 parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.audioUrl = parsedAudioUrl;
@@ -760,6 +833,7 @@ export default function GameplayCanvas({
             if (videoFilename && !parsedVideoUrl) {
               const file = resolver.findFile(videoFilename);
               if (file) {
+                validateZipEntrySize(file, videoFilename);
                 const b = await file.async('blob');
                 parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.videoUrl = parsedVideoUrl;
@@ -769,6 +843,7 @@ export default function GameplayCanvas({
             if (bgFilename && !parsedBgUrl) {
               const file = resolver.findFile(bgFilename);
               if (file) {
+                validateZipEntrySize(file, bgFilename);
                 const b = await file.async('blob');
                 parsedBgUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.bgUrl = parsedBgUrl;
@@ -777,6 +852,7 @@ export default function GameplayCanvas({
             if (!parsedBgUrl) {
               const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
               if (fallbackObj) {
+                validateZipEntrySize(fallbackObj, fallbackObj.name);
                 const b = await fallbackObj.async('blob');
                 parsedBgUrl = AssetLifecycleManager.registerBlob(b);
                 beatmap.bgUrl = parsedBgUrl;
@@ -912,8 +988,7 @@ export default function GameplayCanvas({
 
   // Unified Keyboard processing & Multi-Touch Input Adapter
   useEffect(() => {
-    const keyLayout = settings.bindings[beatmap.keyCount] || [];
-    const canvas = canvasRef.current;
+    const touchTarget = containerRef.current;
     
     // Abstract virtual key trigger handlers to share state updates cleanly between physical keys and screen tactile touches
     const virtualKeyDown = (colIndex: number) => {
@@ -968,8 +1043,10 @@ export default function GameplayCanvas({
         return;
       }
 
+      const currentSettings = settingsRef.current;
+
       // 1.1 Quick Retry Check
-      const retryKey = (settings.bindRetry || 'r').toLowerCase();
+      const retryKey = (currentSettings.bindRetry || 'r').toLowerCase();
       if (e.key.toLowerCase() === retryKey) {
         e.preventDefault();
         restartMap();
@@ -977,7 +1054,7 @@ export default function GameplayCanvas({
       }
 
       // 1.2 Pause/Resume Check
-      const pauseKey = (settings.bindPause || 'escape').toLowerCase();
+      const pauseKey = (currentSettings.bindPause || 'escape').toLowerCase();
       const isPauseTrigger = e.key.toLowerCase() === pauseKey || e.key === 'Escape';
 
       if (isPauseTrigger) {
@@ -996,6 +1073,7 @@ export default function GameplayCanvas({
 
       if (replayData) return; // ignore user key taps in replay mode
 
+      const keyLayout = currentSettings.bindings[beatmap.keyCount] || [];
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -1008,6 +1086,8 @@ export default function GameplayCanvas({
       
       if (replayData) return; // ignore user key taps in replay mode
 
+      const currentSettings = settingsRef.current;
+      const keyLayout = currentSettings.bindings[beatmap.keyCount] || [];
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -1025,18 +1105,18 @@ export default function GameplayCanvas({
     let handleTouchEnd: ((e: TouchEvent) => void) | null = null;
     let handleTouchCancel: ((e: TouchEvent) => void) | null = null;
 
-    if (canvas) {
+    if (touchTarget) {
       touchAdapter = new TouchInputAdapter(virtualKeyDown, virtualKeyUp);
 
       handleTouchStart = (e: TouchEvent) => {
         if (replayData) return;
-        const rect = canvas.getBoundingClientRect();
+        const rect = touchTarget.getBoundingClientRect();
         touchAdapter?.handleTouchStart(e, rect, beatmap.keyCount);
       };
 
       handleTouchMove = (e: TouchEvent) => {
         if (replayData) return;
-        const rect = canvas.getBoundingClientRect();
+        const rect = touchTarget.getBoundingClientRect();
         touchAdapter?.handleTouchMove(e, rect, beatmap.keyCount);
       };
 
@@ -1051,29 +1131,29 @@ export default function GameplayCanvas({
       };
 
       // Register non-passive events to allow explicit preventDefault override inside raw handlers, blocking system browser zooms
-      canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-      canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-      canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
-      canvas.addEventListener('touchcancel', handleTouchCancel, { passive: false });
+      touchTarget.addEventListener('touchstart', handleTouchStart, { passive: false });
+      touchTarget.addEventListener('touchmove', handleTouchMove, { passive: false });
+      touchTarget.addEventListener('touchend', handleTouchEnd, { passive: false });
+      touchTarget.addEventListener('touchcancel', handleTouchCancel, { passive: false });
     }
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       
-      if (canvas) {
-        if (handleTouchStart) canvas.removeEventListener('touchstart', handleTouchStart);
-        if (handleTouchMove) canvas.removeEventListener('touchmove', handleTouchMove);
-        if (handleTouchEnd) canvas.removeEventListener('touchend', handleTouchEnd);
-        if (handleTouchCancel) canvas.removeEventListener('touchcancel', handleTouchCancel);
+      if (touchTarget) {
+        if (handleTouchStart) touchTarget.removeEventListener('touchstart', handleTouchStart);
+        if (handleTouchMove) touchTarget.removeEventListener('touchmove', handleTouchMove);
+        if (handleTouchEnd) touchTarget.removeEventListener('touchend', handleTouchEnd);
+        if (handleTouchCancel) touchTarget.removeEventListener('touchcancel', handleTouchCancel);
       }
       touchAdapter?.reset();
     };
-  }, [beatmap, settings, isPaused, showCountdown, isFocusMode, isPrePlay, showSettingsModal, showInfoModal, unpauseCountdown]);
+  }, [beatmap, isPaused, showCountdown, isFocusMode, isPrePlay, showSettingsModal, showInfoModal, unpauseCountdown]);
 
   // Judgement scoring evaluator
   const triggerHitEvent = (colIndex: number) => {
-    const playTime = mainAudio.getCurrentTimeMs();
+    const playTime = audioTimeRef.current;
     
     // Check if we are currently in a grace period for a hold note in this column
     const activeHoldAndReleased = notesRef.current.find(
@@ -1149,11 +1229,22 @@ export default function GameplayCanvas({
       if (resolvedJudgement.type === 'marvelous') {
         screenShakeRef.current = 4;
       }
+    } else {
+      // Tap in miss band (bad < |err| <= miss), apply miss immediately and resolve note
+      note.isMissed = true;
+      if (note.type === 'hold') {
+        note.isHoldFailed = true;
+        note.isReleased = true; // Fully closed
+        applyJudgement(resolvedJudgement, colIndex); // Head miss
+        applyJudgement(resolvedJudgement, colIndex); // Tail miss
+      } else {
+        applyJudgement(resolvedJudgement, colIndex);
+      }
     }
   };
 
   const triggerReleaseEvent = (colIndex: number) => {
-    const playTime = mainAudio.getCurrentTimeMs();
+    const playTime = audioTimeRef.current;
     
     // Find active hold note currently marked "Hit" but not yet "Released" or "HoldFailed"
     const holdNote = notesRef.current.find(
@@ -1165,9 +1256,12 @@ export default function GameplayCanvas({
     const endDiff = playTime - holdNote.endTime;
     const absEndDiff = Math.abs(endDiff);
 
-    // If released prematurely (more than 181ms before endTime): trigger a grace re-key window
-    if (endDiff < -181) {
-      holdNote.releaseGraceUntil = playTime + 180; // 180ms grace
+    const graceThreshold = -missJudg.windowMs - 1;
+    const graceDuration = missJudg.windowMs;
+
+    // If released prematurely: trigger a grace re-key window
+    if (endDiff < graceThreshold) {
+      holdNote.releaseGraceUntil = playTime + graceDuration; // derived grace window
       return;
     }
 
@@ -1275,11 +1369,16 @@ export default function GameplayCanvas({
     const now = Date.now();
     setUiJudgement({ text: judg.name, color: judg.color, time: now });
     // Clear judgment text overlay after 600ms
-    setTimeout(() => {
-      setUiJudgement(curr => {
-        if (curr && curr.time === now) return null;
-        return curr;
-      });
+    if (uiJudgementTimeoutRef.current) {
+      clearTimeout(uiJudgementTimeoutRef.current);
+    }
+    uiJudgementTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setUiJudgement(curr => {
+          if (curr && curr.time === now) return null;
+          return curr;
+        });
+      }
     }, 600);
 
     // Reflect to fast visual UI hooks (triggered carefully)
@@ -1291,7 +1390,7 @@ export default function GameplayCanvas({
   // Sparkles particle engine
   const spawnParticles = (colIndex: number, color: string) => {
     if (settings.disableParticles) return;
-    const canvas = canvasRef.current;
+    const canvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
     if (!canvas) return;
     
     const keyCount = beatmap.keyCount;
@@ -1339,8 +1438,6 @@ export default function GameplayCanvas({
     let requestId: number;
     const canvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
     if (!canvas) return;
-    const ctx = settings.renderEngine === 'pixi' ? null : canvas.getContext('2d');
-    if (settings.renderEngine !== 'pixi' && !ctx) return;
 
     // Handle high-dpi monitors for pristine retina canvas crispness with performance caps
     const resizeCanvas = () => {
@@ -1348,19 +1445,11 @@ export default function GameplayCanvas({
       if (!container || !canvas) return;
       
       const rect = container.getBoundingClientRect();
-      const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+      const currentSettings = settingsRef.current;
+      const dpr = currentSettings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
       
-      if (settings.renderEngine === 'pixi') {
-        if (pixiAppRef.current) {
-          pixiAppRef.current.renderer.resize(rect.width, rect.height);
-        }
-      } else {
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
-        
-        if (ctx) ctx.scale(dpr, dpr);
+      if (activeRendererRef.current) {
+        activeRendererRef.current.resize(rect.width, rect.height, dpr);
       }
     };
 
@@ -1369,68 +1458,52 @@ export default function GameplayCanvas({
 
     // Track notes elapsed to trigger automatic Miss judgments
     const checkAutonomousMisses = (currentTime: number) => {
-      const missBound = missJudg.windowMs;
-      const state = scoreStateRef.current;
-
-      notesRef.current.forEach((n) => {
-        // 1. Normal and hold notes missed at start
-        if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
-          n.isMissed = true;
-          if (n.type === 'hold') {
-            n.isHoldFailed = true;
-          }
-          applyJudgement(missJudg, n.column);
-        }
-        
-        // 2. Continuous hold note missed intermediate bounds
-        if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime) {
-          // If in a release grace period and it expired
-          if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
-            n.isHoldFailed = true;
-            n.isReleased = true; // completed with fail
+      checkNotesAutonomousMisses(
+        notesRef.current,
+        currentTime,
+        missJudg.windowMs,
+        (n, isDoubleMiss) => {
+          if (isDoubleMiss) {
             applyJudgement(missJudg, n.column);
-          }
-          // Or if reached end without hit or release failure, and time elapsed past miss boundary.
-          else if (!n.releaseGraceUntil && currentTime - n.endTime > missBound) {
-            n.isHoldFailed = true;
-            n.isReleased = true;
+            applyJudgement(missJudg, n.column);
+          } else {
             applyJudgement(missJudg, n.column);
           }
         }
-      });
+      );
     };
 
     // Canvas Draw Thread
     const render = () => {
       const activeCanvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
       if (!activeCanvas) return;
-      if (settings.renderEngine !== 'pixi' && !ctx) return;
 
       const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
-      let width = activeCanvas.width / dpr;
-      let height = activeCanvas.height / dpr;
-      if (settings.renderEngine === 'pixi' && pixiAppRef.current) {
-        width = pixiAppRef.current.screen.width;
-        height = pixiAppRef.current.screen.height;
-      }
+      const width = activeCanvas.clientWidth || activeCanvas.width / dpr;
+      const height = activeCanvas.clientHeight || activeCanvas.height / dpr;
 
       // Smoothly slide the rendering offset towards the actual audioOffset to prevent note visual teleportations mid-flight:
       smoothOffsetRef.current += (settings.audioOffset - smoothOffsetRef.current) * 0.08;
 
-      const rawSongTime = mainAudio.getCurrentTimeMs();
-      const offsetDiff = settings.audioOffset - smoothOffsetRef.current;
-      let songTime = rawSongTime + offsetDiff;
+      let songTime;
+      if (isScrubbingRef.current) {
+        songTime = audioTimeRef.current;
+      } else {
+        const rawSongTime = mainAudio.getCurrentTimeMs();
+        const offsetDiff = settings.audioOffset - smoothOffsetRef.current;
+        songTime = rawSongTime + offsetDiff;
 
-      // Enable smooth visual note scrolling during the pre-song countdown period so first notes arrive in tempo
-      if (showCountdown > 0 && countdownStartTimeRef.current !== null) {
-        const elapsed = performance.now() - countdownStartTimeRef.current;
-        // The total countdown ticks count to 3 * 700ms = 2100ms
-        // We offset the countdown sequence by the audio start delay so that notes transition seamlessly
-        // into the gameplay loop when countdown wraps up.
-        songTime = -startDelayMs - 2100 + elapsed;
+        // Enable smooth visual note scrolling during the pre-song countdown period so first notes arrive in tempo
+        if (showCountdown > 0 && countdownStartTimeRef.current !== null) {
+          const elapsed = performance.now() - countdownStartTimeRef.current;
+          // The total countdown ticks count to 3 * 700ms = 2100ms
+          // We offset the countdown sequence by the audio start delay so that notes transition seamlessly
+          // into the gameplay loop when countdown wraps up.
+          songTime = -startDelayMs - 2100 + elapsed;
+        }
+
+        audioTimeRef.current = songTime;
       }
-
-      audioTimeRef.current = songTime;
 
       // Update progress bar
       if (progressBarRef.current) {
@@ -1490,6 +1563,8 @@ export default function GameplayCanvas({
       if (isPlayingRef.current && !isPaused && showCountdown === 0) {
         checkAutonomousMisses(songTime);
         
+        const currentSettings = settingsRef.current;
+        
         // Throttled Video - Audio Sync alignment check via PLL VideoSyncController
         if (videoRef.current) {
           if (!syncControllerRef.current) {
@@ -1497,7 +1572,8 @@ export default function GameplayCanvas({
               videoRef.current,
               () => audioTimeRef.current,
               beatmap.videoStartTime || 0,
-              settings
+              () => settingsRef.current,
+              () => mainAudio.playbackRate
             );
           }
           try {
@@ -1515,1430 +1591,108 @@ export default function GameplayCanvas({
         } catch (e) {}
       }
 
-      // 1. Calculate symmetrical lane widths and cumulative X-coordinates
-      const keyCount = beatmap.keyCount;
-      let totalWeight = 0;
-      for (let i = 0; i < keyCount; i++) {
-        let weight = 1.0;
-        if (keyCount === 5 && i === 2) weight = 1.35;
-        else if (keyCount === 7 && i === 3) weight = 1.35;
-        else if (keyCount === 8 && i === 0) weight = 1.4;
-        totalWeight += weight;
-      }
-      const baseWidth = width / totalWeight;
-      const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
+      const currentSettings = settingsRef.current;
+      const receptorY = currentSettings.upsurfaceNoteMode ? 60 : height - 155;
 
-      const colX: number[] = [];
-      let accumulatedX = 0;
-      for (let i = 0; i < keyCount; i++) {
-        colX.push(accumulatedX);
-        accumulatedX += colStyles[i].width;
-      }
+      // --- HIGH PERFORMANCE RENDERER HANDLER ---
+      if (activeRendererRef.current) {
+        const keyCount = beatmap.keyCount;
+        const speedFactor = calculateScrollSpeedFactor(height, receptorY, currentSettings);
 
-      const receptorY = settings.upsurfaceNoteMode ? 60 : height - 155;
+        // Calculate dynamic layouts
+        const colsLayout = updateColumnsLayout(
+          colsLayoutBufferRef.current,
+          keyCount,
+          width,
+          currentSettings,
+          activeColumnsRef.current,
+          laneGlowRef.current
+        );
 
-      if (settings.renderEngine === 'pixi') {
-        const g = pixiGfxRef.current;
-        if (g) {
-          try {
-            g.clear();
+        const visualTime = songTime - (currentSettings.visualOffset || 0);
 
-          // Apply visual screen shake matrix
-          if (screenShakeRef.current > 0) {
-            const shakeX = (Math.random() - 0.5) * screenShakeRef.current;
-            const shakeY = (Math.random() - 0.5) * screenShakeRef.current;
-            g.position.set(shakeX, shakeY);
-            screenShakeRef.current *= 0.9; // decay shake force
-            if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
-          } else {
-            g.position.set(0, 0);
+        // Cull and fetch visible notes
+        const visibleNotes = getVisibleNotes(
+          notesRef.current,
+          currentSettings,
+          colsLayout,
+          height,
+          receptorY,
+          visualTime,
+          speedFactor
+        );
+
+        // Decay lane glows
+        for (let i = 0; i < keyCount; i++) {
+          if (laneGlowRef.current[i] > 0) {
+            laneGlowRef.current[i] *= 0.88;
           }
-
-          // Background dim shield
-          const shieldDim = settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60;
-          g.rect(0, 0, width, height).fill({ color: 0x000000, alpha: shieldDim });
-
-          // 1. Lane background rails & column glows
-          const separatorOpacity = settings.laneSeparatorOpacity ?? 0.30;
-          for (let i = 0; i < keyCount; i++) {
-            const xPos = colX[i];
-            const colW = colStyles[i].width;
-
-            // Subtle lane background separators
-            g.moveTo(xPos, 0)
-             .lineTo(xPos, height)
-             .stroke({ color: '#475569', width: 1, alpha: separatorOpacity });
-
-            // Lane-pressed glowing flashes
-            if (laneGlowRef.current[i] > 0) {
-              const alphaValue = laneGlowRef.current[i] * 0.15;
-              const glowY = settings.upsurfaceNoteMode ? 0 : receptorY;
-              const glowH = settings.upsurfaceNoteMode ? receptorY : height - receptorY;
-              g.rect(xPos, glowY, colW, glowH).fill({ color: '#3b82f6', alpha: alphaValue });
-              laneGlowRef.current[i] *= 0.88; // decay lane glows
-            }
-          }
-
-          // Last border outline
-          g.rect(0, 0, width, height).stroke({ color: '#475569', width: 1.5, alpha: separatorOpacity * 1.5 });
-
-          // Helper definitions
-          const travelDistance = settings.upsurfaceNoteMode ? (height - receptorY) : receptorY;
-          const scrollTimeMs = 1100 - (settings.scrollSpeed ?? 18) * 25;
-          const speedFactor = travelDistance / scrollTimeMs;
-          const visualTime = songTime - (settings.visualOffset || 0);
-
-          const getScrollY = (timeMs: number): number => {
-            if (settings.upsurfaceNoteMode) {
-              return receptorY + (timeMs - visualTime) * speedFactor;
-            } else {
-              return receptorY - (timeMs - visualTime) * speedFactor;
-            }
-          };
-
-          const getHiddenOpacity = (y: number): number => {
-            if (!settings.selectedMods?.includes('HD')) return 1.0;
-            const distPercent = settings.upsurfaceNoteMode
-              ? (height - y) / (height - receptorY)
-              : y / receptorY;
-
-            if (distPercent < 0.35) return 1.0;
-            if (distPercent < 0.70) return Math.max(0, 1 - (distPercent - 0.35) / 0.35);
-            return 0.0;
-          };
-
-          const isFocusModeValue = isFocusMode;
-
-          // 2. Draw long holds bodies
-          notesRef.current.forEach((n) => {
-            if (n.type === 'hold' && n.isHit && n.isReleased) {
-              return;
-            }
-            if (n.type === 'hold' && n.endTime) {
-              const startY = getScrollY(n.time);
-              const endY = getScrollY(n.endTime);
-              const xPos = colX[n.column];
-              const colW = colStyles[n.column].width;
-
-              let visualStartY = startY;
-              if (n.isHit && !n.isReleased && !n.isHoldFailed) {
-                visualStartY = receptorY;
-              }
-
-              const isOff = settings.upsurfaceNoteMode
-                ? (endY < receptorY && visualStartY < receptorY && n.isReleased)
-                : (endY > receptorY && visualStartY > receptorY && n.isReleased);
-
-              if (!isOff) {
-                const clipHeight = visualStartY - endY;
-                const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
-                  ? settings.customSkinColors[4]
-                  : '#38bdf8';
-
-                const isCircleMode = settings.playfieldStyle === 'circle' ||
-                                     settings.skinId === 'circles' ||
-                                     settings.skinId === 'glassy-spheres' ||
-                                     settings.skinId === 'hollow-rings';
-
-                const fadeStart = getHiddenOpacity(visualStartY);
-                const fadeEnd = getHiddenOpacity(endY);
-                const avgFade = (fadeStart + fadeEnd) / 2;
-
-                let bodyColor = '#38bdf8';
-                let holdAlphaMultiplier = 1.0;
-                
-                if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-                  bodyColor = settings.rhythmplusColor || '#ffff00';
-                  if (n.isHit && !n.isReleased) {
-                    if (n.releaseGraceUntil) {
-                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                      holdAlphaMultiplier = flicker ? 1.0 : 0.5;
-                    }
-                  } else if (n.isHoldFailed || n.isMissed) {
-                    bodyColor = '#64748b';
-                    holdAlphaMultiplier = 0.5;
-                  }
-                } else if (settings.playfieldStyle !== 'circle') {
-                  bodyColor = settings.rhythmmaniaNoteColor || '#00b0ff';
-                  if (n.isHit && !n.isReleased) {
-                    if (n.releaseGraceUntil) {
-                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                      holdAlphaMultiplier = flicker ? 0.8 : 0.2;
-                    } else {
-                      holdAlphaMultiplier = 0.8;
-                    }
-                  } else if (n.isHoldFailed || n.isMissed) {
-                    bodyColor = '#64748b';
-                    holdAlphaMultiplier = 0.3;
-                  } else {
-                    holdAlphaMultiplier = 0.6;
-                  }
-                } else {
-                  bodyColor = settings.skinId === 'custom' ? customHoldColor : '#3b82f6';
-                  if (n.isHit && !n.isReleased) {
-                    if (n.releaseGraceUntil) {
-                      const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                      bodyColor = flicker ? '#eab308' : '#a1750e';
-                      holdAlphaMultiplier = flicker ? 0.75 : 0.2;
-                    } else {
-                      bodyColor = settings.skinId === 'custom' ? customHoldColor : '#22d3ee';
-                      holdAlphaMultiplier = 0.7;
-                    }
-                  } else if (n.isHoldFailed || n.isMissed) {
-                    bodyColor = '#64748b';
-                    holdAlphaMultiplier = 0.3;
-                  } else {
-                    bodyColor = settings.skinId === 'custom' ? customHoldColor : '#3b82f6';
-                    holdAlphaMultiplier = 0.5;
-                  }
-                }
-
-                const padding = isFocusModeValue ? 3 : 12;
-                const notePadding = isFocusModeValue ? 1.5 : 6;
-                const useNotePadding = settings.squareRenderStyle === 'rhythmplus' && !isCircleMode;
-
-                const rx = xPos + (useNotePadding ? notePadding : padding);
-                const rw = colW - (useNotePadding ? notePadding : padding) * 2;
-
-                let drawY = Math.min(visualStartY, endY);
-                let drawH = Math.abs(clipHeight);
-
-                if (useNotePadding) {
-                  drawY -= 4;
-                  drawH += 8;
-                }
-
-                const noteOpacityVal = settings.noteOpacity ?? 1.0;
-                const finalAlpha = noteOpacityVal * holdAlphaMultiplier * avgFade;
-
-                if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-                  g.rect(rx, drawY, rw, drawH).fill({ color: bodyColor, alpha: finalAlpha });
-                } else {
-                  if (isCircleMode) {
-                    g.roundRect(rx, drawY, rw, drawH, rw / 2).fill({ color: bodyColor, alpha: finalAlpha });
-                  } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
-                    g.rect(rx, drawY, rw, drawH).fill({ color: bodyColor, alpha: finalAlpha });
-                  } else {
-                    g.roundRect(rx, drawY, rw, drawH, 6).fill({ color: bodyColor, alpha: finalAlpha });
-                  }
-                }
-
-                if (!(settings.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-                  const lineAlpha = n.isHit && !n.isReleased
-                    ? (n.releaseGraceUntil ? 0.6 : 0.8)
-                    : 0.4;
-                  const lineColor = n.isHit && !n.isReleased
-                    ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
-                    : '#38bdf8';
-                  g.moveTo(xPos + colW / 2, visualStartY)
-                   .lineTo(xPos + colW / 2, endY)
-                   .stroke({ color: lineColor, width: 2, alpha: lineAlpha * avgFade });
-                }
-              }
-            }
-          });
-
-          // 3. Draw normal notes & hold heads
-          notesRef.current.forEach((n) => {
-            if (n.type === 'normal' && (n.isHit || n.isMissed)) {
-              return;
-            }
-            const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
-            if (shouldDrawHead) {
-              const noteY = getScrollY(n.time);
-              const xPos = colX[n.column];
-              const colW = colStyles[n.column].width;
-              const notePadding = isFocusModeValue ? 3 : 6;
-
-              const paddingLimit = 60;
-              const isVisible = noteY >= -paddingLimit && noteY <= height + paddingLimit;
-
-              if (isVisible && !(n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle')) {
-                const rx = xPos + notePadding;
-                const ry = noteY - 10;
-                const rw = colW - notePadding * 2;
-                const rh = 20;
-
-                let currentOpacity = settings.noteOpacity ?? 1.0;
-                if (settings.selectedMods?.includes('HD')) {
-                  const distancePercent = settings.upsurfaceNoteMode
-                    ? (height - noteY) / (height - receptorY)
-                    : noteY / receptorY;
-
-                  if (distancePercent < 0.35) {
-                    currentOpacity = currentOpacity;
-                  } else if (distancePercent < 0.70) {
-                    const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
-                    currentOpacity *= Math.max(0, fadeFactor);
-                  } else {
-                    currentOpacity = 0.0;
-                  }
-                }
-
-                if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
-                  currentOpacity *= 0.35;
-                }
-
-                let fillCol = colStyles[n.column].color;
-                let strokeCol = fillCol;
-
-                const isNoteCircleMode = settings.playfieldStyle === 'circle' ||
-                                         settings.skinId === 'circles' ||
-                                         settings.skinId === 'glassy-spheres' ||
-                                         settings.skinId === 'hollow-rings';
-
-                if (isNoteCircleMode) {
-                  fillCol = settings.circleNoteColor || '#00b0ff';
-                  strokeCol = settings.circleNoteColor || '#00b0ff';
-                } else if (settings.squareRenderStyle === 'rhythmplus') {
-                  fillCol = settings.rhythmplusColor || '#ffff00';
-                  strokeCol = settings.rhythmplusColor || '#ffff00';
-                } else {
-                  fillCol = settings.rhythmmaniaNoteColor || '#00b0ff';
-                  strokeCol = settings.rhythmmaniaNoteColor || '#00b0ff';
-                }
-
-                if (isNoteCircleMode) {
-                  const cx = rx + rw / 2;
-                  const cy = ry + rh / 2;
-                  const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-                  g.circle(cx, cy, r).fill({ color: fillCol, alpha: currentOpacity })
-                                     .stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
-                } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-                  g.rect(rx, ry + rh / 2 - 4, rw, 8).fill({ color: fillCol, alpha: currentOpacity });
-                } else if (settings.skinId === 'classic-bar') {
-                  g.rect(rx, ry, rw, rh).fill({ color: fillCol, alpha: currentOpacity })
-                                        .stroke({ color: strokeCol, width: 1.5, alpha: currentOpacity });
-                  g.rect(rx, ry + rh / 2 - 1.5, rw, 3).fill({ color: '#ffffff', alpha: currentOpacity });
-                } else {
-                  const radius = settings.skinId === 'minimalist' ? 3 : 4;
-                  g.roundRect(rx, ry, rw, rh, radius).fill({ color: fillCol, alpha: currentOpacity })
-                                                     .stroke({ color: strokeCol, width: 2, alpha: currentOpacity });
-                }
-              }
-            }
-          });
-
-          // 4. Draw end receptors for holds
-          notesRef.current.forEach((n) => {
-            if (n.type === 'hold' && n.endTime && !n.isReleased) {
-              const endNoteY = getScrollY(n.endTime);
-              const xPos = colX[n.column];
-              const colW = colStyles[n.column].width;
-              const notePadding = isFocusModeValue ? 3 : 6;
-
-              const paddingLimit = 60;
-              const isEndVisible = endNoteY >= -paddingLimit && endNoteY <= height + paddingLimit;
-
-              if (isEndVisible) {
-                const rx = xPos + notePadding;
-                const ry = endNoteY - 10;
-                const rw = colW - notePadding * 2;
-                const rh = 20;
-
-                let currentOpacity = settings.noteOpacity ?? 1.0;
-                if (settings.selectedMods?.includes('HD')) {
-                  const distancePercent = settings.upsurfaceNoteMode
-                    ? (height - endNoteY) / (height - receptorY)
-                    : endNoteY / receptorY;
-
-                  if (distancePercent < 0.35) {
-                    currentOpacity = currentOpacity;
-                  } else if (distancePercent < 0.70) {
-                    const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
-                    currentOpacity *= Math.max(0, fadeFactor);
-                  } else {
-                    currentOpacity = 0.0;
-                  }
-                }
-
-                if (n.isHoldFailed || n.isMissed) {
-                  currentOpacity *= 0.35;
-                }
-
-                const isNoteCircleMode = settings.playfieldStyle === 'circle' ||
-                                         settings.skinId === 'circles' ||
-                                         settings.skinId === 'glassy-spheres' ||
-                                         settings.skinId === 'hollow-rings';
-
-                if (isNoteCircleMode) {
-                  const cx = rx + rw / 2;
-                  const cy = ry + rh / 2;
-                  const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-                  const noteColor = colStyles[n.column].color;
-
-                  g.circle(cx, cy, r).stroke({ color: noteColor, width: 3, alpha: currentOpacity });
-                  g.circle(cx, cy, r * 0.5).fill({ color: '#ffffff', alpha: currentOpacity });
-                } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-                  const rpColor = settings.rhythmplusColor || '#ffff00';
-                  g.rect(rx, ry + rh / 2 - 2, rw, 4).fill({ color: rpColor, alpha: currentOpacity });
-                } else {
-                  const noteColor = colStyles[n.column].color;
-                  g.roundRect(rx, ry, rw, rh, 4).stroke({ color: '#ffffff', width: 2.5, alpha: currentOpacity });
-                  g.roundRect(rx + 4, ry + 4, rw - 8, rh - 8, 2).fill({ color: noteColor, alpha: currentOpacity * 0.75 });
-
-                  g.moveTo(rx + 6, ry + 3).lineTo(rx + 12, ry + rh - 3).stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
-                  g.moveTo(rx + rw - 6, ry + 3).lineTo(rx + rw - 12, ry + rh - 3).stroke({ color: '#ffffff', width: 2, alpha: currentOpacity });
-                }
-              }
-            }
-          });
-
-          // 5. Draw column receptors
-          for (let i = 0; i < keyCount; i++) {
-            const xPos = colX[i];
-            const colW = colStyles[i].width;
-            const isPressed = activeColumnsRef.current[i];
-
-            const isCircleMode = settings.playfieldStyle === 'circle' ||
-                                 settings.skinId === 'circles' ||
-                                 settings.skinId === 'glassy-spheres' ||
-                                 settings.skinId === 'hollow-rings';
-
-            let rcColor = colStyles[i].color;
-            if (isCircleMode) {
-              rcColor = settings.circleReceptorColor || '#00b0ff';
-            } else if (settings.squareRenderStyle !== 'rhythmplus') {
-              rcColor = settings.rhythmmaniaReceptorColor || '#00b0ff';
-            }
-
-            const rcOpacity = settings.receptorOpacity ?? 1.0;
-
-            if (isCircleMode) {
-              const cx = xPos + colW / 2;
-              const cy = receptorY;
-              const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
-
-              if (isPressed) {
-                g.circle(cx, cy, r).fill({ color: rcColor, alpha: rcOpacity })
-                                   .stroke({ color: '#ffffff', width: 3, alpha: rcOpacity });
-                g.circle(cx, cy, r * 0.35).fill({ color: '#ffffff', alpha: rcOpacity });
-              } else {
-                g.circle(cx, cy, r).stroke({ color: '#ffffff', width: 1.5, alpha: rcOpacity * 0.45 });
-                g.circle(cx, cy, r).fill({ color: '#0f172a', alpha: rcOpacity * 0.15 });
-              }
-            } else if (settings.squareRenderStyle === 'rhythmplus') {
-              const rx = xPos + 1;
-              const ry = receptorY - 2;
-              const rw = colW - 2;
-              const rh = 4;
-
-              const fillAlpha = isPressed ? 1.0 : 0.4;
-              g.rect(rx, ry, rw, rh).fill({ color: '#ffffff', alpha: fillAlpha * rcOpacity });
-            } else {
-              const rx = xPos + 6;
-              const ry = receptorY - 14;
-              const rw = colW - 12;
-              const rh = 28;
-
-              const strokeCol = isPressed ? '#ffffff' : rcColor;
-              const strokeWidth = isPressed ? 3.5 : 2;
-              const fillCol = isPressed ? rcColor : '#0f172a';
-              const fillAlpha = isPressed ? 0.45 : 0.85;
-
-              g.roundRect(rx, ry, rw, rh, 6).fill({ color: fillCol, alpha: fillAlpha * rcOpacity })
-                                            .stroke({ color: strokeCol, width: strokeWidth, alpha: rcOpacity });
-
-              const dotColor = isPressed ? '#ffffff' : rcColor;
-              const dotR = isPressed ? 5.5 : 3.5;
-              g.circle(xPos + colW / 2, receptorY, dotR).fill({ color: dotColor, alpha: rcOpacity });
-            }
-          }
-
-          // Dynamic Text Layout Bindings
-          if (pixiAppRef.current && (!pixiTextObjectsRef.current || pixiTextObjectsRef.current.length !== keyCount)) {
-            if (pixiTextObjectsRef.current) {
-              pixiTextObjectsRef.current.forEach((t: any) => {
-                try { t.destroy(); } catch (e) {}
-              });
-            }
-
-            const layoutKeys = settings.bindings[keyCount] || [];
-            const textObjects: any[] = [];
-            for (let i = 0; i < keyCount; i++) {
-              const label = (layoutKeys[i] || '').toUpperCase();
-              const text = new Text({
-                text: label,
-                style: {
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  fontSize: 22,
-                  fontWeight: '900',
-                  fill: '#ffffff',
-                  align: 'center',
-                }
-              });
-              text.alpha = 0.25;
-              text.anchor.set(0.5);
-              pixiAppRef.current.stage.addChild(text);
-              textObjects.push(text);
-            }
-            pixiTextObjectsRef.current = textObjects;
-          }
-
-          if (pixiTextObjectsRef.current && pixiTextObjectsRef.current.length === keyCount) {
-            for (let i = 0; i < keyCount; i++) {
-              const txt = pixiTextObjectsRef.current[i];
-              if (txt) {
-                const hasPressed = hasKeyPressedOnceRef.current && hasKeyPressedOnceRef.current[i];
-                if (hasPressed) {
-                  txt.visible = false;
-                } else {
-                  txt.visible = true;
-                  const xPos = colX[i];
-                  const colW = colStyles[i].width;
-                  txt.x = xPos + colW / 2;
-                  txt.y = settings.upsurfaceNoteMode ? receptorY + 50 : receptorY - 50;
-                  txt.alpha = activeColumnsRef.current[i] ? 0.7 : 0.25;
-                }
-              }
-            }
-          }
-
-          // 6. Particle bursts
-          if (!settings.disableParticles) {
-            particlesRef.current = particlesRef.current.filter((p) => {
-              p.x += p.vx;
-              p.y += p.vy;
-              p.alpha -= p.decay;
-
-              if (p.alpha <= 0) return false;
-
-              g.circle(p.x, p.y, p.size).fill({ color: p.color, alpha: p.alpha });
-              return true;
-            });
-          } else if (particlesRef.current.length > 0) {
-            particlesRef.current = [];
-          }
-
-          // 7. Hit Error timing meter
-          const maxMs = 150;
-          const barWidth = 300;
-          const barHeight = 8;
-          const centerX = width / 2;
-          const barY = settings.upsurfaceNoteMode ? receptorY - 55 : receptorY + 55;
-
-          g.roundRect(centerX - barWidth / 2, barY, barWidth, barHeight, 4)
-           .fill({ color: '#0f172a', alpha: 0.75 })
-           .stroke({ color: '#ffffff', width: 1, alpha: 0.15 });
-
-          const orangeColor = '#ec9a29';
-          const greenColor = '#22c55e';
-          const blueColor = '#3b82f6';
-
-          const badWin = badJudg.windowMs;
-          const badX1 = centerX - (badWin / maxMs) * (barWidth / 2);
-          const badX2 = centerX + (badWin / maxMs) * (barWidth / 2);
-          g.rect(badX1, barY, badX2 - badX1, barHeight).fill({ color: orangeColor, alpha: 0.35 });
-
-          const greatWin = greatJudg.windowMs;
-          const greatX1 = centerX - (greatWin / maxMs) * (barWidth / 2);
-          const greatX2 = centerX + (greatWin / maxMs) * (barWidth / 2);
-          g.rect(greatX1, barY, greatX2 - greatX1, barHeight).fill({ color: greenColor, alpha: 0.5 });
-
-          const perfectWin = perfectJudg.windowMs;
-          const perfectX1 = centerX - (perfectWin / maxMs) * (barWidth / 2);
-          const perfectX2 = centerX + (perfectWin / maxMs) * (barWidth / 2);
-          g.rect(perfectX1, barY, perfectX2 - perfectX1, barHeight).fill({ color: blueColor, alpha: 0.7 });
-
-          g.moveTo(centerX, barY - 3).lineTo(centerX, barY + barHeight + 3).stroke({ color: '#ffffff', width: 1.5, alpha: 1.0 });
-
-          const currentTimeScale = Date.now();
-          hitErrorTicksRef.current = hitErrorTicksRef.current.filter(t => currentTimeScale - t.timestamp < 2000);
-          hitErrorTicksRef.current.forEach(t => {
-            const age = currentTimeScale - t.timestamp;
-            const tickAlpha = Math.max(0, 1 - age / 2000);
-            const clampedError = Math.max(-maxMs, Math.min(maxMs, t.error));
-            const tickX = centerX + (clampedError / maxMs) * (barWidth / 2);
-
-            g.moveTo(tickX, barY - 2).lineTo(tickX, barY + barHeight + 2).stroke({ color: t.color, width: 1.5, alpha: tickAlpha });
-          });
-
-          const avgErrorValues = hitErrorTicksRef.current.slice(-30).map(t => t.error);
-          if (avgErrorValues.length > 0) {
-            const avgError = avgErrorValues.reduce((s, v) => s + v, 0) / avgErrorValues.length;
-            const clampedAvg = Math.max(-maxMs, Math.min(maxMs, avgError));
-            const avgX = centerX + (clampedAvg / maxMs) * (barWidth / 2);
-
-            g.moveTo(avgX, barY - 1)
-             .lineTo(avgX - 4, barY - 7)
-             .lineTo(avgX + 4, barY - 7)
-             .closePath()
-             .fill({ color: '#ffffff', alpha: 1.0 })
-             .stroke({ color: '#000000', width: 1, alpha: 0.6 });
-
-            g.moveTo(avgX, barY - 1)
-             .lineTo(avgX, barY + barHeight + 1)
-             .stroke({ color: '#ffffff', width: 1, alpha: 0.4 });
-          }
-
-          if (pixiAppRef.current) {
-            pixiAppRef.current.render();
-          }
-        } catch (err) {
-          console.error("Error drawing PixiJS graphics:", err); if (typeof window !== "undefined") { (window as any).lastPixiError = err; }
         }
-      }
-    } else {
-        // --- CANVAS 2D DRAWING ---
-        ctx.clearRect(0, 0, width, height);
-        const shieldDim = settings.backgroundDim !== undefined ? settings.backgroundDim : 0.60;
-        ctx.fillStyle = `rgba(0, 0, 0, ${shieldDim})`; // solid black playfield shield
-        ctx.fillRect(0, 0, width, height);
 
-        ctx.save();
+        // Build running hit error average
+        let hitErrorAvgMs: number | null = null;
+        const avgErrorValues = hitErrorTicksRef.current.slice(-30).map(t => t.error);
+        if (avgErrorValues.length > 0) {
+          hitErrorAvgMs = avgErrorValues.reduce((s, v) => s + v, 0) / avgErrorValues.length;
+        }
+
+        // Filter expired hit ticks (> 2000ms old)
+        const currentTimeScale = Date.now();
+        hitErrorTicksRef.current = hitErrorTicksRef.current.filter(t => currentTimeScale - t.timestamp < 2000);
+
+        // Filter particles
+        if (!currentSettings.disableParticles) {
+          particlesRef.current = particlesRef.current.filter((p) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha -= p.decay;
+            return p.alpha > 0;
+          });
+        } else if (particlesRef.current.length > 0) {
+          particlesRef.current = [];
+        }
+
+        // Map key bindings for labels
+        const layoutKeys = currentSettings.bindings[keyCount] || [];
+        const keyLabelsMapped = layoutKeys.map((key, i) => {
+          const hasPressed = hasKeyPressedOnceRef.current && hasKeyPressedOnceRef.current[i];
+          return !hasPressed ? key : '';
+        });
+
+        // Check if on a mobile touchscreen device
+        const isMobileDevice = typeof window !== 'undefined' && (
+          window.innerWidth <= 1024 && (
+            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+            window.innerWidth <= 768 ||
+            window.innerHeight < 500
+          )
+        );
+
+        // Execute drawing call
+        activeRendererRef.current.render({
+          width,
+          height,
+          timeMs: visualTime,
+          receptorY,
+          columns: colsLayout,
+          notes: visibleNotes,
+          particles: particlesRef.current,
+          hitErrorTicks: hitErrorTicksRef.current,
+          hitErrorAvgMs,
+          shake: screenShakeRef.current,
+          settingsSlice: currentSettings,
+          showKeyLabels: true,
+          keyLabels: keyLabelsMapped,
+          isFocusMode: isFocusModeRef.current,
+          isMobile: isMobileDevice
+        });
+
+        // Decay screen shake
         if (screenShakeRef.current > 0) {
-          const shakeX = (Math.random() - 0.5) * screenShakeRef.current;
-          const shakeY = (Math.random() - 0.5) * screenShakeRef.current;
-          ctx.translate(shakeX, shakeY);
-          screenShakeRef.current *= 0.9; // decay shake force
+          screenShakeRef.current *= 0.9;
           if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
         }
-
-        // Draw lane background rails & column glows
-        for (let i = 0; i < keyCount; i++) {
-          const xPos = colX[i];
-        const colW = colStyles[i].width;
-
-        // Subtle lane background separators
-        ctx.strokeStyle = `rgba(71,85,105,${settings.laneSeparatorOpacity ?? 0.30})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(xPos, 0);
-        ctx.lineTo(xPos, height);
-        ctx.stroke();
-
-        // Lane-pressed glowing flashes
-        if (laneGlowRef.current[i] > 0) {
-          const glowGrad = ctx.createLinearGradient(
-            xPos, 
-            settings.upsurfaceNoteMode ? 0 : height, 
-            xPos, 
-            receptorY
-          );
-          
-          glowGrad.addColorStop(0, `rgba(59,130,246,${laneGlowRef.current[i] * 0.3})`);
-          glowGrad.addColorStop(1, 'rgba(59,130,246,0)');
-          
-          ctx.fillStyle = glowGrad;
-          ctx.fillRect(xPos, settings.upsurfaceNoteMode ? 0 : receptorY, colW, settings.upsurfaceNoteMode ? receptorY : height - receptorY);
-          
-          laneGlowRef.current[i] *= 0.88; // decay lane glows
-        }
       }
-
-      // Last border outline
-      ctx.strokeStyle = `rgba(71,85,105,${(settings.laneSeparatorOpacity ?? 0.30) * 1.5})`;
-      ctx.strokeRect(0, 0, width, height);
-
-      // 2. DRAW NOTE PATH CONNECTORS (HOLD NOTE CLIPS AND EXTENSIONS)
-      const travelDistance = settings.upsurfaceNoteMode ? (height - receptorY) : receptorY;
-      const scrollTimeMs = 1100 - settings.scrollSpeed * 25;
-      const speedFactor = travelDistance / scrollTimeMs;
-      
-      const visualTime = songTime - (settings.visualOffset || 0);
-
-      // Helper to calculate opacity under Hidden (HD) mod for trails at any Y coordinate
-      const getHiddenOpacity = (yVal: number) => {
-        if (!settings.selectedMods?.includes('HD')) return 1.0;
-        const distancePercent = settings.upsurfaceNoteMode 
-          ? (height - yVal) / (height - (receptorY || 500))
-          : yVal / (receptorY || 500);
-
-        if (distancePercent < 0.35) {
-          return 1.0;
-        } else if (distancePercent < 0.70) {
-          const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
-          return Math.max(0, fadeFactor);
-        } else {
-          return 0.0;
-        }
-      };
-
-      // Helper to dynamically inject alpha into gradient stops based on coordinates
-      const applyFade = (colorStr: string, stopOpacity: number) => {
-        if (colorStr.startsWith('#')) {
-          return hexToRgba(colorStr, stopOpacity);
-        }
-        if (colorStr.startsWith('rgba(')) {
-          const parts = colorStr.substring(5, colorStr.length - 1).split(',');
-          if (parts.length === 4) {
-            const existingAlpha = parseFloat(parts[3]);
-            parts[3] = (existingAlpha * stopOpacity).toFixed(3);
-            return `rgba(${parts.join(',')})`;
-          }
-        }
-        if (colorStr.startsWith('rgb(')) {
-          const parts = colorStr.substring(4, colorStr.length - 1).split(',');
-          return `rgba(${parts.join(',')},${stopOpacity})`;
-        }
-        return colorStr;
-      };
-
-      notesRef.current.forEach((n) => {
-        // Keep missed holds visible!
-        if (n.isMissed && !n.isHit && n.type !== 'hold') return;
-
-        let startY = 0;
-        let endY = 0;
-
-        if (settings.upsurfaceNoteMode) {
-          startY = receptorY + (n.time - visualTime) * speedFactor;
-          if (n.endTime) endY = receptorY + (n.endTime - visualTime) * speedFactor;
-        } else {
-          startY = receptorY - (n.time - visualTime) * speedFactor;
-          if (n.endTime) endY = receptorY - (n.endTime - visualTime) * speedFactor;
-        }
-
-        // Draw long holds bodies
-        if (n.type === 'hold' && n.endTime) {
-          const xPos = colX[n.column];
-          const colW = colStyles[n.column].width;
-          
-          let visualStartY = startY;
-          if (n.isHit && !n.isReleased && !n.isHoldFailed) {
-            visualStartY = receptorY;
-          }
-
-          const isOff = settings.upsurfaceNoteMode 
-            ? (endY < receptorY && visualStartY < receptorY && n.isReleased)
-            : (endY > receptorY && visualStartY > receptorY && n.isReleased);
-
-          if (!isOff) {
-            const clipHeight = visualStartY - endY;
-            
-            ctx.save();
-            ctx.globalAlpha = settings.noteOpacity ?? 1.0;
-            const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, endY);
-            
-            const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
-              ? settings.customSkinColors[4]
-              : '#38bdf8';
-
-            const isCircleMode = settings.playfieldStyle === 'circle' || 
-                                 settings.skinId === 'circles' || 
-                                 settings.skinId === 'glassy-spheres' || 
-                                 settings.skinId === 'hollow-rings';
-
-            const fadeStart = getHiddenOpacity(visualStartY);
-            const fadeEnd = getHiddenOpacity(endY);
-
-            if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-              const rpColor = settings.rhythmplusColor || '#ffff00';
-              if (n.isHit && !n.isReleased) {
-                if (n.releaseGraceUntil) {
-                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeStart));
-                  holdGrad.addColorStop(1, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeEnd));
-                } else {
-                  holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
-                  holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
-                }
-              } else if (n.isHoldFailed || n.isMissed) {
-                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.5)', fadeStart));
-                holdGrad.addColorStop(1, applyFade('rgba(100,116,139,0.5)', fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
-                holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
-              }
-            } else if (settings.playfieldStyle !== 'circle') {
-              const rmColor = settings.rhythmmaniaNoteColor || '#00b0ff';
-              if (n.isHit && !n.isReleased) {
-                if (n.releaseGraceUntil) {
-                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, applyFade(flicker ? hexToRgba(rmColor, 0.8) : hexToRgba(rmColor, 0.2), fadeStart));
-                  holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
-                } else {
-                  holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.8), fadeStart));
-                  holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
-                }
-              } else if (n.isHoldFailed || n.isMissed) {
-                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
-                holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.6), fadeStart));
-                holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.2), fadeEnd));
-              }
-            } else {
-              if (n.isHit && !n.isReleased) {
-                if (n.releaseGraceUntil) {
-                  const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                  holdGrad.addColorStop(0, applyFade(flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)', fadeStart));
-                  holdGrad.addColorStop(1, applyFade('rgba(161,117,14,0.3)', fadeEnd));
-                } else {
-                  holdGrad.addColorStop(0, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)', fadeStart));
-                  holdGrad.addColorStop(1, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)', fadeEnd));
-                }
-              } else if (n.isHoldFailed || n.isMissed) {
-                holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
-                holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)', fadeStart));
-                holdGrad.addColorStop(1, applyFade(settings.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)', fadeEnd));
-              }
-            }
-            
-            ctx.fillStyle = holdGrad;
-            
-            const padding = isFocusMode ? 3 : 12;
-            const notePadding = isFocusMode ? 1.5 : 6;
-            const useNotePadding = settings.squareRenderStyle === 'rhythmplus' && !isCircleMode;
-            
-            const rx = xPos + (useNotePadding ? notePadding : padding);
-            const rw = colW - (useNotePadding ? notePadding : padding) * 2;
-            
-            let drawY = Math.min(visualStartY, endY);
-            let drawH = Math.abs(clipHeight);
-            
-            if (useNotePadding) {
-              drawY -= 4;
-              drawH += 8;
-            }
-            
-            ctx.beginPath();
-            if (settings.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-              ctx.rect(rx, drawY, rw, drawH);
-            } else {
-              if (isCircleMode) {
-                ctx.roundRect(rx, drawY, rw, drawH, rw / 2); // Pill-style capsules
-              } else if (settings.skinId === 'classic-bar' || settings.skinId === 'minimalist') {
-                ctx.rect(rx, drawY, rw, drawH); // Pure flat rectangles
-              } else {
-                ctx.roundRect(rx, drawY, rw, drawH, 6);
-              }
-            }
-            ctx.fill();
-            
-            if (!(settings.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-              const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, endY);
-              const baseStrokeColor = n.isHit && !n.isReleased 
-                ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee') 
-                : 'rgba(56,189,248,0.4)';
-              strokeGrad.addColorStop(0, applyFade(baseStrokeColor, fadeStart));
-              strokeGrad.addColorStop(1, applyFade(baseStrokeColor, fadeEnd));
-              
-              ctx.strokeStyle = strokeGrad;
-              ctx.lineWidth = 2;
-              ctx.beginPath();
-              ctx.moveTo(xPos + colW / 2, visualStartY);
-              ctx.lineTo(xPos + colW / 2, endY);
-              ctx.stroke();
-            }
-            
-            ctx.restore();
-          }
-        }
-      });
-
-      // 3. DRAW NOTES INDIVIDUAL BODIES
-      const drawEndReceptor = (ey: number, xPosVal: number, colWVal: number, notePaddingVal: number, noteObj: any) => {
-        const rx = xPosVal + notePaddingVal;
-        const ry = ey - 10;
-        const rw = colWVal - notePaddingVal * 2;
-        const rh = 20;
-
-        ctx.save();
-        
-        // Apply Hidden Mod fade factor for the end receptor!
-        let currentOpacity = settings.noteOpacity ?? 1.0;
-        if (settings.selectedMods?.includes('HD')) {
-          const distancePercent = settings.upsurfaceNoteMode 
-            ? (height - ey) / (height - (receptorY || 500))
-            : ey / (receptorY || 500);
-
-          if (distancePercent < 0.35) {
-            currentOpacity = currentOpacity;
-          } else if (distancePercent < 0.70) {
-            const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
-            currentOpacity *= Math.max(0, fadeFactor);
-          } else {
-            currentOpacity = 0.0;
-          }
-        }
-        
-        // If the hold failed or was missed, make the end receptor look dimmed/faded!
-        if (noteObj.isHoldFailed || noteObj.isMissed) {
-          currentOpacity *= 0.35;
-        }
-        
-        ctx.globalAlpha = currentOpacity;
-
-        const isNoteCircleMode = settings.playfieldStyle === 'circle' || 
-                                 settings.skinId === 'circles' || 
-                                 settings.skinId === 'glassy-spheres' || 
-                                 settings.skinId === 'hollow-rings';
-
-        if (isNoteCircleMode) {
-          // Circle mode end receptor: Concentric target ring with a dashed outer border
-          // Very distinct, readable, and aesthetic!
-          const cx = rx + rw / 2;
-          const cy = ry + rh / 2;
-          const r = (colWVal * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-
-          const noteColor = colStyles[noteObj.column].color;
-
-          ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          ctx.strokeStyle = noteColor;
-          ctx.lineWidth = 3;
-          ctx.setLineDash([4, 4]); // Dashed outer ring for differentiation!
-          ctx.stroke();
-          ctx.setLineDash([]); // Reset dash
-
-          // Luminous inner circle
-          ctx.beginPath();
-          ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
-          ctx.fillStyle = '#ffffff';
-          ctx.shadowColor = noteColor;
-          ctx.shadowBlur = 12;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        } else {
-          // Bar mode end receptor: Hollow bar with an elegant inner glowing double-border
-          // and diagonal hatch pattern or dashed borders!
-          ctx.beginPath();
-          if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-            ctx.strokeStyle = settings.rhythmplusColor || '#ffff00';
-            ctx.lineWidth = 4;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(rx, ry + rh / 2);
-            ctx.lineTo(rx + rw, ry + rh / 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-          } else {
-            const noteColor = colStyles[noteObj.column].color;
-            
-            ctx.roundRect(rx, ry, rw, rh, 4);
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-
-            // Solid inner capsule that has a distinct color & dash pattern
-            ctx.save();
-            ctx.beginPath();
-            ctx.roundRect(rx + 4, ry + 4, rw - 8, rh - 8, 2);
-            ctx.fillStyle = noteColor;
-            ctx.globalAlpha = currentOpacity * 0.75;
-            ctx.fill();
-            ctx.restore();
-
-            // Draw distinct cross/hatch lines inside the end receptor for high differentiation!
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            // Left and right side double-stripes to mark unhold/release
-            ctx.moveTo(rx + 6, ry + 3);
-            ctx.lineTo(rx + 12, ry + rh - 3);
-            ctx.moveTo(rx + 10, ry + 3);
-            ctx.lineTo(rx + 16, ry + rh - 3);
-
-            ctx.moveTo(rx + rw - 6, ry + 3);
-            ctx.lineTo(rx + rw - 12, ry + rh - 3);
-            ctx.moveTo(rx + rw - 10, ry + 3);
-            ctx.lineTo(rx + rw - 16, ry + rh - 3);
-            ctx.stroke();
-          }
-        }
-
-        ctx.restore();
-      };
-
-      notesRef.current.forEach((n) => {
-        // Skip normal notes that are hit or missed
-        if (n.type === 'normal' && (n.isHit || n.isMissed)) {
-          return;
-        }
-
-        // Skip completely consumed holds
-        if (n.type === 'hold' && n.isHit && n.isReleased) {
-          return;
-        }
-
-        const xPos = colX[n.column];
-        const colW = colStyles[n.column].width;
-        const notePadding = isFocusMode ? 1.5 : 6;
-
-        // Draw start head for unhit hold notes or normal notes
-        const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
-        
-        if (shouldDrawHead) {
-          let noteY = 0;
-          if (settings.upsurfaceNoteMode) {
-            noteY = receptorY + (n.time - visualTime) * speedFactor;
-          } else {
-            noteY = receptorY - (n.time - visualTime) * speedFactor;
-          }
-
-          const padding = 60;
-          const isVisible = noteY >= -padding && noteY <= height + padding;
-
-          if (isVisible && !(n.type === 'hold' && settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle')) {
-            const rx = xPos + notePadding;
-            const ry = noteY - 10;
-            const rw = colW - notePadding * 2;
-            const rh = 20;
-
-            ctx.save();
-            let currentOpacity = settings.noteOpacity ?? 1.0;
-            if (settings.selectedMods?.includes('HD')) {
-              const distancePercent = settings.upsurfaceNoteMode 
-                ? (height - noteY) / (height - (receptorY || 500))
-                : noteY / (receptorY || 500);
-
-              if (distancePercent < 0.35) {
-                currentOpacity = currentOpacity;
-              } else if (distancePercent < 0.70) {
-                const fadeFactor = 1 - (distancePercent - 0.35) / 0.35;
-                currentOpacity *= Math.max(0, fadeFactor);
-              } else {
-                currentOpacity = 0.0;
-              }
-            }
-            
-            // If it's a hold head and has failed / missed, dim it beautifully!
-            if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
-              currentOpacity *= 0.35;
-            }
-
-            ctx.globalAlpha = currentOpacity;
-            
-            // Define a local helper to enforce custom note rounding overrides
-            const drawNoteShape = (radiusDefault: number) => {
-              ctx.beginPath();
-              if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-                ctx.rect(rx, ry + rh / 2 - 4, rw, 8); // RhythmPlus style notes are thin lines
-              } else {
-                ctx.roundRect(rx, ry, rw, rh, radiusDefault);
-              }
-            };
-
-            let noteFill: string = '';
-            let noteStroke: string = colStyles[n.column].color;
-
-            const isNoteCircleMode = settings.playfieldStyle === 'circle' || 
-                                     settings.skinId === 'circles' || 
-                                     settings.skinId === 'glassy-spheres' || 
-                                     settings.skinId === 'hollow-rings';
-
-            if (isNoteCircleMode) {
-              noteFill = settings.circleNoteColor || '#00b0ff';
-              noteStroke = settings.circleNoteColor || '#00b0ff';
-            } else if (settings.squareRenderStyle === 'rhythmplus') {
-              noteFill = settings.rhythmplusColor || '#ffff00';
-              noteStroke = settings.rhythmplusColor || '#ffff00';
-            } else {
-              noteFill = settings.rhythmmaniaNoteColor || '#00b0ff';
-              noteStroke = settings.rhythmmaniaNoteColor || '#00b0ff';
-            }
-
-            // Apply skin theme aesthetic note gradients
-            const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
-            if (settings.skinId === 'minimalist') {
-              ctx.fillStyle = noteFill;
-              ctx.strokeStyle = noteStroke;
-              ctx.lineWidth = 2;
-              
-              drawNoteShape(3);
-              ctx.fill();
-              ctx.stroke();
-            } else if (settings.skinId === 'classic-bar') {
-              grad.addColorStop(0, '#ffffff');
-              grad.addColorStop(0.35, noteFill);
-              grad.addColorStop(1, 'rgba(8, 8, 12, 0.9)');
-              ctx.fillStyle = grad;
-              ctx.strokeStyle = noteStroke;
-              ctx.lineWidth = 1.5;
-
-              drawNoteShape(0); // 0 means square if standard
-              ctx.fill();
-              ctx.stroke();
-
-              // Authentic white target stripe
-              ctx.fillStyle = '#ffffff';
-              ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
-            } else if (settings.playfieldStyle === 'circle' || settings.skinId === 'circles' || settings.skinId === 'glassy-spheres' || settings.skinId === 'hollow-rings') {
-              const cx = rx + rw / 2;
-              const cy = ry + rh / 2;
-              const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-
-              const noteColor = colStyles[n.column].color;
-
-              ctx.beginPath();
-              ctx.arc(cx, cy, r, 0, Math.PI * 2);
-              
-              ctx.fillStyle = noteColor;
-              ctx.shadowColor = noteColor;
-              ctx.shadowBlur = 10;
-              ctx.fill();
-              ctx.shadowBlur = 0;
-
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 2;
-              ctx.stroke();
-            } else if (settings.squareRenderStyle === 'rhythmplus' && settings.playfieldStyle !== 'circle') {
-              grad.addColorStop(0, noteFill);
-              grad.addColorStop(1, noteFill);
-              ctx.fillStyle = grad;
-              drawNoteShape(0);
-              ctx.fill();
-            } else if (settings.playfieldStyle !== 'circle') {
-              grad.addColorStop(0, noteFill);
-              grad.addColorStop(1, noteFill);
-              ctx.fillStyle = grad;
-              ctx.strokeStyle = noteStroke;
-              ctx.lineWidth = 2.5;
-              drawNoteShape(4);
-              ctx.fill();
-              ctx.stroke();
-              
-              // Subtle glow
-              ctx.shadowColor = noteFill;
-              ctx.shadowBlur = 8;
-              ctx.stroke();
-              ctx.shadowBlur = 0;
-            } else {
-              // Default Neon and Cyberpunk flows
-              grad.addColorStop(0, noteStroke);
-              grad.addColorStop(0.3, noteFill);
-              if (settings.skinId === 'cyberpunk') {
-                grad.addColorStop(0.85, 'rgba(15, 23, 42, 0.95)');
-              } else {
-                grad.addColorStop(1, 'rgba(15,23,42,0.85)');
-              }
-
-              ctx.fillStyle = grad;
-              ctx.strokeStyle = noteStroke;
-              ctx.lineWidth = 1.5;
-              
-              drawNoteShape(5);
-              ctx.fill();
-              ctx.stroke();
-
-              ctx.fillStyle = '#ffffff';
-              ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
-            }
-
-            ctx.restore();
-          }
-        }
-
-        // Draw end receptor for hold notes
-        if (n.type === 'hold' && n.endTime && !n.isReleased) {
-          let endNoteY = 0;
-          if (settings.upsurfaceNoteMode) {
-            endNoteY = receptorY + (n.endTime - visualTime) * speedFactor;
-          } else {
-            endNoteY = receptorY - (n.endTime - visualTime) * speedFactor;
-          }
-
-          const padding = 60;
-          const isEndVisible = endNoteY >= -padding && endNoteY <= height + padding;
-
-          if (isEndVisible) {
-            drawEndReceptor(endNoteY, xPos, colW, notePadding, n);
-          }
-        }
-      });
-
-      // 4. DRAW GAMEPLAY RECEPTOR BUTTONS (HIT LINE INDICATION)
-      const isMobileDevice = typeof window !== 'undefined' && (
-        window.innerWidth <= 1024 && (
-          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-          window.innerWidth <= 768 ||
-          window.innerHeight < 500
-        )
-      );
-
-      // On mobile standard view, highlight the bottom 40% tap zone with a highly subtle glassmorphism hint
-      if (isMobileDevice && !isFocusMode) {
-        const hitZoneTop = height * 0.60;
-        ctx.save();
-        
-        // 1. Draw ultra subtle glassmorphism backing (keeps incoming notes fully visible)
-        const fillGrad = ctx.createLinearGradient(0, hitZoneTop, 0, height);
-        fillGrad.addColorStop(0, 'rgba(8, 8, 12, 0.12)');
-        fillGrad.addColorStop(1, 'rgba(5, 5, 8, 0.35)');
-        ctx.fillStyle = fillGrad;
-        ctx.fillRect(0, hitZoneTop, width, height - hitZoneTop);
-        
-        // 2. Draw neat, extremely subtle neon-cyan threshold separator line at the 60% mark
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.35)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(0, hitZoneTop);
-        ctx.lineTo(width, hitZoneTop);
-        ctx.stroke();
-
-        // 3. Draw lane separators in the touch zone for clear finger positioning
-        for (let i = 1; i < keyCount; i++) {
-          const xPos = colX[i];
-          ctx.strokeStyle = 'rgba(71, 85, 105, 0.1)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(xPos, hitZoneTop);
-          ctx.lineTo(xPos, height);
-          ctx.stroke();
-        }
-
-        ctx.restore();
-      }
-
-      // Draw beautiful, highly visible receptors (the landing "base") for all columns
-      for (let i = 0; i < keyCount; i++) {
-        const xPos = colX[i];
-        const colW = colStyles[i].width;
-        const isPressed = activeColumnsRef.current[i];
-        
-        const isCircleMode = settings.playfieldStyle === 'circle' || 
-                             settings.skinId === 'circles' || 
-                             settings.skinId === 'glassy-spheres' || 
-                             settings.skinId === 'hollow-rings';
-
-        let rcColor = colStyles[i].color;
-        if (isCircleMode) {
-          rcColor = settings.circleReceptorColor || '#00b0ff';
-        } else if (settings.squareRenderStyle !== 'rhythmplus') {
-          rcColor = settings.rhythmmaniaReceptorColor || '#00b0ff';
-        }
-
-        ctx.save();
-        ctx.globalAlpha = settings.receptorOpacity ?? 1.0;
-
-        {
-          // Standard or selected receptor style block
-          
-          if (isCircleMode) {
-            const cx = xPos + colW / 2;
-            const cy = receptorY;
-            const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
-
-            if (isPressed) {
-              ctx.fillStyle = rcColor;
-              ctx.beginPath();
-              ctx.arc(cx, cy, r, 0, Math.PI * 2);
-              ctx.fill();
-
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 3;
-              ctx.beginPath();
-              ctx.arc(cx, cy, r, 0, Math.PI * 2);
-              ctx.stroke();
-
-              ctx.fillStyle = '#ffffff';
-              ctx.beginPath();
-              ctx.arc(cx, cy, r * 0.35, 0, Math.PI * 2);
-              ctx.fill();
-            } else {
-              ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-              ctx.lineWidth = 1.5;
-              ctx.beginPath();
-              ctx.arc(cx, cy, r, 0, Math.PI * 2);
-              ctx.setLineDash([4, 3]);
-              ctx.stroke();
-              ctx.setLineDash([]);
-              
-              ctx.fillStyle = 'rgba(15, 23, 42, 0.15)';
-              ctx.beginPath();
-              ctx.arc(cx, cy, r, 0, Math.PI * 2);
-              ctx.fill();
-            }
-          } else if (settings.squareRenderStyle === 'rhythmplus') {
-            // ==================== RHYTHMPLUS STYLE ====================
-            const rx = xPos + 1;
-            const ry = receptorY - 2;
-            const rw = colW - 2;
-            const rh = 4;
-
-            ctx.fillStyle = isPressed 
-              ? '#ffffff' 
-              : 'rgba(255, 255, 255, 0.4)';
-            
-            ctx.beginPath();
-            ctx.rect(rx, ry, rw, rh);
-            ctx.fill();
-
-            if (isPressed) {
-              ctx.shadowColor = '#ffffff';
-              ctx.shadowBlur = 10;
-              ctx.fillStyle = '#ffffff';
-              ctx.fill();
-              ctx.shadowBlur = 0;
-            }
-          } else {
-            // ==================== RHYTHMMANIA STYLE (Rounded rectangle) ====================
-            const rx = xPos + 6;
-            const ry = receptorY - 14;
-            const rw = colW - 12;
-            const rh = 28;
-
-            ctx.strokeStyle = isPressed ? '#ffffff' : hexToRgba(rcColor, 0.85);
-            ctx.lineWidth = isPressed ? 3.5 : 2;
-            ctx.fillStyle = isPressed ? hexToRgba(rcColor, 0.45) : 'rgba(15, 23, 42, 0.85)';
-
-            ctx.beginPath();
-            ctx.roundRect(rx, ry, rw, rh, 6);
-            ctx.fill();
-            ctx.stroke();
-
-            // Physical Center feedback dot
-            ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
-            ctx.beginPath();
-            ctx.arc(xPos + colW / 2, receptorY, isPressed ? 5.5 : 3.5, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          // Draw binding character labels underneath each receptor button (PC and Mobile standard layout)
-          const layoutKeys = settings.bindings[keyCount];
-          const hasPressed = hasKeyPressedOnceRef.current && hasKeyPressedOnceRef.current[i];
-          if (!hasPressed && layoutKeys && layoutKeys[i]) {
-            ctx.font = '900 22px system-ui, -apple-system, sans-serif';
-            ctx.fillStyle = isPressed ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.25)';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(
-              layoutKeys[i].toUpperCase(), 
-              xPos + colW / 2, 
-              settings.upsurfaceNoteMode ? receptorY + 50 : receptorY - 50
-            );
-          }
-        }
-
-        ctx.restore();
-      }
-
-      // 5. RENDER PARTICLES BURST GENERATION
-      if (!settings.disableParticles) {
-        particlesRef.current = particlesRef.current.filter((p) => {
-          p.x += p.vx;
-          p.y += p.vy;
-          p.alpha -= p.decay;
-          
-          if (p.alpha <= 0) {
-            return false;
-          }
-
-          ctx.save();
-          ctx.fillStyle = p.color;
-          ctx.globalAlpha = p.alpha;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-          return true;
-        });
-      } else if (particlesRef.current.length > 0) {
-        particlesRef.current = [];
-      }
-
-      // 6. DRAW PLAYTIME ELAPSED TIMING BAR AND COMBOS
-      ctx.restore(); // POP screen shake translations
-
-      // ==================== 5.5 DRAW TIMING (HIT ERROR) METER ====================
-      const maxMs = 150; // Max visible millisecond timing boundary
-      const barWidth = 300; // Bar horizontal length in pixels (increased from 180 for higher timing visibility)
-      const barHeight = 8; // Bar vertical height
-      
-      const centerX = width / 2;
-      const barY = settings.upsurfaceNoteMode ? receptorY - 55 : receptorY + 55;
-      
-      ctx.save();
-      
-      // Draw bar container background
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)'; // Slate 900 tint
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.beginPath();
-      ctx.roundRect(centerX - barWidth / 2, barY, barWidth, barHeight, 4);
-      ctx.fill();
-      ctx.stroke();
-
-      // Render judgment color regions
-      const orangeColor = 'rgba(236, 154, 41, 0.35)'; // Good / Bad regions (50-range)
-      const greenColor = 'rgba(34, 197, 94, 0.5)';    // Great region (100-range)
-      const blueColor = 'rgba(59, 130, 246, 0.7)';     // Marvelous & Perfect regions (300-range)
-      
-      // 1. Bad window region (Orange)
-      const badWin = badJudg.windowMs;
-      const badX1 = centerX - (badWin / maxMs) * (barWidth / 2);
-      const badX2 = centerX + (badWin / maxMs) * (barWidth / 2);
-      ctx.fillStyle = orangeColor;
-      ctx.fillRect(badX1, barY, badX2 - badX1, barHeight);
-      
-      // 2. Great window region (Green)
-      const greatWin = greatJudg.windowMs;
-      const greatX1 = centerX - (greatWin / maxMs) * (barWidth / 2);
-      const greatX2 = centerX + (greatWin / maxMs) * (barWidth / 2);
-      ctx.fillStyle = greenColor;
-      ctx.fillRect(greatX1, barY, greatX2 - greatX1, barHeight);
-      
-      // 3. Perfect region (Blue)
-      const perfectWin = perfectJudg.windowMs;
-      const perfectX1 = centerX - (perfectWin / maxMs) * (barWidth / 2);
-      const perfectX2 = centerX + (perfectWin / maxMs) * (barWidth / 2);
-      ctx.fillStyle = blueColor;
-      ctx.fillRect(perfectX1, barY, perfectX2 - perfectX1, barHeight);
-
-      // Centered perfect line (0ms mark)
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(centerX, barY - 3);
-      ctx.lineTo(centerX, barY + barHeight + 3);
-      ctx.stroke();
-
-      // Render fading active hit ticks
-      const currentTimeScale = Date.now();
-      hitErrorTicksRef.current = hitErrorTicksRef.current.filter(t => currentTimeScale - t.timestamp < 2000);
-      
-      hitErrorTicksRef.current.forEach(t => {
-        const age = currentTimeScale - t.timestamp;
-        const tickAlpha = Math.max(0, 1 - age / 2000);
-        
-        const clampedError = Math.max(-maxMs, Math.min(maxMs, t.error));
-        const tickX = centerX + (clampedError / maxMs) * (barWidth / 2);
-        
-        ctx.save();
-        ctx.globalAlpha = tickAlpha;
-        ctx.strokeStyle = t.color;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(tickX, barY - 2);
-        ctx.lineTo(tickX, barY + barHeight + 2);
-        ctx.stroke();
-        ctx.restore();
-      });
-
-      // Render simple rolling average white indicator arrow pointer
-      const avgErrorValues = hitErrorTicksRef.current.slice(-30).map(t => t.error);
-      if (avgErrorValues.length > 0) {
-        const avgError = avgErrorValues.reduce((s, v) => s + v, 0) / avgErrorValues.length;
-        const clampedAvg = Math.max(-maxMs, Math.min(maxMs, avgError));
-        const avgX = centerX + (clampedAvg / maxMs) * (barWidth / 2);
-        
-        // Draw white arrow head pointing down
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-        ctx.lineWidth = 1;
-        
-        ctx.beginPath();
-        ctx.moveTo(avgX, barY - 1);
-        ctx.lineTo(avgX - 4, barY - 7);
-        ctx.lineTo(avgX + 4, barY - 7);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        
-        // Intersecting fine line inside track
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(avgX, barY - 1);
-        ctx.lineTo(avgX, barY + barHeight + 1);
-        ctx.stroke();
-      }
-      
-      ctx.restore();
-    }
 
       // Check if song completed naturally or run loops
       const songDurationMs = beatmap.duration * 1000;
@@ -2946,20 +1700,28 @@ export default function GameplayCanvas({
         scoreStateRef.current.completed = true;
         isPlayingRef.current = false;
         mainAudio.stop();
+        if (videoRef.current) {
+          try { videoRef.current.pause(); } catch (e) {}
+        }
         
-        setTimeout(() => {
-          onFinish(scoreStateRef.current, replayFramesRef.current);
+        if (finishTimeoutRef.current) {
+          clearTimeout(finishTimeoutRef.current);
+        }
+        finishTimeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            onFinish(scoreStateRef.current, replayFramesRef.current);
+          }
         }, 1200);
       }
 
-      if (isPlayingRef.current && !isPaused) {
+      if ((isPlayingRef.current && !isPaused) || showCountdown > 0 || unpauseCountdown > 0) {
         requestId = requestAnimationFrame(render);
         animationFrameRef.current = requestId;
       }
     };
 
     // Begin looping
-    if (isPlayingRef.current && !isPaused) {
+    if ((isPlayingRef.current && !isPaused) || showCountdown > 0 || unpauseCountdown > 0) {
       requestId = requestAnimationFrame(render);
       animationFrameRef.current = requestId;
     } else {
@@ -2970,7 +1732,7 @@ export default function GameplayCanvas({
       cancelAnimationFrame(requestId);
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [beatmap, settings, isPaused, showCountdown, startDelayMs]);
+  }, [beatmap, settings.renderEngine, isPaused, showCountdown, unpauseCountdown, startDelayMs]);
 
   // Pause / Resume Handlers
   const pauseGameplay = () => {
@@ -3188,24 +1950,19 @@ export default function GameplayCanvas({
     };
 
     const simCheckAutonomousMisses = (currentTime: number) => {
-      notesRef.current.forEach((n) => {
-        if (!n.isHit && !n.isMissed && currentTime - n.time > missJudg.windowMs) {
-          n.isMissed = true;
-          if (n.type === 'hold') {
-            n.isHoldFailed = true;
-          }
-          simApplyJudgement(missJudg);
-        }
-        if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime && currentTime - n.endTime > missJudg.windowMs) {
-          if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
-             n.isHoldFailed = true;
-             simApplyJudgement(missJudg);
-          } else if (!n.releaseGraceUntil) {
-             n.isHoldFailed = true;
-             simApplyJudgement(missJudg);
+      checkNotesAutonomousMisses(
+        notesRef.current,
+        currentTime,
+        missJudg.windowMs,
+        (n, isDoubleMiss) => {
+          if (isDoubleMiss) {
+            simApplyJudgement(missJudg);
+            simApplyJudgement(missJudg);
+          } else {
+            simApplyJudgement(missJudg);
           }
         }
-      });
+      );
     };
 
     // Play chronological replay frames up to targetTimeMs
@@ -3291,6 +2048,10 @@ export default function GameplayCanvas({
   };
 
   const restartMap = () => {
+    if (finishTimeoutRef.current) {
+      clearTimeout(finishTimeoutRef.current);
+      finishTimeoutRef.current = null;
+    }
     mainAudio.stop();
     setIsPrePlay(true);
     initializeGameplay(false);
@@ -3350,7 +2111,7 @@ export default function GameplayCanvas({
         }}
         className="flex flex-col items-center justify-center w-full h-screen bg-[#050508] text-slate-100 p-6 relative overflow-hidden select-none cursor-pointer"
         style={{
-          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url("${beatmap.bgUrl}")` : 'none',
+          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url("${sanitizeCssUrl(beatmap.bgUrl || '')}")` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
@@ -3457,7 +2218,7 @@ export default function GameplayCanvas({
             <div 
               className="absolute inset-0 bg-cover bg-center pointer-events-none"
               style={{
-                backgroundImage: `url("${beatmap.bgUrl}")`,
+                backgroundImage: `url("${sanitizeCssUrl(beatmap.bgUrl)}")`,
                 zIndex: 0
               }}
             />
@@ -3614,7 +2375,7 @@ export default function GameplayCanvas({
                         <span className="font-mono text-cyan-400 font-extrabold">{settings.scrollSpeed}x</span>
                       </div>
                       <input 
-                        type="range" min="5" max="40" step="1"
+                        type="range" min="5" max="80" step="1"
                         value={settings.scrollSpeed} 
                         onChange={(e) => updateSettings?.({ scrollSpeed: Number(e.target.value) })}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -4054,7 +2815,11 @@ export default function GameplayCanvas({
                                   simulateGameToTime(newTime);
                                   audioTimeRef.current = newTime;
                                   if (videoRef.current) {
-                                      videoRef.current.currentTime = newTime / 1000;
+                                      const now = performance.now();
+                                      if (now - lastVideoSeekTimeRef.current > 100) {
+                                          videoRef.current.currentTime = newTime / 1000;
+                                          lastVideoSeekTimeRef.current = now;
+                                      }
                                   }
                               }}
                               className="w-full h-2 rounded-full appearance-none outline-none cursor-pointer group-hover:h-2.5 transition-all z-10 block bg-white/20"
@@ -4148,7 +2913,7 @@ export default function GameplayCanvas({
             <div 
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
               style={{
-                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url("${beatmap.bgUrl}")`,
+                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url("${sanitizeCssUrl(beatmap.bgUrl)}")`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 zIndex: 5,
@@ -4177,8 +2942,6 @@ export default function GameplayCanvas({
               src={beatmap.videoUrl}
               muted
               playsInline
-              loop
-              autoPlay
               onError={(e) => {
                 console.warn('Video failed to render or decode');
                 setIsVideoError(true);

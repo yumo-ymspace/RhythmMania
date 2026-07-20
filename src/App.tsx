@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord } from './types';
@@ -25,6 +25,7 @@ import { mainAudio } from './audio/AudioEngine';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount } from './utils/beatmapParser';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
+import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl } from './utils/securityLimits';
 
 
 const PAGE_TRANSITION_VARIANTS = {
@@ -71,7 +72,20 @@ export default function App() {
   }, []);
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
-  const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<GameSettings>(() => {
+    if (typeof window !== 'undefined') {
+      const savedSettingsText = localStorage.getItem('rhythm_mania_v1_settings');
+      if (savedSettingsText) {
+        try {
+          const parsed = JSON.parse(savedSettingsText);
+          return sanitizeSettings(parsed, DEFAULT_SETTINGS);
+        } catch (e) {
+          console.warn('Failed parsing settings from local storage, fallback applied.');
+        }
+      }
+    }
+    return DEFAULT_SETTINGS;
+  });
   const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/Ferineon.webp');
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [isMobileLandscape, setIsMobileLandscape] = useState<boolean>(false);
@@ -159,12 +173,23 @@ export default function App() {
       try {
         const storedHistory = localStorage.getItem('rhythm_mania_v1_play_history');
         if (storedHistory) {
-          setPlayHistory(JSON.parse(storedHistory));
+          const parsed = JSON.parse(storedHistory);
+          if (Array.isArray(parsed)) {
+            const sanitized = parsed
+              .map(item => sanitizeHistoryRecord(item, DEFAULT_SETTINGS))
+              .filter((item): item is PlayHistoryRecord => item !== null);
+            setPlayHistory(sanitized);
+          }
         }
         
         const storedLimit = localStorage.getItem('rhythm_mania_v1_history_limit');
         if (storedLimit) {
-          setHistoryLimit(Number(storedLimit));
+          const parsedLimit = Number(storedLimit);
+          if (!isNaN(parsedLimit) && parsedLimit >= 5 && parsedLimit <= 500) {
+            setHistoryLimit(parsedLimit);
+          } else {
+            setHistoryLimit(50);
+          }
         }
       } catch (e) {
         console.error('Failed to load local history logs:', e);
@@ -283,25 +308,24 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [showSettings]);
 
+  // Debounced settings persistence to local storage
+  const isInitialSettingsLoad = useRef(true);
   useEffect(() => {
-    const savedSettingsText = localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
-    if (savedSettingsText) {
-      try {
-        const parsed = JSON.parse(savedSettingsText);
-        const merged = {
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          bindings: {
-            ...DEFAULT_SETTINGS.bindings,
-            ...(parsed.bindings || {})
-          }
-        };
-        setSettings(merged);
-      } catch (e) {
-        console.warn('Failed parsing settings from local storage, fallback applied.');
-      }
+    if (isInitialSettingsLoad.current) {
+      isInitialSettingsLoad.current = false;
+      return;
     }
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_SETTINGS_KEY, JSON.stringify(settings));
+      } catch (err) {
+        console.error("Failed to serialize settings:", err instanceof Error ? err.message : String(err));
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [settings]);
 
+  useEffect(() => {
     const loadMapsFromIndexedDB = async () => {
       try {
         const maps = await storageManager.getAllBeatmaps();
@@ -326,7 +350,7 @@ export default function App() {
     loadMapsFromIndexedDB();
   }, []);
 
-  const updateSettings = (newSettings: Partial<GameSettings>) => {
+  const updateSettings = useCallback((newSettings: Partial<GameSettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
       const safePayload: GameSettings = {
@@ -378,15 +402,9 @@ export default function App() {
         }
       }
 
-      try {
-        localStorage.setItem(LOCAL_STORAGE_SETTINGS_KEY, JSON.stringify(safePayload));
-      } catch (err) {
-        console.error("Failed to serialize settings. Pruning circular fields failed:", err instanceof Error ? err.message : String(err));
-      }
-
       return safePayload;
     });
-  };
+  }, []);
 
   const handleImportBeatmap = async (map: Beatmap) => {
     setCustomMaps(prev => {
@@ -441,8 +459,17 @@ export default function App() {
       console.log('Fullscreen exit error:', e);
     }
 
-    // Only commit to performance logs if they are NOT playing a spectator replay and it's a mania map (mode 3)
-    if (selectedBeatmap && !activeReplayRecord && selectedBeatmap.mode === 3 && finalScore.completed && !finalScore.failed) {
+    // Only commit to performance logs if they are NOT playing a spectator replay and it's a mania map (mode 3, or undefined/null/keyCount in mania range)
+    const isMania = selectedBeatmap && (
+      selectedBeatmap.mode === 3 ||
+      selectedBeatmap.mode === undefined ||
+      selectedBeatmap.mode === null ||
+      (selectedBeatmap.keyCount >= 2 && selectedBeatmap.keyCount <= 8)
+    );
+
+    const newRecordId = `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+    if (selectedBeatmap && !activeReplayRecord && isMania && finalScore.completed && !finalScore.failed) {
       let gradeChar = 'D';
       const acc = finalScore.accuracy;
       if (acc >= 100) gradeChar = 'SS';
@@ -453,7 +480,7 @@ export default function App() {
 
       const targetBm = activePlayBeatmap || selectedBeatmap;
       const newRecord: PlayHistoryRecord = {
-        id: `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        id: newRecordId,
         timestamp: Date.now(),
         beatmapId: targetBm.id,
         beatmapTitle: targetBm.title,
@@ -465,7 +492,7 @@ export default function App() {
         maxCombo: finalScore.maxCombo,
         grade: gradeChar,
         isFailed: !!finalScore.failed,
-        scoreState: finalScore,
+        scoreState: { ...finalScore, recordId: newRecordId },
         replayFrames: replayFrames,
         recordedSettings: { ...settings },
         mods: settings.selectedMods ? [...settings.selectedMods] : []
@@ -494,7 +521,7 @@ export default function App() {
     }
 
     // Do NOT clear spectator frames here so that the results selection knows we are in replay mode
-    setScoreState(finalScore);
+    setScoreState({ ...finalScore, recordId: newRecordId });
     setCurrentScreen('results');
   };
 
@@ -624,7 +651,7 @@ export default function App() {
               transition={{ duration: 0.35, ease: "easeInOut" }}
               className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-fixed"
               style={{
-                backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.4), rgba(6, 6, 12, 0.65)), url("${songSelectBgUrl}")`
+                backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.4), rgba(6, 6, 12, 0.65)), url("${sanitizeCssUrl(songSelectBgUrl)}")`
               }}
             />
           )}

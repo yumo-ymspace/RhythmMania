@@ -29,6 +29,7 @@ import {
   Info
 } from 'lucide-react';
 import { PlayHistoryRecord, Beatmap } from '../types';
+import { sanitizeCssUrl } from '../utils/securityLimits';
 import metadata from '../../metadata.json';
 
 interface PersonalHistoryScreenProps {
@@ -167,7 +168,7 @@ export default function PersonalHistoryScreen({
       <div 
         className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out scale-105 pointer-events-none z-0"
         style={{ 
-          backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.72), rgba(6, 6, 12, 0.88)), url("${currentBgUrl}")`,
+          backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.72), rgba(6, 6, 12, 0.88)), url("${sanitizeCssUrl(currentBgUrl)}")`,
           filter: 'blur(4px)'
         }}
       />
@@ -267,7 +268,7 @@ export default function PersonalHistoryScreen({
                 {selectedRecord.bgUrl && (
                   <div 
                     className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.045] pointer-events-none scale-105 blur-md"
-                    style={{ backgroundImage: `url("${selectedRecord.bgUrl}")` }}
+                    style={{ backgroundImage: `url("${sanitizeCssUrl(selectedRecord.bgUrl)}")` }}
                   />
                 )}
 
@@ -456,7 +457,7 @@ export default function PersonalHistoryScreen({
                         {rec.bgUrl && (
                           <div 
                             className="absolute inset-0 bg-cover bg-center opacity-[0.03] pointer-events-none scale-102 blur-sm"
-                            style={{ backgroundImage: `url("${rec.bgUrl}")` }}
+                            style={{ backgroundImage: `url("${sanitizeCssUrl(rec.bgUrl)}")` }}
                           />
                         )}
 

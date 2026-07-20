@@ -10,6 +10,8 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
+import { assertSafeAssetUrl } from '../utils/securityLimits';
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private musicSource: AudioBufferSourceNode | null = null;
@@ -140,6 +142,8 @@ export class AudioEngine {
       if (!url || url.startsWith('syn:')) {
         throw new Error('Procedural Synth map requested');
       }
+
+      assertSafeAssetUrl(url, 'AudioEngine loadTrack');
 
       onProgress?.(10);
       const isBlob = url.startsWith('blob:');
