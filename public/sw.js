@@ -11,8 +11,8 @@
  */
 
 // Service Worker for RhythmMania PWA Offline Support
-const CACHE_NAME = 'rhythm-mania-cache-v1';
-const BEATMAP_CACHE_NAME = 'rhythm-mania-beatmaps';
+const CACHE_NAME = 'rhythm-mania-cache-v2';
+const BEATMAP_CACHE_NAME = 'rhythm-mania-beatmaps-v2';
 
 // Core assets to pre-cache immediately on install
 const STATIC_ASSETS = [
@@ -69,13 +69,15 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // 1. Bypass certain development or dynamic URLs
+  // 1. Bypass certain development, extension, or dynamic URLs
   if (
+    event.request.method !== 'GET' ||
+    url.protocol === 'chrome-extension:' ||
+    url.protocol === 'chrome:' ||
     url.pathname.includes('/@vite/') ||
     url.pathname.includes('/@react-refresh') ||
     url.hash.includes('vite') ||
-    event.request.method !== 'GET' ||
-    url.hostname === 'localhost' && url.port !== '3000' // skip foreign dev ports
+    (url.hostname === 'localhost' && url.port !== '3000')
   ) {
     return;
   }
@@ -144,10 +146,13 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        if (networkResponse.status === 200 || networkResponse.status === 304 || networkResponse.type === 'opaque') {
+        if (
+          event.request.url.startsWith('http') &&
+          (networkResponse.status === 200 || networkResponse.status === 304)
+        ) {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+            cache.put(event.request, responseClone).catch(() => {});
           });
         }
         return networkResponse;

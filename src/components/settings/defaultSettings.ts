@@ -29,7 +29,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
     8: ['a', 's', 'd', 'f', 'j', 'k', 'l', ';']
   },
   upsurfaceNoteMode: false,
-  videoOpacity: 0.35,
+  videoOpacity: 1.0,
   backgroundDim: 0.60,
   disableVideo: false,
   videoOffset: 0,

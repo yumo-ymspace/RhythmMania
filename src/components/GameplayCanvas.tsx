@@ -20,12 +20,10 @@ import { executeTeardown } from '../utils/gameplayTeardown';
 import { TouchInputAdapter } from '../utils/touchInputAdapter';
 import { FullscreenManager } from '../utils/fullscreenManager';
 import { GameplayMediaRegistry } from '../utils/mediaRegistry';
-import JSZip from 'jszip';
-import { RobustZipResolver } from '../utils/zipResolver';
-import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
+import { getMimeTypeFromFilename, getVideoFormatLabel, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
 import { storageManager } from '../utils/storageManager';
-import { TempMemoryCache } from '../utils/tempMemoryCache';
-import { validateZipLimits, validateZipEntrySize, sanitizeCssUrl } from '../utils/securityLimits';
+import { unpackBeatmap } from '../utils/unpackHelper';
+import { sanitizeCssUrl } from '../utils/securityLimits';
 import metadata from '../../metadata.json';
 
 // HIGH PERFORMANCE INTEGRATED RENDERER IMPORTS
@@ -269,12 +267,22 @@ export default function GameplayCanvas({
     if (legacy.originalContent && (!baseMap.timingPoints || baseMap.timingPoints.length === 0)) {
       try {
         const parsed = parseBeatmap(legacy.originalContent, baseMap.id);
+        // Preserve package/media metadata from the saved map — parseBeatmap only returns core fields
         baseMap = {
+          ...legacy,
           ...parsed,
-          audioUrl: baseMap.audioUrl,
-          videoUrl: baseMap.videoUrl,
-          bgUrl: baseMap.bgUrl,
-          videoStartTime: baseMap.videoStartTime !== undefined ? baseMap.videoStartTime : parsed.videoStartTime,
+          audioUrl: legacy.audioUrl,
+          videoUrl: legacy.videoUrl,
+          bgUrl: legacy.bgUrl,
+          videoStartTime: legacy.videoStartTime !== undefined ? legacy.videoStartTime : parsed.videoStartTime,
+          packageId: legacy.packageId,
+          parentPackageId: legacy.parentPackageId,
+          audioFilename: legacy.audioFilename,
+          videoFilename: legacy.videoFilename,
+          bgFilename: legacy.bgFilename,
+          originalContent: legacy.originalContent,
+          isServerMap: legacy.isServerMap,
+          oszUrl: legacy.oszUrl,
         };
       } catch (err) {
         console.error('Failed to auto-repair/re-parse legacy beatmap timing points:', err);
@@ -347,9 +355,12 @@ export default function GameplayCanvas({
     GameplayMediaRegistry.setVideo(node);
     if (node) {
       try {
-        node.load();
-        node.pause();
-        node.currentTime = 0;
+        node.muted = true;
+        node.playsInline = true;
+        node.preload = 'auto';
+        if (node.readyState < 1) {
+          node.load();
+        }
       } catch (err) {
         console.warn('Error inside video registration player:', err);
       }
@@ -583,7 +594,16 @@ export default function GameplayCanvas({
   const [isPlayingFallback, setIsPlayingFallback] = useState<boolean>(false);
   const [isVideoMissing, setIsVideoMissing] = useState<boolean>(false);
   const [isVideoError, setIsVideoError] = useState<boolean>(false);
+  /** Soft notice for AVI/MKV/etc — not a hard error; static bg is used. */
+  const [videoFormatWarning, setVideoFormatWarning] = useState<string | null>(null);
+  const [showVideoFormatWarning, setShowVideoFormatWarning] = useState(true);
   const [diagnosticsErrorLog, setDiagnosticsErrorLog] = useState<string[]>([]);
+  // Resolved media URLs must live in React state — mutating beatmap.videoUrl does not re-render <video>
+  const [mediaUrls, setMediaUrls] = useState({
+    audioUrl: originalBeatmap.audioUrl || '',
+    videoUrl: originalBeatmap.videoUrl || '',
+    bgUrl: originalBeatmap.bgUrl || '',
+  });
 
   // Playfield Renderer References
   const pixiCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -820,114 +840,43 @@ export default function GameplayCanvas({
     }
   };
 
-  // Initialize and load track
+  // Initialize and load track + background media
   useEffect(() => {
     let active = true;
     setIsAudioLoaded(false);
-    
+    setIsVideoError(false);
+    setIsVideoMissing(false);
+    setVideoFormatWarning(null);
+    setShowVideoFormatWarning(true);
+    setIsPlayingFallback(false);
+    syncControllerRef.current = null;
+
     const loadBgAudio = async () => {
-      // Clear stale mutated blob URLs if they are not in the active media cache
-      try {
-        const cached = storageManager.lruMediaCache.get(beatmap.id);
-        if (!cached) {
-          if (beatmap.audioUrl?.startsWith('blob:')) beatmap.audioUrl = '';
-          if (beatmap.videoUrl?.startsWith('blob:')) beatmap.videoUrl = '';
-          if (beatmap.bgUrl?.startsWith('blob:')) beatmap.bgUrl = '';
-        } else {
-          beatmap.audioUrl = cached.audioUrl || beatmap.audioUrl;
-          beatmap.videoUrl = cached.videoUrl || beatmap.videoUrl;
-          beatmap.bgUrl = cached.bgUrl || beatmap.bgUrl;
-        }
-      } catch (err) {
-        console.warn('Failed validating current cache refs inside play canvas:', err);
-      }
-
-      // Dynamically resolve missing beatmap media from local zip archive if necessary
       const mapWithPkg = beatmap as any;
-      if (mapWithPkg.packageId && (!beatmap.audioUrl || !beatmap.bgUrl || (mapWithPkg.videoFilename && !beatmap.videoUrl))) {
-        try {
-          let zipBuffer: ArrayBuffer | Blob | null = TempMemoryCache.get(mapWithPkg.packageId);
-          if (!zipBuffer) {
-            zipBuffer = await storageManager.getPackage(mapWithPkg.packageId);
-          }
-          if (zipBuffer) {
-            const zip = await JSZip.loadAsync(zipBuffer);
-            validateZipLimits(zip);
-            const resolver = new RobustZipResolver(zip);
-            const audioFilename = mapWithPkg.audioFilename || '';
-            const videoFilename = mapWithPkg.videoFilename || '';
-            const bgFilename = mapWithPkg.bgFilename || '';
-
-            let parsedAudioUrl = beatmap.audioUrl || '';
-            let parsedVideoUrl = beatmap.videoUrl || '';
-            let parsedBgUrl = beatmap.bgUrl || '';
-
-            if (audioFilename && !parsedAudioUrl) {
-              const file = resolver.findFile(audioFilename);
-              if (file) {
-                validateZipEntrySize(file, audioFilename);
-                const b = await file.async('blob');
-                parsedAudioUrl = AssetLifecycleManager.registerBlob(b, audioFilename);
-                beatmap.audioUrl = parsedAudioUrl;
-              }
-            }
-            if (!parsedAudioUrl) {
-              const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
-              if (fallbackObj) {
-                validateZipEntrySize(fallbackObj, fallbackObj.name);
-                const b = await fallbackObj.async('blob');
-                parsedAudioUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
-                beatmap.audioUrl = parsedAudioUrl;
-              }
-            }
-
-            if (videoFilename && !parsedVideoUrl && isBrowserPlayableVideoFilename(videoFilename)) {
-              const file = resolver.findFile(videoFilename);
-              if (file) {
-                validateZipEntrySize(file, videoFilename);
-                const b = await file.async('blob');
-                parsedVideoUrl = AssetLifecycleManager.registerBlob(b, videoFilename);
-                beatmap.videoUrl = parsedVideoUrl;
-              }
-            }
-
-            if (bgFilename && !parsedBgUrl) {
-              const file = resolver.findFile(bgFilename);
-              if (file) {
-                validateZipEntrySize(file, bgFilename);
-                const b = await file.async('blob');
-                parsedBgUrl = AssetLifecycleManager.registerBlob(b, bgFilename);
-                beatmap.bgUrl = parsedBgUrl;
-              }
-            }
-            if (!parsedBgUrl) {
-              const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
-              if (fallbackObj) {
-                validateZipEntrySize(fallbackObj, fallbackObj.name);
-                const b = await fallbackObj.async('blob');
-                parsedBgUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
-                beatmap.bgUrl = parsedBgUrl;
-              }
-            }
-
-            // Update LRU memory cache
-            storageManager.lruMediaCache.put(beatmap.id, {
-              audioUrl: parsedAudioUrl,
-              videoUrl: parsedVideoUrl,
-              bgUrl: parsedBgUrl
-            });
-          }
-        } catch (mediaErr) {
-          console.error('Failed to dynamically resolve missing beatmap media from assets archive:', mediaErr);
-        }
+      try {
+        // Prefer shared unpacker (typed blobs + video fallback + package id cache key)
+        await unpackBeatmap(mapWithPkg, false);
+      } catch (mediaErr) {
+        console.error('Failed to resolve beatmap media from package:', mediaErr);
       }
 
-      // Direct loading
+      if (!active) return;
+
+      const cached = storageManager.lruMediaCache.get(beatmap.id);
+      const resolved = {
+        audioUrl: cached?.audioUrl || beatmap.audioUrl || '',
+        videoUrl: cached?.videoUrl || beatmap.videoUrl || '',
+        bgUrl: cached?.bgUrl || beatmap.bgUrl || '',
+      };
+      beatmap.audioUrl = resolved.audioUrl;
+      beatmap.videoUrl = resolved.videoUrl;
+      beatmap.bgUrl = resolved.bgUrl;
+      setMediaUrls(resolved);
+
       mainAudio.init();
       mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
       mainAudio.setOffset(settings.audioOffset);
-      
-      // Calculate mod speed scaling factor
+
       let activeRate = 1.0;
       if (settings.selectedMods?.includes('DT')) {
         activeRate = 1.5;
@@ -935,44 +884,41 @@ export default function GameplayCanvas({
         activeRate = 0.75;
       }
       mainAudio.playbackRate = activeRate;
-      
-      const success = await mainAudio.loadTrack(beatmap.audioUrl || '', (p) => {
+
+      const success = await mainAudio.loadTrack(resolved.audioUrl || '', (p) => {
         if (active) setLoadingAudioProgress(p);
       });
-      
-      if (active) {
-        setIsReadyToTransition(true);
-        if (!success) {
-          setIsPlayingFallback(true);
-          const declaredAudio = (beatmap as any).audioFilename || 'audio.mp3';
+
+      if (!active) return;
+
+      setIsReadyToTransition(true);
+      if (!success) {
+        setIsPlayingFallback(true);
+        const declaredAudio = mapWithPkg.audioFilename || 'audio.mp3';
+        setDiagnosticsErrorLog(prev => [
+          ...prev,
+          `Audio file "${declaredAudio}" failed to decode. Falling back to Procedural Synth.`
+        ]);
+      }
+
+      const declaredVideo = mapWithPkg.videoFilename as string | undefined;
+      if (declaredVideo && !resolved.videoUrl) {
+        if (!isBrowserPlayableVideoFilename(declaredVideo)) {
+          const fmt = getVideoFormatLabel(declaredVideo);
+          setVideoFormatWarning(fmt);
+          setShowVideoFormatWarning(true);
+        } else {
+          setIsVideoMissing(true);
           setDiagnosticsErrorLog(prev => [
             ...prev,
-            `Audio file "${declaredAudio}" failed to decode. Falling back to Procedural Synth.`
+            `Video track "${declaredVideo}" declared in beatmap but not present in the package.`
           ]);
         }
-
-        // Check for missing / unplayable video
-        const declaredVideo = (beatmap as any).videoFilename as string | undefined;
-        if (declaredVideo && !beatmap.videoUrl) {
-          if (declaredVideo && !isBrowserPlayableVideoFilename(declaredVideo)) {
-            setIsVideoError(true);
-            setDiagnosticsErrorLog(prev => [
-              ...prev,
-              `Video "${declaredVideo}" uses a container browsers cannot decode (need MP4/WebM). Falling back to static background.`
-            ]);
-          } else {
-            setIsVideoMissing(true);
-            setDiagnosticsErrorLog(prev => [
-              ...prev,
-              `Video track "${declaredVideo}" declared in beatmap but not present in the package.`
-            ]);
-          }
-        }
-
-        initializeGameplay();
       }
+
+      initializeGameplay();
     };
-    
+
     loadBgAudio();
 
     return () => {
@@ -2230,7 +2176,7 @@ export default function GameplayCanvas({
 
   // Safe loader state checking with high-fidelity themed presentation
   if (!isAudioLoaded) {
-    const hasBg = !!beatmap.bgUrl;
+    const hasBg = !!mediaUrls.bgUrl;
     return (
       <div 
         id="gameplay-loader" 
@@ -2241,7 +2187,7 @@ export default function GameplayCanvas({
         }}
         className="flex flex-col items-center justify-center w-full h-screen bg-[#050508] text-slate-100 p-6 relative overflow-hidden select-none cursor-pointer"
         style={{
-          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url("${sanitizeCssUrl(beatmap.bgUrl || '')}")` : 'none',
+          backgroundImage: hasBg ? `linear-gradient(rgba(5, 5, 8, 0.88), rgba(5, 5, 8, 0.98)), url("${sanitizeCssUrl(mediaUrls.bgUrl || '')}")` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         }}
@@ -2344,11 +2290,11 @@ export default function GameplayCanvas({
           }}
         >
           {/* Dynamic background image layer */}
-          {beatmap.bgUrl && (
+          {mediaUrls.bgUrl && (
             <div 
               className="absolute inset-0 bg-cover bg-center pointer-events-none"
               style={{
-                backgroundImage: `url("${sanitizeCssUrl(beatmap.bgUrl)}")`,
+                backgroundImage: `url("${sanitizeCssUrl(mediaUrls.bgUrl)}")`,
                 zIndex: 0
               }}
             />
@@ -2779,16 +2725,40 @@ export default function GameplayCanvas({
           </div>
         )}
 
-        {/* PIPELINE DIAGNOSTICS & WARNING HUD PANEL */}
-        {(isPlayingFallback || isVideoMissing || isVideoError) && (
-          <div className="absolute top-24 right-4 bg-red-950/85 border border-red-500/35 p-3 rounded-lg text-[10px] font-mono text-rose-250 z-50 max-w-xs shadow-2xl animate-fade-in backdrop-blur-sm">
+        {/* VIDEO FORMAT WARNING (soft notice — not a pipeline error) */}
+        {videoFormatWarning && showVideoFormatWarning && !isPrePlay && (
+          <div className="absolute top-24 right-4 bg-amber-950/80 border border-amber-500/40 p-3 rounded-lg text-[11px] font-sans text-amber-100 z-50 max-w-sm shadow-2xl animate-fade-in backdrop-blur-sm">
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <h4 className="font-bold text-amber-300 uppercase tracking-widest text-[10px] flex items-center gap-1.5">
+                <span>⚠️</span> Video notice
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowVideoFormatWarning(false)}
+                className="text-amber-400/80 hover:text-amber-200 font-mono text-base leading-none px-1 cursor-pointer"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+            <p className="leading-relaxed text-amber-50/95">
+              The video format <span className="font-black text-amber-200">({videoFormatWarning})</span> is not supported on browsers.
+              Gameplay will resume with a JPG/PNG background.
+            </p>
+          </div>
+        )}
+
+        {/* PIPELINE DIAGNOSTICS (hard failures only) */}
+        {(isPlayingFallback || isVideoMissing) && (
+          <div className="absolute top-24 right-4 bg-red-950/85 border border-red-500/35 p-3 rounded-lg text-[10px] font-mono text-rose-250 z-50 max-w-xs shadow-2xl animate-fade-in backdrop-blur-sm"
+            style={videoFormatWarning && showVideoFormatWarning ? { top: '12.5rem' } : undefined}
+          >
             <h4 className="font-bold mb-1 text-red-400 uppercase tracking-widest flex items-center gap-1.5 text-[10px]">
               <span>⚠️</span> PIPELINE DIAGNOSTICS
             </h4>
             <div className="space-y-1 text-red-200">
-              {isPlayingFallback && <p className="font-bold text-red-400">⚠️ PIPELINE DIAGNOSTICS: Audio failed to decode. PLEASE RELOAD THE BROWSER TO RESOLVE.</p>}
+              {isPlayingFallback && <p className="font-bold text-red-400">⚠️ Audio failed to decode. PLEASE RELOAD THE BROWSER TO RESOLVE.</p>}
               {isVideoMissing && <p>• Video declared in metadata but missing in file archive.</p>}
-              {isVideoError && <p>• Video decoding error: Browser unsupported codec handle.</p>}
             </div>
           </div>
         )}
@@ -3036,11 +3006,11 @@ export default function GameplayCanvas({
           className="flex-1 w-full flex justify-center relative overflow-hidden bg-[#050508]"
         >
           {/* STATIC BACKGROUND IMAGE LAYER (Layer -1, z-index: 5) */}
-          {beatmap.bgUrl && (!beatmap.videoUrl || settings.disableVideo || isVideoError) && (
+          {mediaUrls.bgUrl && (!mediaUrls.videoUrl || settings.disableVideo || isVideoError) && (
             <div 
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
               style={{
-                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url("${sanitizeCssUrl(beatmap.bgUrl)}")`,
+                backgroundImage: `radial-gradient(ellipse at center, rgba(10,10,13,0.30), rgba(5,5,8,0.95)), url("${sanitizeCssUrl(mediaUrls.bgUrl)}")`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 zIndex: 5,
@@ -3049,7 +3019,7 @@ export default function GameplayCanvas({
           )}
 
           {/* FALLBACK CHIP GRID LAYER (z-index: 4, used when video is playing or image is absent) */}
-          {(!beatmap.bgUrl || (beatmap.videoUrl && !settings.disableVideo && !isVideoError)) && (
+          {(!mediaUrls.bgUrl || (mediaUrls.videoUrl && !settings.disableVideo && !isVideoError)) && (
             <div 
               className="absolute inset-0 w-full h-full transition-opacity duration-1000 animate-fade-in"
               style={{
@@ -3062,23 +3032,23 @@ export default function GameplayCanvas({
           )}
 
           {/* HARDWARE-ACCELERATED SYNCHRONIZED VIDEO LAYER (Layer 0, z-index: 10) */}
-          {beatmap.videoUrl && !settings.disableVideo && (
+          {mediaUrls.videoUrl && !settings.disableVideo && !isVideoError && (
             <video
               ref={setVideoRef}
-              key={beatmap.videoUrl}
-              src={beatmap.videoUrl}
+              key={mediaUrls.videoUrl}
               muted
               playsInline
+              preload="auto"
               onError={() => {
                 const mediaErr = videoRef.current?.error;
                 const code = mediaErr?.code;
                 const detail =
-                  code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+                  code === 4
                     ? 'unsupported container/codec or missing MIME type on blob'
-                    : code === MediaError.MEDIA_ERR_DECODE
+                    : code === 3
                       ? 'decode failure'
-                      : mediaErr?.message || 'unknown media error';
-                console.warn('Video failed to render or decode:', detail);
+                      : mediaErr?.message || `media error code ${code ?? '?'}`;
+                console.warn('Video failed to render or decode:', detail, mediaUrls.videoUrl);
                 setIsVideoError(true);
                 setDiagnosticsErrorLog(prev => [
                   ...prev,
@@ -3087,10 +3057,15 @@ export default function GameplayCanvas({
               }}
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
               style={{ 
-                opacity: settings.videoOpacity !== undefined ? (isVideoError ? 0 : settings.videoOpacity) : 0.35,
+                opacity: settings.videoOpacity !== undefined ? settings.videoOpacity : 0.35,
                 zIndex: 10
               }}
-            />
+            >
+              <source
+                src={mediaUrls.videoUrl}
+                type={getMimeTypeFromFilename((beatmap as any).videoFilename || '') || 'video/mp4'}
+              />
+            </video>
           )}
 
           {/* REAL-TIME DYNAMIC BACKGROUND DIM OVERLAY LAYER (z-index: 15) */}

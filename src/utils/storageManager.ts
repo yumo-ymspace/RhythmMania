@@ -11,7 +11,7 @@
  */
 
 import { Beatmap } from '../types';
-import { AssetLifecycleManager } from './assetLifecycle';
+import { AssetLifecycleManager, getMediaCacheKey } from './assetLifecycle';
 import { TempMemoryCache } from './tempMemoryCache';
 
 export interface SavedBeatmap extends Beatmap {
@@ -38,34 +38,42 @@ class SimpleBlobCache {
   private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string }>();
   private order: string[] = [];
 
-  constructor(private capacity = 3) {}
+  constructor(private capacity = 8) {}
 
   public get(id: string) {
-    if (!this.cache.has(id)) return null;
-    this.order = this.order.filter(k => k !== id).concat(id);
-    return this.cache.get(id);
+    const key = getMediaCacheKey(id);
+    if (!this.cache.has(key)) return null;
+    this.order = this.order.filter(k => k !== key).concat(key);
+    return this.cache.get(key)!;
   }
 
   public put(id: string, urls: { audioUrl: string; videoUrl: string; bgUrl: string }) {
-    if (this.cache.has(id)) {
-      this.order = this.order.filter(k => k !== id);
+    const key = getMediaCacheKey(id);
+    if (this.cache.has(key)) {
+      const prev = this.cache.get(key)!;
+      // Revoke replaced URLs that are no longer referenced
+      if (prev.audioUrl && prev.audioUrl !== urls.audioUrl) AssetLifecycleManager.releaseSpecific(prev.audioUrl);
+      if (prev.videoUrl && prev.videoUrl !== urls.videoUrl) AssetLifecycleManager.releaseSpecific(prev.videoUrl);
+      if (prev.bgUrl && prev.bgUrl !== urls.bgUrl) AssetLifecycleManager.releaseSpecific(prev.bgUrl);
+      this.order = this.order.filter(k => k !== key);
     } else if (this.order.length >= this.capacity) {
       const oldest = this.order.shift();
       if (oldest) this.evict(oldest);
     }
-    this.cache.set(id, urls);
-    this.order.push(id);
+    this.cache.set(key, urls);
+    this.order.push(key);
   }
 
   public evict(id: string) {
-    const urls = this.cache.get(id);
+    const key = getMediaCacheKey(id);
+    const urls = this.cache.get(key);
     if (urls) {
       if (urls.audioUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.audioUrl);
       if (urls.videoUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.videoUrl);
       if (urls.bgUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.bgUrl);
     }
-    this.cache.delete(id);
-    this.order = this.order.filter(k => k !== id);
+    this.cache.delete(key);
+    this.order = this.order.filter(k => k !== key);
   }
 
   public clearAll() {

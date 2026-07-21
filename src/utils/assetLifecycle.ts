@@ -51,6 +51,25 @@ export function isBrowserPlayableVideoFilename(filename: string): boolean {
   return BROWSER_VIDEO_EXTS.has(base.slice(dot).toLowerCase());
 }
 
+/** Human-readable container label for UI (AVI, MKV, …). */
+export function getVideoFormatLabel(filename: string): string {
+  if (!filename) return 'UNKNOWN';
+  const base = filename.split(/[/\\]/).pop() || filename;
+  const dot = base.lastIndexOf('.');
+  if (dot < 0) return 'UNKNOWN';
+  const ext = base.slice(dot + 1).toUpperCase();
+  return ext || 'UNKNOWN';
+}
+
+/**
+ * K-mods rewrite map ids to `${id}_converted_Nk`. Media cache is stored under the base id.
+ */
+export function getMediaCacheKey(mapId: string): string {
+  if (!mapId) return mapId;
+  const idx = mapId.indexOf('_converted_');
+  return idx >= 0 ? mapId.slice(0, idx) : mapId;
+}
+
 /**
  * Ensure blob has a usable MIME type. JSZip's async('blob') returns type "".
  * Without this, <video src="blob:..."> often fails with MEDIA_ERR_SRC_NOT_SUPPORTED
@@ -62,12 +81,7 @@ export function ensureBlobMimeType(blob: Blob, filenameOrMime?: string): Blob {
     ? filenameOrMime
     : getMimeTypeFromFilename(filenameOrMime);
   if (!mime) return blob;
-  if (blob.type && blob.type !== 'application/octet-stream' && blob.type === mime) {
-    return blob;
-  }
-  if (blob.type && blob.type !== 'application/octet-stream' && blob.type !== '') {
-    return blob;
-  }
+  if (blob.type === mime) return blob;
   return new Blob([blob], { type: mime });
 }
 
@@ -85,6 +99,20 @@ export class AssetLifecycleManager {
   public static registerBlob(blob: Blob, filenameOrMime?: string): string {
     const typed = ensureBlobMimeType(blob, filenameOrMime);
     const url = URL.createObjectURL(typed);
+    this.activeBlobUrls.add(url);
+    return url;
+  }
+
+  /**
+   * Preferred path for zip entries: build a fresh typed Blob from raw bytes.
+   * Avoids empty-type JSZip blobs that break &lt;video&gt; decoding.
+   */
+  public static registerArrayBuffer(data: ArrayBuffer, filenameOrMime: string): string {
+    const mime = filenameOrMime.includes('/')
+      ? filenameOrMime
+      : (getMimeTypeFromFilename(filenameOrMime) || 'application/octet-stream');
+    const blob = new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
     this.activeBlobUrls.add(url);
     return url;
   }

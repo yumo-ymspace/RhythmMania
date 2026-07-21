@@ -194,12 +194,12 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     keyMode: clamp(parsed.keyMode, 2, 8, defaultSettings.keyMode),
     bindings: bindings,
     upsurfaceNoteMode: Boolean(parsed.upsurfaceNoteMode),
-    videoOpacity: clamp(parsed.videoOpacity, 0, 1, defaultSettings.videoOpacity),
+    videoOpacity: 1.0,
     backgroundDim: clamp(parsed.backgroundDim, 0, 1, defaultSettings.backgroundDim),
     disableVideo: Boolean(parsed.disableVideo),
     videoOffset: clamp(parsed.videoOffset, -10000, 10000, defaultSettings.videoOffset || 0),
     disableParticles: Boolean(parsed.disableParticles),
-    limitDprToOne: Boolean(parsed.limitDprToOne),
+    limitDprToOne: false,
     skinId: sanitizeString(parsed.skinId, defaultSettings.skinId || 'custom'),
     customSkinColors: customSkinColors,
     customSkinName: parsed.customSkinName ? sanitizeString(parsed.customSkinName, 'custom', 30) : undefined,
@@ -317,22 +317,51 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
 
 /**
  * Sanitizes a URL for safe use inside CSS url("...") context.
- * Rejects whitespace, quotes, parentheses, or general injection patterns.
+ * Rejects quotes and parentheses (CSS breakouts). Whitespace in paths is percent-encoded.
  * Also enforces the isSafeAssetUrl check to only allow blob: or same-origin paths.
  */
 export function sanitizeCssUrl(url: string, fallback = '/backgrounds/Ferineon.webp'): string {
   if (!url || typeof url !== 'string') return fallback;
-  
-  if (url.includes('"') || url.includes("'") || url.includes('(') || url.includes(')') || /\s/.test(url)) {
+
+  if (url.includes('"') || url.includes("'") || url.includes('(') || url.includes(')') || url.includes('\\')) {
     console.warn('Security Exception: CSS URL contains injection patterns:', url);
     return fallback;
   }
 
-  if (!isSafeAssetUrl(url)) {
+  // Encode spaces / unsafe path chars for url("...") without rejecting legitimate asset names
+  let safe = url;
+  try {
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      safe = url;
+    } else if (/^https?:\/\//i.test(url)) {
+      const u = new URL(url);
+      u.pathname = u.pathname.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+      safe = u.toString();
+    } else {
+      // relative / absolute path
+      const q = url.indexOf('?');
+      const h = url.indexOf('#');
+      let path = url;
+      let suffix = '';
+      if (q >= 0 || h >= 0) {
+        const cut = [q, h].filter(i => i >= 0).sort((a, b) => a - b)[0];
+        path = url.slice(0, cut);
+        suffix = url.slice(cut);
+      }
+      safe = path.split('/').map((seg, i) => {
+        if (i === 0 && seg === '') return '';
+        try { return encodeURIComponent(decodeURIComponent(seg)); } catch { return encodeURIComponent(seg); }
+      }).join('/') + suffix;
+    }
+  } catch {
+    return fallback;
+  }
+
+  if (!isSafeAssetUrl(url) && !isSafeAssetUrl(safe)) {
     console.warn('Security Exception: Unsafe URL blocked in CSS context:', url);
     return fallback;
   }
 
-  return url;
+  return safe;
 }
 

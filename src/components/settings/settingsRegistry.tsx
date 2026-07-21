@@ -141,13 +141,6 @@ export const ROWS: RowDef[] = [
     defaultValue: DEFAULT_SETTINGS.disableVideo,
   },
   {
-    id: 'videoOpacity', section: 'graphics', label: 'Video opacity',
-    description: 'Opacity of the background video, when enabled.',
-    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.videoOpacity,
-    showWhen: (s) => !s.disableVideo,
-  },
-  {
     id: 'videoOffset', section: 'graphics', label: 'Video offset',
     description: 'Shift the video forward (+) or backward (-) in milliseconds.',
     control: { kind: 'slider', min: -500, max: 500, step: 10, format: ms },
@@ -159,12 +152,6 @@ export const ROWS: RowDef[] = [
     description: 'Completely turn off burst effects on hits to save GPU performance.',
     control: { kind: 'toggle' },
     defaultValue: DEFAULT_SETTINGS.disableParticles,
-  },
-  {
-    id: 'limitDprToOne', section: 'graphics', label: 'Cap pixel ratio',
-    description: 'Limit the canvas to 1× device pixels. Big perf win on HiDPI displays.',
-    control: { kind: 'toggle' },
-    defaultValue: DEFAULT_SETTINGS.limitDprToOne,
   },
   {
     id: 'renderEngine', section: 'graphics', label: 'Rendering engine',

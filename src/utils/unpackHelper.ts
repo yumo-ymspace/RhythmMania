@@ -18,7 +18,16 @@ import { storageManager } from './storageManager';
 import { TempMemoryCache } from './tempMemoryCache';
 import { validateZipLimits, validateZipEntrySize } from './securityLimits';
 
-export async function unpackBeatmap(map: Beatmap): Promise<void> {
+async function registerZipFile(
+  file: JSZip.JSZipObject,
+  filename: string
+): Promise<string> {
+  validateZipEntrySize(file, filename);
+  const ab = await file.async('arraybuffer');
+  return AssetLifecycleManager.registerArrayBuffer(ab, filename);
+}
+
+export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> {
   const mapWithPkg = map as any;
   if (mapWithPkg.isServerMap && !mapWithPkg.isCached) {
     return;
@@ -36,95 +45,99 @@ export async function unpackBeatmap(map: Beatmap): Promise<void> {
     map.bgUrl = cached.bgUrl || map.bgUrl;
   }
 
-  if (mapWithPkg.packageId) {
-    const cachedInside = storageManager.lruMediaCache.get(map.id);
-    if (cachedInside) {
-      map.audioUrl = cachedInside.audioUrl || map.audioUrl;
-      map.videoUrl = cachedInside.videoUrl || map.videoUrl;
-      map.bgUrl = cachedInside.bgUrl || map.bgUrl;
-      return;
-    }
+  if (!mapWithPkg.packageId) {
+    return;
+  }
 
-    let zipBuffer: ArrayBuffer | Blob | null = TempMemoryCache.get(mapWithPkg.packageId);
-    if (!zipBuffer) {
-      zipBuffer = await storageManager.getPackage(mapWithPkg.packageId);
-    }
+  const wantsVideo = !!(mapWithPkg.videoFilename && isBrowserPlayableVideoFilename(mapWithPkg.videoFilename));
+  const cacheComplete =
+    !force &&
+    !!cached?.audioUrl &&
+    !!cached?.bgUrl &&
+    (!wantsVideo || !!cached?.videoUrl);
 
-    if (zipBuffer) {
-      const zip = await JSZip.loadAsync(zipBuffer);
-      validateZipLimits(zip);
+  if (cacheComplete) {
+    return;
+  }
 
-      const resolver = new RobustZipResolver(zip);
-      const audioFilename = mapWithPkg.audioFilename || '';
-      const videoFilename = mapWithPkg.videoFilename || '';
-      const bgFilename = mapWithPkg.bgFilename || '';
+  let zipBuffer: ArrayBuffer | Blob | null = TempMemoryCache.get(mapWithPkg.packageId);
+  if (!zipBuffer) {
+    zipBuffer = await storageManager.getPackage(mapWithPkg.packageId);
+  }
 
-      let parsedAudioUrl = '';
-      let parsedVideoUrl = '';
-      let parsedBgUrl = '';
+  if (!zipBuffer) {
+    return;
+  }
 
-      if (audioFilename) {
-        const file = resolver.findFile(audioFilename);
-        if (file) {
-          validateZipEntrySize(file, audioFilename);
-          const b = await file.async('blob');
-          parsedAudioUrl = AssetLifecycleManager.registerBlob(b, audioFilename);
-        }
-      }
-      if (videoFilename && isBrowserPlayableVideoFilename(videoFilename)) {
-        const file = resolver.findFile(videoFilename);
-        if (file) {
-          validateZipEntrySize(file, videoFilename);
-          const b = await file.async('blob');
-          parsedVideoUrl = AssetLifecycleManager.registerBlob(b, videoFilename);
-        }
-      }
+  const zip = await JSZip.loadAsync(zipBuffer);
+  validateZipLimits(zip);
 
-      if (!parsedAudioUrl) {
-        const fallbackObj = await resolver.findLargestFileByExtensions(['.mp3', '.ogg']) || resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
-        if (fallbackObj) {
-          validateZipEntrySize(fallbackObj, fallbackObj.name);
-          const b = await fallbackObj.async('blob');
-          parsedAudioUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
-        }
-      }
-      if (!parsedVideoUrl) {
-        const fallbackObj = await resolver.findLargestFileByExtensions(['.mp4', '.m4v', '.webm', '.ogv']) || resolver.findFallbackByExtensions(['.mp4', '.m4v', '.webm', '.ogv'])?.file;
-        if (fallbackObj) {
-          validateZipEntrySize(fallbackObj, fallbackObj.name);
-          const b = await fallbackObj.async('blob');
-          parsedVideoUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
-        }
-      }
+  const resolver = new RobustZipResolver(zip);
+  const audioFilename = mapWithPkg.audioFilename || '';
+  const videoFilename = mapWithPkg.videoFilename || '';
+  const bgFilename = mapWithPkg.bgFilename || '';
 
-      if (bgFilename) {
-        const file = resolver.findFile(bgFilename);
-        if (file) {
-          validateZipEntrySize(file, bgFilename);
-          const b = await file.async('blob');
-          parsedBgUrl = AssetLifecycleManager.registerBlob(b, bgFilename);
-        }
-      }
-      if (!parsedBgUrl) {
-        const fallbackObj = await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp']) || resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp'])?.file;
-        if (fallbackObj) {
-          validateZipEntrySize(fallbackObj, fallbackObj.name);
-          const b = await fallbackObj.async('blob');
-          parsedBgUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
-        }
-      }
+  let parsedAudioUrl = (!force && cached?.audioUrl) || '';
+  let parsedVideoUrl = (!force && cached?.videoUrl) || '';
+  let parsedBgUrl = (!force && cached?.bgUrl) || '';
 
-      storageManager.lruMediaCache.put(map.id, {
-        audioUrl: parsedAudioUrl,
-        videoUrl: parsedVideoUrl,
-        bgUrl: parsedBgUrl
-      });
-
-      if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
-      if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
-      if (parsedBgUrl) map.bgUrl = parsedBgUrl;
-
-      TempMemoryCache.remove(mapWithPkg.packageId);
+  if (audioFilename && !parsedAudioUrl) {
+    const file = resolver.findFile(audioFilename);
+    if (file) {
+      parsedAudioUrl = await registerZipFile(file, audioFilename);
     }
   }
+  if (videoFilename && isBrowserPlayableVideoFilename(videoFilename) && !parsedVideoUrl) {
+    const file = resolver.findFile(videoFilename);
+    if (file) {
+      parsedVideoUrl = await registerZipFile(file, videoFilename);
+    }
+  }
+
+  if (!parsedAudioUrl) {
+    const fallbackObj =
+      (await resolver.findLargestFileByExtensions(['.mp3', '.ogg'])) ||
+      resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
+    if (fallbackObj) {
+      parsedAudioUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+    }
+  }
+  if (!parsedVideoUrl) {
+    const fallbackObj =
+      (await resolver.findLargestFileByExtensions(['.mp4', '.m4v', '.webm', '.ogv'])) ||
+      resolver.findFallbackByExtensions(['.mp4', '.m4v', '.webm', '.ogv'])?.file;
+    if (fallbackObj) {
+      parsedVideoUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+    }
+  }
+
+  if (bgFilename && !parsedBgUrl) {
+    const file = resolver.findFile(bgFilename);
+    if (file) {
+      // Skip if the "background" is actually a video file — handled as video above
+      if (!isBrowserPlayableVideoFilename(bgFilename)) {
+        parsedBgUrl = await registerZipFile(file, bgFilename);
+      }
+    }
+  }
+  if (!parsedBgUrl) {
+    const fallbackObj =
+      (await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])) ||
+      resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])?.file;
+    if (fallbackObj) {
+      parsedBgUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+    }
+  }
+
+  storageManager.lruMediaCache.put(map.id, {
+    audioUrl: parsedAudioUrl,
+    videoUrl: parsedVideoUrl,
+    bgUrl: parsedBgUrl,
+  });
+
+  if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
+  if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
+  if (parsedBgUrl) map.bgUrl = parsedBgUrl;
+
+  TempMemoryCache.remove(mapWithPkg.packageId);
 }

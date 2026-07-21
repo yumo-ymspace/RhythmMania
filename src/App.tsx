@@ -368,12 +368,12 @@ export default function App() {
         keyMode: Number(updated.keyMode !== undefined ? updated.keyMode : 4),
         bindings: {},
         upsurfaceNoteMode: updated.upsurfaceNoteMode === true || String(updated.upsurfaceNoteMode) === 'true',
-        videoOpacity: Number(updated.videoOpacity !== undefined ? updated.videoOpacity : 0.35),
+        videoOpacity: 1.0,
         backgroundDim: Number(updated.backgroundDim !== undefined ? updated.backgroundDim : 0.60),
         disableVideo: Boolean(updated.disableVideo),
         videoOffset: Number(updated.videoOffset !== undefined ? updated.videoOffset : 0),
         disableParticles: Boolean(updated.disableParticles),
-        limitDprToOne: Boolean(updated.limitDprToOne),
+        limitDprToOne: false,
         skinId: updated.skinId || 'neon',
         customSkinColors: updated.customSkinColors,
         customSkinName: updated.customSkinName,
@@ -397,6 +397,7 @@ export default function App() {
         bindPause: updated.bindPause !== undefined ? String(updated.bindPause) : 'escape',
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
         renderEngine: updated.renderEngine === 'pixi' ? 'pixi' : 'canvas',
+        enableMapSV: updated.enableMapSV !== false,
       };
 
       if (updated.bindings) {

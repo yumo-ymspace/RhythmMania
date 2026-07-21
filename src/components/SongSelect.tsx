@@ -22,7 +22,7 @@ import {
 import { Beatmap, GameSettings } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
-import { AssetLifecycleManager } from '../utils/assetLifecycle';
+import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
 import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
 import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
@@ -553,19 +553,19 @@ export default function SongSelect({
 
   // Core map asset extraction and mounting
   const handleSelectCustomMap = async (map: Beatmap, forceUnpack = false) => {
+    const wantsVideo = isBrowserPlayableVideoFilename((map as any).videoFilename || '');
+    const cacheReady = (c: { audioUrl: string; videoUrl: string; bgUrl: string } | null) =>
+      !!(c?.audioUrl && c?.bgUrl && (!wantsVideo || c.videoUrl));
+
     if (map.id === selectedCustomMapId) {
-      // Safely propagate cached URLs from the LRU cache onto this fresh object reference
       const cached = storageManager.lruMediaCache.get(map.id);
-      if (cached?.audioUrl && cached?.bgUrl) {
-        map.audioUrl = cached.audioUrl;
-        map.bgUrl = cached.bgUrl;
-        map.videoUrl = cached.videoUrl || '';
+      if (cacheReady(cached)) {
+        map.audioUrl = cached!.audioUrl;
+        map.bgUrl = cached!.bgUrl;
+        map.videoUrl = cached!.videoUrl || '';
       }
-      if (!forceUnpack) {
-        // If it's missing bgUrl, we MUST unpack it, so don't return early!
-        if (cached?.audioUrl && cached?.bgUrl) {
-          return;
-        }
+      if (!forceUnpack && cacheReady(cached)) {
+        return;
       }
     }
     
@@ -575,16 +575,14 @@ export default function SongSelect({
     if (!isVirtualPackage) {
       setIsLoadingMedia(true);
       try {
+        await unpackBeatmap(map, forceUnpack);
         const cached = storageManager.lruMediaCache.get(map.id);
-        if (cached?.audioUrl && cached?.bgUrl && !forceUnpack) {
-          map.audioUrl = cached.audioUrl;
-          map.bgUrl = cached.bgUrl;
-          map.videoUrl = cached.videoUrl || '';
-          setUnpackTrigger(prev => prev + 1);
-        } else {
-          await unpackBeatmap(map);
-          setUnpackTrigger(prev => prev + 1);
+        if (cached) {
+          map.audioUrl = cached.audioUrl || map.audioUrl;
+          map.bgUrl = cached.bgUrl || map.bgUrl;
+          map.videoUrl = cached.videoUrl || map.videoUrl;
         }
+        setUnpackTrigger(prev => prev + 1);
       } catch (err) {
         console.warn('Unpacker encountered an issue resolving map media channels:', err);
       } finally {
