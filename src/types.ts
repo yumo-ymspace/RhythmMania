@@ -37,6 +37,13 @@ export interface HitObject {
   slidesCount?: number;
 }
 
+export interface TimingControlPoint {
+  timeMs: number;
+  beatLength: number;
+  uninherited: boolean;
+  svMultiplier: number;
+}
+
 export interface BeatmapMetadata {
   title: string;
   artist: string;
@@ -57,6 +64,9 @@ export interface Beatmap extends BeatmapMetadata {
   notes: HitObject[];
   hpDrainRate: number; // 0-10
   overallDifficulty: number; // 0-10 (affects judgement window)
+  timingPoints: TimingControlPoint[];
+  sliderMultiplier: number;
+  baseBeatLength?: number;
 }
 
 export type JudgementType = 'marvelous' | 'perfect' | 'great' | 'good' | 'bad' | 'miss';
@@ -153,6 +163,7 @@ export interface GameSettings {
   bindPause?: string; // gameplay pause/resume keybind
   bindRetry?: string; // gameplay quick retry keybind
   renderEngine?: 'canvas' | 'pixi';
+  enableMapSV?: boolean;
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

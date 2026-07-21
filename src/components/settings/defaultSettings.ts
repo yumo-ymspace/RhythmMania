@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   bindPause: 'escape',
   bindRetry: 'r',
   renderEngine: 'canvas',
+  enableMapSV: true,
 } as GameSettings);
 
 /** True when a setting's value differs from its default. */

@@ -1,3 +1,7 @@
+# Personal docs and directories
+docs/
+plans/
+
 # Node and other build artifacts
 node_modules/
 build/

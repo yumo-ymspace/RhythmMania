@@ -71,6 +71,7 @@ export interface PlayfieldVisualSettings {
   selectedMods?: string[];
   backgroundDim?: number;
   disableParticles?: boolean;
+  enableMapSV?: boolean;
 }
 
 export interface PlayfieldFrame {

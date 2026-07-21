@@ -199,6 +199,13 @@ export const ROWS: RowDef[] = [
     control: { kind: 'slider', min: -300, max: 300, step: 5, format: ms },
     defaultValue: DEFAULT_SETTINGS.visualOffset,
   },
+  {
+    id: 'enableMapSV', section: 'gameplay', label: 'Map scroll velocity (SV)',
+    description: 'Apply beatmap SV/BPM scroll changes. Off = constant scroll speed.',
+    control: { kind: 'toggle' },
+    defaultValue: DEFAULT_SETTINGS.enableMapSV,
+    keywords: ['sv', 'scroll', 'velocity', 'bpm', 'speed'],
+  },
 
   // ── AUDIO ─────────────────────────────────────────────────────────────
   {

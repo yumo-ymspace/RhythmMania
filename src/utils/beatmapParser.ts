@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Beatmap, HitObject, NoteType } from '../types';
+import { Beatmap, HitObject, NoteType, TimingControlPoint } from '../types';
 import { MAX_BEATMAP_NOTES, MAX_BEATMAP_TIMING_POINTS, MAX_OSU_TEXT_BYTES } from './securityLimits';
 
 export interface ParsedMediaPaths {
@@ -94,7 +94,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   }> = [];
 
   let inHitObjects = false;
-  const timingPoints: Array<{ time: number; beatLength: number }> = [];
+  const parsedTimingPoints: TimingControlPoint[] = [];
+  const tempoTimingPoints: Array<{ time: number; beatLength: number }> = [];
   const allTimingPoints: Array<{ time: number; beatLength: number }> = [];
   let inTimingPoints = false;
 
@@ -158,14 +159,38 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
         const beatLength = parseFloat(parts[1]);
         
         if (!isNaN(beatLength) && !isNaN(time)) {
-          allTimingPoints.push({ time, beatLength });
-          if (allTimingPoints.length > MAX_BEATMAP_TIMING_POINTS) {
+          let uninherited = true;
+          if (parts.length >= 7) {
+            const uninheritedVal = parseInt(parts[6], 10);
+            uninherited = !isNaN(uninheritedVal) ? (uninheritedVal === 1) : (beatLength > 0);
+          } else {
+            uninherited = beatLength > 0;
+          }
+
+          let svMultiplier = 1.0;
+          if (!uninherited) {
+            if (beatLength !== 0) {
+              svMultiplier = -100 / beatLength;
+            }
+            if (svMultiplier <= 0 || isNaN(svMultiplier) || !isFinite(svMultiplier)) {
+              svMultiplier = 1.0;
+            }
+          }
+
+          parsedTimingPoints.push({
+            timeMs: time,
+            beatLength,
+            uninherited,
+            svMultiplier
+          });
+
+          if (parsedTimingPoints.length > MAX_BEATMAP_TIMING_POINTS) {
             throw new Error(`Security Exception: Beatmap timing points exceed limit (${MAX_BEATMAP_TIMING_POINTS})`);
           }
-          // Uninherited timing points ALWAYS map positive beatLength representing mills per beat.
-          // Negative elements represent slider/velocity multipliers and are not BPM-defining.
-          if (beatLength > 0) {
-            timingPoints.push({ time, beatLength });
+
+          allTimingPoints.push({ time, beatLength });
+          if (uninherited) {
+            tempoTimingPoints.push({ time, beatLength });
           }
         }
       }
@@ -199,8 +224,10 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     }
   }
 
-  // Sort raw timing points
+  // Sort raw and parsed timing points
   allTimingPoints.sort((a, b) => a.time - b.time);
+  tempoTimingPoints.sort((a, b) => a.time - b.time);
+  parsedTimingPoints.sort((a, b) => a.timeMs - b.timeMs);
 
   // SECOND PASS: Dynamic Column & KeyCount detection based on unique coordinates
   const rawXValues = new Set<number>();
@@ -251,14 +278,14 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   const getTimingAtTime = (startTime: number) => {
     // 1. Find the active beatLength (Uninherited Tempo)
     let activeBeatLength = 500; // default 120 bpm (500ms per beat)
-    for (let i = timingPoints.length - 1; i >= 0; i--) {
-      if (timingPoints[i].time <= startTime) {
-        activeBeatLength = timingPoints[i].beatLength;
+    for (let i = tempoTimingPoints.length - 1; i >= 0; i--) {
+      if (tempoTimingPoints[i].time <= startTime) {
+        activeBeatLength = tempoTimingPoints[i].beatLength;
         break;
       }
     }
-    if (timingPoints.length > 0 && startTime < timingPoints[0].time) {
-      activeBeatLength = timingPoints[0].beatLength;
+    if (tempoTimingPoints.length > 0 && startTime < tempoTimingPoints[0].time) {
+      activeBeatLength = tempoTimingPoints[0].beatLength;
     }
 
     // 2. Find the active SV (Slider Velocity Multiplier) - SV from last negative beatLength before t
@@ -378,7 +405,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   const media = parseMediaPaths(content);
 
   // Calculate duration-weighted dominant BPM
-  const bpm = calculateDominantBpm(timingPoints, songDurationMs);
+  const bpm = calculateDominantBpm(tempoTimingPoints, songDurationMs);
+  const baseBeatLength = bpm > 0 ? (60000 / bpm) : (tempoTimingPoints[0]?.beatLength || 500);
 
   return {
     id: customId,
@@ -394,6 +422,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     overallDifficulty,
     videoStartTime: media.videoStartTime,
     mode,
+    timingPoints: parsedTimingPoints,
+    sliderMultiplier,
+    baseBeatLength,
   };
 }
 
@@ -618,6 +649,9 @@ export function convertBeatmapKeyCount(beatmap: Beatmap, targetKeyCount: number)
     ...beatmap,
     keyCount: targetKeyCount,
     notes: uniqueNotes,
-    id: `${beatmap.id}_converted_${targetKeyCount}k`
+    id: `${beatmap.id}_converted_${targetKeyCount}k`,
+    timingPoints: beatmap.timingPoints ? beatmap.timingPoints.map(tp => ({ ...tp })) : [],
+    sliderMultiplier: beatmap.sliderMultiplier !== undefined ? beatmap.sliderMultiplier : 1.4,
+    baseBeatLength: beatmap.baseBeatLength
   };
 }

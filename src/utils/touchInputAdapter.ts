@@ -11,6 +11,8 @@
  */
 
 const VERTICAL_TOUCH_ZONE_THRESHOLD = 0.60;
+// Once a finger owns a lane, allow mild upward drift before forced release (hold stickiness)
+const VERTICAL_HOLD_RELEASE_THRESHOLD = 0.35;
 
 export class TouchInputAdapter {
   // Active touches: maps raw touch identifiers to lane columns (indices)
@@ -97,13 +99,19 @@ export class TouchInputAdapter {
         const relativeY = touch.clientY - containerRect.top;
         const verticalRatio = relativeY / containerRect.height;
 
-        // PIANO TILES CONSTRAINT: If they slide out of the active bottom 40% zone, release keypress
-        if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
+        // Sticky holds: only release on large upward drift, not the tighter start zone
+        if (verticalRatio < VERTICAL_HOLD_RELEASE_THRESHOLD) {
           this.activeTouches.delete(touch.identifier);
           const laneStillHasTouch = Array.from(this.activeTouches.values()).includes(previousLane);
           if (!laneStillHasTouch) {
             this.onKeyUp(previousLane);
           }
+          continue;
+        }
+
+        // While finger remains in the hold-sticky band, keep the owned lane pressed
+        // (ignore small vertical drift that would otherwise break long notes)
+        if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
           continue;
         }
 

@@ -32,6 +32,10 @@ export class AudioEngine {
   private lastSystemTime: number = 0;
   private remainingStartDelayMs: number = 0;
   public playbackRate: number = 1.0; // Playback rate scaling coefficient (DT/HT support)
+  /** When true, judgement clock subtracts measured output path latency (off by default — user audioOffset already calibrates) */
+  public compensateOutputLatency: boolean = false;
+  private cachedOutputLatencyMs: number = 0;
+  private lastLatencySampleMs: number = 0;
 
   // Procedural backup synthesizer tracker
   private synthInterval: any = null;
@@ -46,7 +50,12 @@ export class AudioEngine {
     if (this.ctx) return;
     try {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      this.ctx = new AudioCtxClass();
+      // Prefer interactive latency for tight hit feedback
+      try {
+        this.ctx = new AudioCtxClass({ latencyHint: 'interactive' });
+      } catch (_e) {
+        this.ctx = new AudioCtxClass();
+      }
       
       this.masterGain = this.ctx.createGain();
       this.musicGain = this.ctx.createGain();
@@ -56,11 +65,43 @@ export class AudioEngine {
       this.musicGain.connect(this.masterGain);
       this.sfxGain.connect(this.masterGain);
       
-      // Load or compile hitsound procedurally
+      this.refreshOutputLatencyCache();
       this.createProceduralHitsound();
     } catch (e) {
       console.error('Failed to initialize Web Audio Context:', e instanceof Error ? e.message : String(e));
     }
+  }
+
+  private refreshOutputLatencyCache() {
+    if (!this.ctx) {
+      this.cachedOutputLatencyMs = 0;
+      return;
+    }
+    const base = (this.ctx.baseLatency ?? 0) * 1000;
+    // outputLatency is not on all browsers; fall back to base only
+    const out = ((this.ctx as AudioContext & { outputLatency?: number }).outputLatency ?? 0) * 1000;
+    this.cachedOutputLatencyMs = Math.max(0, Math.min(120, base + out));
+    this.lastLatencySampleMs = performance.now();
+  }
+
+  public getOutputLatencyMs(): number {
+    if (!this.ctx) return 0;
+    // Re-sample occasionally — Bluetooth / device switches can change latency
+    if (performance.now() - this.lastLatencySampleMs > 2000) {
+      this.refreshOutputLatencyCache();
+    }
+    return this.cachedOutputLatencyMs;
+  }
+
+  private async ensureRunning(): Promise<void> {
+    this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch (_e) {}
+    }
+    this.refreshOutputLatencyCache();
   }
 
   public setVolumes(musicVolume: number, sfxVolume: number) {
@@ -111,22 +152,25 @@ export class AudioEngine {
       const source = this.ctx.createBufferSource();
       source.buffer = this.hitsoundBuffer;
       source.connect(this.sfxGain);
-      source.start(0);
+      // Tiny schedule ahead reduces under-run clicks on some devices
+      const when = this.ctx.currentTime + 0.003;
+      source.start(when);
     } else {
       // Fallback synthesizer hitsound if buffer failed to create
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(800, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.05);
+      const t0 = this.ctx.currentTime + 0.003;
+      osc.frequency.setValueAtTime(800, t0);
+      osc.frequency.exponentialRampToValueAtTime(150, t0 + 0.05);
       
-      gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.06);
+      gain.gain.setValueAtTime(0.4, t0);
+      gain.gain.exponentialRampToValueAtTime(0.01, t0 + 0.06);
       
       osc.connect(gain);
       gain.connect(this.sfxGain);
-      osc.start();
-      osc.stop(this.ctx.currentTime + 0.06);
+      osc.start(t0);
+      osc.stop(t0 + 0.06);
     }
   }
 
@@ -189,15 +233,16 @@ export class AudioEngine {
   }
 
   /**
-   * Start song playback with offset adjustment
+   * Start song playback with offset adjustment.
+   * Awaits AudioContext resume so startTime is armed on a running clock.
    */
   public play(bpm: number = 120, offsetMs: number = 0, startDelayMs: number = 0) {
-    this.init();
-    if (!this.ctx || this.isPlaying) return;
+    void this.playAsync(bpm, offsetMs, startDelayMs);
+  }
 
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
+  public async playAsync(bpm: number = 120, offsetMs: number = 0, startDelayMs: number = 0): Promise<void> {
+    await this.ensureRunning();
+    if (!this.ctx || this.isPlaying) return;
 
     this.proceduralBpm = bpm;
     this.audioOffsetMs = offsetMs;
@@ -232,6 +277,7 @@ export class AudioEngine {
     // Set high-precision clock baseline values
     this.lastAudioTime = this.ctx.currentTime;
     this.lastSystemTime = performance.now();
+    this.refreshOutputLatencyCache();
   }
 
   public pause() {
@@ -338,8 +384,8 @@ export class AudioEngine {
   }
 
   /**
-   * Returns current song playback elapsed time in milliseconds
-   * Extremely precise, compensated for device latency, pause state, and custom audio calibration offsets.
+   * Returns current song playback elapsed time in milliseconds.
+   * Master judgement clock: buffer timeline + optional output-latency compensation + user offset.
    */
   public getCurrentTimeMs(): number {
     if (!this.isPlaying || !this.ctx) {
@@ -361,17 +407,16 @@ export class AudioEngine {
     // Linear interpolation based on high-resolution system clock since last block update
     const elapsedSinceLastUpdate = (now - this.lastSystemTime) / 1000;
     
-    // Allow generous interpolation (up to 500ms) during the first 1.5 seconds of playback to absorb Web Audio thread start lag,
-    // then settle into standard 50ms drift protection once fully synchronized.
-    const isStartupSec = (currentAudioTime - this.startTime) < 1.5;
-    const maxInterpolation = isStartupSec ? 0.50 : 0.05;
+    // Tight caps: absorb short audio-thread stalls without racing ahead at song start
+    const isStartupSec = (currentAudioTime - this.startTime) < 0.75;
+    const maxInterpolation = isStartupSec ? 0.064 : 0.02;
     const interpolatedAudioTime = this.lastAudioTime + Math.min(elapsedSinceLastUpdate, maxInterpolation);
     
     const currentSegmentElapsed = (interpolatedAudioTime - this.startTime) * this.playbackRate;
     const rawElapsedMs = (this.pauseTime + currentSegmentElapsed) * 1000;
     
-    // Apply calibration offset
-    return rawElapsedMs - this.audioOffsetMs;
+    const latencyComp = this.compensateOutputLatency ? this.getOutputLatencyMs() : 0;
+    return rawElapsedMs - this.audioOffsetMs - latencyComp;
   }
 
   /**

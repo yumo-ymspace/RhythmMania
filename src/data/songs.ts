@@ -209,6 +209,8 @@ export function generateProceduralBeatmap(
   const overallDifficulty = Math.min(10.0, Math.max(2.0, difficultyMultiplier * 0.9));
   const hpDrainRate = Math.min(10.0, Math.max(3.0, (10 - difficultyMultiplier) * 0.5 + 4.0));
 
+  const baseBeatLength = 60000 / bpm;
+
   return {
     id: `${song.id}_${keyCount}k_${difficultyMultiplier.toFixed(1)}s`,
     title: song.title,
@@ -221,5 +223,15 @@ export function generateProceduralBeatmap(
     notes,
     hpDrainRate,
     overallDifficulty,
+    timingPoints: [
+      {
+        timeMs: 0,
+        beatLength: baseBeatLength,
+        uninherited: true,
+        svMultiplier: 1.0,
+      }
+    ],
+    sliderMultiplier: 1.4,
+    baseBeatLength,
   };
 }

@@ -14,7 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
 import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
-import { VideoSyncController } from '../utils/videoSyncController';
+import { VideoSyncController, computeTargetVideoTimeSec } from '../utils/videoSyncController';
 import { PlayZoneOverlay } from './PlayZoneOverlay';
 import { executeTeardown } from '../utils/gameplayTeardown';
 import { TouchInputAdapter } from '../utils/touchInputAdapter';
@@ -22,7 +22,7 @@ import { FullscreenManager } from '../utils/fullscreenManager';
 import { GameplayMediaRegistry } from '../utils/mediaRegistry';
 import JSZip from 'jszip';
 import { RobustZipResolver } from '../utils/zipResolver';
-import { AssetLifecycleManager } from '../utils/assetLifecycle';
+import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
 import { validateZipLimits, validateZipEntrySize, sanitizeCssUrl } from '../utils/securityLimits';
@@ -34,6 +34,8 @@ import { Canvas2DRenderer } from '../render/Canvas2DRenderer';
 import { PixiPlayfieldRenderer } from '../render/pixi/PixiPlayfieldRenderer';
 import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
 import { getVisibleNotes } from '../render/noteVisibility';
+import { createScrollModel, ScrollModel } from '../render/scrollVelocity';
+import { parseBeatmap } from '../utils/beatmapParser';
 
 export interface ColumnStyle {
   width: number;
@@ -62,7 +64,8 @@ export function checkNotesAutonomousMisses(
   notes: HitObject[],
   currentTime: number,
   missBound: number,
-  onMiss: (n: HitObject, isDoubleMiss: boolean) => void
+  onMiss: (n: HitObject, isDoubleMiss: boolean) => void,
+  keysPressed?: boolean[]
 ) {
   notes.forEach((n) => {
     // 1. Normal and hold notes missed at start
@@ -79,13 +82,24 @@ export function checkNotesAutonomousMisses(
     
     // 2. Continuous hold note missed intermediate bounds
     if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime) {
-      // If in a release grace period and it expired
-      if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
-        n.isHoldFailed = true;
-        n.isReleased = true; // completed with fail
-        onMiss(n, false);
+      const stillHeld = !!(keysPressed && keysPressed[n.column]);
+
+      // Spurious early release: if the lane is still logically held, heal grace
+      if (n.releaseGraceUntil && stillHeld) {
+        n.releaseGraceUntil = undefined;
       }
-      // Or if reached end without hit or release failure, and time elapsed past miss boundary.
+
+      // If in a release grace period and it expired without a re-press
+      if (n.releaseGraceUntil && currentTime > n.releaseGraceUntil) {
+        if (stillHeld) {
+          n.releaseGraceUntil = undefined;
+        } else {
+          n.isHoldFailed = true;
+          n.isReleased = true; // completed with fail
+          onMiss(n, false);
+        }
+      }
+      // Or if reached end without release, and time elapsed past miss boundary.
       else if (!n.releaseGraceUntil && currentTime - n.endTime > missBound) {
         n.isHoldFailed = true;
         n.isReleased = true;
@@ -250,9 +264,25 @@ export default function GameplayCanvas({
   replayRecord = null
 }: GameplayCanvasProps) {
   const beatmap = React.useMemo(() => {
+    let baseMap = originalBeatmap;
+    const legacy = originalBeatmap as any;
+    if (legacy.originalContent && (!baseMap.timingPoints || baseMap.timingPoints.length === 0)) {
+      try {
+        const parsed = parseBeatmap(legacy.originalContent, baseMap.id);
+        baseMap = {
+          ...parsed,
+          audioUrl: baseMap.audioUrl,
+          videoUrl: baseMap.videoUrl,
+          bgUrl: baseMap.bgUrl,
+          videoStartTime: baseMap.videoStartTime !== undefined ? baseMap.videoStartTime : parsed.videoStartTime,
+        };
+      } catch (err) {
+        console.error('Failed to auto-repair/re-parse legacy beatmap timing points:', err);
+      }
+    }
     return {
-      ...originalBeatmap,
-      notes: originalBeatmap.notes ? originalBeatmap.notes.map(n => ({ ...n })) : []
+      ...baseMap,
+      notes: baseMap.notes ? baseMap.notes.map(n => ({ ...n })) : []
     };
   }, [originalBeatmap]);
 
@@ -275,6 +305,12 @@ export default function GameplayCanvas({
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  const scrollModelRef = useRef<ScrollModel | null>(null);
+  useEffect(() => {
+    const enableMapSV = settings.enableMapSV !== false;
+    scrollModelRef.current = createScrollModel(beatmap, enableMapSV);
+  }, [beatmap, settings.enableMapSV]);
 
   const updateSettingsRef = useRef(updateSettings);
   useEffect(() => {
@@ -478,8 +514,9 @@ export default function GameplayCanvas({
   const [unpauseCountdown, setUnpauseCountdown] = useState<number>(0);
   const [isFailed, setIsFailed] = useState<boolean>(false);
 
-  // Active inputs trace
+  // Active inputs trace (boolean edge + refcount for multi-source keyboard/touch)
   const keysPressedRef = useRef<boolean[]>([]);
+  const lanePressCountRef = useRef<number[]>([]);
   const activeColumnsRef = useRef<boolean[]>([]);
   const hasKeyPressedOnceRef = useRef<boolean[]>([]);
   const progressBarRef = useRef<any>(null);
@@ -491,6 +528,16 @@ export default function GameplayCanvas({
   const finishTimeoutRef = useRef<any>(null);
   const uiJudgementTimeoutRef = useRef<any>(null);
   const isMountedRef = useRef<boolean>(true);
+  const isPausedRef = useRef<boolean>(false);
+  const showCountdownRef = useRef<number>(0);
+  const unpauseCountdownRef = useRef<number>(0);
+  const isPrePlayRef = useRef<boolean>(true);
+  const showSettingsModalRef = useRef<boolean>(false);
+  const showInfoModalRef = useRef<boolean>(false);
+
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { showCountdownRef.current = showCountdown; }, [showCountdown]);
+  useEffect(() => { unpauseCountdownRef.current = unpauseCountdown; }, [unpauseCountdown]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -528,6 +575,9 @@ export default function GameplayCanvas({
   const [isPrePlay, setIsPrePlay] = useState<boolean>(true);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
+  useEffect(() => { isPrePlayRef.current = isPrePlay; }, [isPrePlay]);
+  useEffect(() => { showSettingsModalRef.current = showSettingsModal; }, [showSettingsModal]);
+  useEffect(() => { showInfoModalRef.current = showInfoModal; }, [showInfoModal]);
 
   // PIPELINE DIAGNOSTICS & DECODING FALLBACK STATES
   const [isPlayingFallback, setIsPlayingFallback] = useState<boolean>(false);
@@ -690,6 +740,7 @@ export default function GameplayCanvas({
     
     // Reset key arrays
     keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
+    lanePressCountRef.current = new Array(beatmap.keyCount).fill(0);
     activeColumnsRef.current = new Array(beatmap.keyCount).fill(false);
     laneGlowRef.current = new Array(beatmap.keyCount).fill(0);
     hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
@@ -816,7 +867,7 @@ export default function GameplayCanvas({
               if (file) {
                 validateZipEntrySize(file, audioFilename);
                 const b = await file.async('blob');
-                parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
+                parsedAudioUrl = AssetLifecycleManager.registerBlob(b, audioFilename);
                 beatmap.audioUrl = parsedAudioUrl;
               }
             }
@@ -825,17 +876,17 @@ export default function GameplayCanvas({
               if (fallbackObj) {
                 validateZipEntrySize(fallbackObj, fallbackObj.name);
                 const b = await fallbackObj.async('blob');
-                parsedAudioUrl = AssetLifecycleManager.registerBlob(b);
+                parsedAudioUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
                 beatmap.audioUrl = parsedAudioUrl;
               }
             }
 
-            if (videoFilename && !parsedVideoUrl) {
+            if (videoFilename && !parsedVideoUrl && isBrowserPlayableVideoFilename(videoFilename)) {
               const file = resolver.findFile(videoFilename);
               if (file) {
                 validateZipEntrySize(file, videoFilename);
                 const b = await file.async('blob');
-                parsedVideoUrl = AssetLifecycleManager.registerBlob(b);
+                parsedVideoUrl = AssetLifecycleManager.registerBlob(b, videoFilename);
                 beatmap.videoUrl = parsedVideoUrl;
               }
             }
@@ -845,7 +896,7 @@ export default function GameplayCanvas({
               if (file) {
                 validateZipEntrySize(file, bgFilename);
                 const b = await file.async('blob');
-                parsedBgUrl = AssetLifecycleManager.registerBlob(b);
+                parsedBgUrl = AssetLifecycleManager.registerBlob(b, bgFilename);
                 beatmap.bgUrl = parsedBgUrl;
               }
             }
@@ -854,7 +905,7 @@ export default function GameplayCanvas({
               if (fallbackObj) {
                 validateZipEntrySize(fallbackObj, fallbackObj.name);
                 const b = await fallbackObj.async('blob');
-                parsedBgUrl = AssetLifecycleManager.registerBlob(b);
+                parsedBgUrl = AssetLifecycleManager.registerBlob(b, fallbackObj.name);
                 beatmap.bgUrl = parsedBgUrl;
               }
             }
@@ -900,14 +951,22 @@ export default function GameplayCanvas({
           ]);
         }
 
-        // Check for missing video
-        const declaredVideo = (beatmap as any).videoFilename;
+        // Check for missing / unplayable video
+        const declaredVideo = (beatmap as any).videoFilename as string | undefined;
         if (declaredVideo && !beatmap.videoUrl) {
-          setIsVideoMissing(true);
-          setDiagnosticsErrorLog(prev => [
-            ...prev,
-            `Video track "${declaredVideo}" declared in beatmap but not present in the package.`
-          ]);
+          if (declaredVideo && !isBrowserPlayableVideoFilename(declaredVideo)) {
+            setIsVideoError(true);
+            setDiagnosticsErrorLog(prev => [
+              ...prev,
+              `Video "${declaredVideo}" uses a container browsers cannot decode (need MP4/WebM). Falling back to static background.`
+            ]);
+          } else {
+            setIsVideoMissing(true);
+            setDiagnosticsErrorLog(prev => [
+              ...prev,
+              `Video track "${declaredVideo}" declared in beatmap but not present in the package.`
+            ]);
+          }
         }
 
         initializeGameplay();
@@ -935,6 +994,32 @@ export default function GameplayCanvas({
     }
   }, [isAudioLoaded, settings.musicVolume, settings.hitsoundVolume, settings.audioOffset]);
 
+  const snapVideoToAudio = (audioTimeMs?: number, playIfReady: boolean = true) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const tMs = audioTimeMs ?? audioTimeRef.current;
+    const target = computeTargetVideoTimeSec(
+      tMs,
+      beatmap.videoStartTime || 0,
+      settingsRef.current.videoOffset || 0
+    );
+    try {
+      video.playbackRate = mainAudio.playbackRate;
+      if (target < 0) {
+        if (video.currentTime > 0.001) video.currentTime = 0;
+        if (!video.paused) video.pause();
+        return;
+      }
+      if (Math.abs(video.currentTime - target) > 0.012) {
+        video.currentTime = target;
+      }
+      if (playIfReady && video.paused) {
+        video.play().catch(() => {});
+      }
+      syncControllerRef.current?.snapToAudio(playIfReady);
+    } catch (_e) {}
+  };
+
   // Handle countdown intervals
   useEffect(() => {
     if (showCountdown > 0) {
@@ -944,15 +1029,13 @@ export default function GameplayCanvas({
       const t = setTimeout(() => {
         setShowCountdown(prev => {
           if (prev === 1) {
-            // Play audio as soon as countdown wraps up
-            mainAudio.play(beatmap.bpm, settings.audioOffset, startDelayMs);
+            // Play audio as soon as countdown wraps up; hard-align video to master clock
+            void mainAudio.playAsync(beatmap.bpm, settings.audioOffset, startDelayMs).then(() => {
+              isPlayingRef.current = true;
+              audioTimeRef.current = mainAudio.getCurrentTimeMs();
+              snapVideoToAudio(audioTimeRef.current, true);
+            });
             isPlayingRef.current = true;
-            if (videoRef.current) {
-              videoRef.current.playbackRate = mainAudio.playbackRate;
-              videoRef.current.play().catch(err => {
-                console.warn('Video failed to start after countdown elapsed:', err);
-              });
-            }
           }
           return prev - 1;
         });
@@ -967,17 +1050,14 @@ export default function GameplayCanvas({
       const t = setTimeout(() => {
         setUnpauseCountdown(prev => {
           if (prev === 1) {
-            // Unpause visual systems
+            // Unpause visual systems — snap A/V phase before free-run
             lastProcessedReplayTimeRef.current = -1;
             setIsPaused(false);
             isPlayingRef.current = true;
-            mainAudio.play(beatmap.bpm, settings.audioOffset);
-            if (videoRef.current) {
-              videoRef.current.playbackRate = mainAudio.playbackRate;
-              videoRef.current.play().catch(err => {
-                console.warn('Video failed to play on resume:', err instanceof Error ? err.message : String(err));
-              });
-            }
+            void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
+              audioTimeRef.current = mainAudio.getCurrentTimeMs();
+              snapVideoToAudio(audioTimeRef.current, true);
+            });
           }
           return prev - 1;
         });
@@ -987,55 +1067,72 @@ export default function GameplayCanvas({
   }, [unpauseCountdown]);
 
   // Unified Keyboard processing & Multi-Touch Input Adapter
+  // Listeners stay mounted for the play session; gate state is read from refs to avoid
+  // teardown/reset mid-hold when pause/countdown/modals flip.
   useEffect(() => {
     const touchTarget = containerRef.current;
-    
-    // Abstract virtual key trigger handlers to share state updates cleanly between physical keys and screen tactile touches
-    const virtualKeyDown = (colIndex: number) => {
-      if (isPrePlay || showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
-      if (colIndex >= 0 && colIndex < beatmap.keyCount && !keysPressedRef.current[colIndex]) {
-        keysPressedRef.current[colIndex] = true;
-        activeColumnsRef.current[colIndex] = true;
-        laneGlowRef.current[colIndex] = 1.0;
-        if (hasKeyPressedOnceRef.current) {
-          hasKeyPressedOnceRef.current[colIndex] = true;
-        }
-        
-        mainAudio.playHitsound();
-        triggerHitEvent(colIndex);
+    const keyCount = beatmap.keyCount;
 
-        if (!replayData) {
-          replayFramesRef.current.push({
-            time: audioTimeRef.current,
-            keysPressed: [...keysPressedRef.current]
-          });
-        }
+    if (lanePressCountRef.current.length !== keyCount) {
+      lanePressCountRef.current = new Array(keyCount).fill(0);
+    }
+    
+    // Refcounted lane press so keyboard + touch on the same column do not fight.
+    const virtualKeyDown = (colIndex: number) => {
+      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed) return;
+      if (colIndex < 0 || colIndex >= keyCount) return;
+
+      const counts = lanePressCountRef.current;
+      counts[colIndex] = (counts[colIndex] || 0) + 1;
+      if (counts[colIndex] !== 1) return;
+
+      keysPressedRef.current[colIndex] = true;
+      activeColumnsRef.current[colIndex] = true;
+      laneGlowRef.current[colIndex] = 1.0;
+      if (hasKeyPressedOnceRef.current) {
+        hasKeyPressedOnceRef.current[colIndex] = true;
+      }
+      
+      mainAudio.playHitsound();
+      triggerHitEvent(colIndex);
+
+      if (!replayData) {
+        replayFramesRef.current.push({
+          time: audioTimeRef.current,
+          keysPressed: [...keysPressedRef.current]
+        });
       }
     };
 
     const virtualKeyUp = (colIndex: number) => {
-      if (isPrePlay || showCountdown > 0 || isPaused || scoreStateRef.current.failed) return;
-      if (colIndex >= 0 && colIndex < beatmap.keyCount) {
-        keysPressedRef.current[colIndex] = false;
-        activeColumnsRef.current[colIndex] = false;
-        
-        triggerReleaseEvent(colIndex);
+      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed) return;
+      if (colIndex < 0 || colIndex >= keyCount) return;
 
-        if (!replayData) {
-          replayFramesRef.current.push({
-            time: audioTimeRef.current,
-            keysPressed: [...keysPressedRef.current]
-          });
-        }
+      const counts = lanePressCountRef.current;
+      if ((counts[colIndex] || 0) <= 0) return;
+      counts[colIndex] -= 1;
+      if (counts[colIndex] > 0) return;
+
+      keysPressedRef.current[colIndex] = false;
+      activeColumnsRef.current[colIndex] = false;
+      
+      triggerReleaseEvent(colIndex);
+
+      if (!replayData) {
+        replayFramesRef.current.push({
+          time: audioTimeRef.current,
+          keysPressed: [...keysPressedRef.current]
+        });
       }
     };
 
     // 1. Keyboard event parsing listeners
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (e.repeat) return;
       
-      if (isPrePlay) {
-        if (showSettingsModal || showInfoModal) return;
+      if (isPrePlayRef.current) {
+        if (showSettingsModalRef.current || showInfoModalRef.current) return;
         if (e.key === 'Escape') {
           e.preventDefault();
           onBack();
@@ -1059,10 +1156,10 @@ export default function GameplayCanvas({
 
       if (isPauseTrigger) {
         e.preventDefault();
-        if (showCountdown > 0 || unpauseCountdown > 0) {
+        if (showCountdownRef.current > 0 || unpauseCountdownRef.current > 0) {
           return; // Ignore / disable Escape key during active countdowns
         }
-        if (isFocusMode) {
+        if (isFocusModeRef.current) {
           // Programmatically exit focus mode which triggers the fullscreen change listener to exit and pause
           FullscreenManager.exitFocusMode();
         } else {
@@ -1073,7 +1170,7 @@ export default function GameplayCanvas({
 
       if (replayData) return; // ignore user key taps in replay mode
 
-      const keyLayout = currentSettings.bindings[beatmap.keyCount] || [];
+      const keyLayout = currentSettings.bindings[keyCount] || [];
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -1087,7 +1184,7 @@ export default function GameplayCanvas({
       if (replayData) return; // ignore user key taps in replay mode
 
       const currentSettings = settingsRef.current;
-      const keyLayout = currentSettings.bindings[beatmap.keyCount] || [];
+      const keyLayout = currentSettings.bindings[keyCount] || [];
       const key = e.key.toLowerCase();
       const colIndex = keyLayout.findIndex((k) => k.toLowerCase() === key);
       if (colIndex !== -1) {
@@ -1095,8 +1192,21 @@ export default function GameplayCanvas({
       }
     };
 
+    // On focus restore after blur/pause, drop stale press counts so holds do not stick forever
+    const reconcileInputOnFocus = () => {
+      if (isPausedRef.current || showCountdownRef.current > 0 || unpauseCountdownRef.current > 0) return;
+      lanePressCountRef.current.fill(0);
+      for (let i = 0; i < keyCount; i++) {
+        if (keysPressedRef.current[i]) {
+          keysPressedRef.current[i] = false;
+          activeColumnsRef.current[i] = false;
+        }
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('focus', reconcileInputOnFocus);
 
     // 2. Tactile multi-touch adapter tracking (touchstart, touchmove, touchend, touchcancel)
     let touchAdapter: TouchInputAdapter | null = null;
@@ -1111,13 +1221,13 @@ export default function GameplayCanvas({
       handleTouchStart = (e: TouchEvent) => {
         if (replayData) return;
         const rect = touchTarget.getBoundingClientRect();
-        touchAdapter?.handleTouchStart(e, rect, beatmap.keyCount);
+        touchAdapter?.handleTouchStart(e, rect, keyCount);
       };
 
       handleTouchMove = (e: TouchEvent) => {
         if (replayData) return;
         const rect = touchTarget.getBoundingClientRect();
-        touchAdapter?.handleTouchMove(e, rect, beatmap.keyCount);
+        touchAdapter?.handleTouchMove(e, rect, keyCount);
       };
 
       handleTouchEnd = (e: TouchEvent) => {
@@ -1140,6 +1250,7 @@ export default function GameplayCanvas({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('focus', reconcileInputOnFocus);
       
       if (touchTarget) {
         if (handleTouchStart) touchTarget.removeEventListener('touchstart', handleTouchStart);
@@ -1149,7 +1260,7 @@ export default function GameplayCanvas({
       }
       touchAdapter?.reset();
     };
-  }, [beatmap, isPaused, showCountdown, isFocusMode, isPrePlay, showSettingsModal, showInfoModal, unpauseCountdown]);
+  }, [beatmap.keyCount, replayData]);
 
   // Judgement scoring evaluator
   const triggerHitEvent = (colIndex: number) => {
@@ -1469,7 +1580,8 @@ export default function GameplayCanvas({
           } else {
             applyJudgement(missJudg, n.column);
           }
-        }
+        },
+        keysPressedRef.current
       );
     };
 
@@ -1565,7 +1677,7 @@ export default function GameplayCanvas({
         
         const currentSettings = settingsRef.current;
         
-        // Throttled Video - Audio Sync alignment check via PLL VideoSyncController
+        // Continuous Video-Audio phase lock (PI PLL + transport snaps elsewhere)
         if (videoRef.current) {
           if (!syncControllerRef.current) {
             syncControllerRef.current = new VideoSyncController(
@@ -1619,7 +1731,8 @@ export default function GameplayCanvas({
           height,
           receptorY,
           visualTime,
-          speedFactor
+          speedFactor,
+          scrollModelRef.current
         );
 
         // Decay lane glows
@@ -1745,6 +1858,13 @@ export default function GameplayCanvas({
     if (videoRef.current) {
       try { videoRef.current.pause(); } catch (e) {}
     }
+    // Drop in-flight hold grace and input edges so resume does not auto-fail LNs
+    notesRef.current.forEach((n) => {
+      if (n.releaseGraceUntil) n.releaseGraceUntil = undefined;
+    });
+    lanePressCountRef.current.fill(0);
+    keysPressedRef.current.fill(false);
+    activeColumnsRef.current.fill(false);
   };
 
   useEffect(() => {
@@ -1772,10 +1892,10 @@ export default function GameplayCanvas({
       if (isReplayMode) {
         setIsPaused(false);
         isPlayingRef.current = true;
-        mainAudio.play(beatmap.bpm, settings.audioOffset);
-        if (videoRef.current) {
-          try { videoRef.current.play(); } catch (e) {}
-        }
+        void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
+          audioTimeRef.current = mainAudio.getCurrentTimeMs();
+          snapVideoToAudio(audioTimeRef.current, true);
+        });
       } else {
         // Start recovery countdown instead of starting immediately
         setUnpauseCountdown(3);
@@ -1787,6 +1907,12 @@ export default function GameplayCanvas({
       if (videoRef.current) {
         try { videoRef.current.pause(); } catch (e) {}
       }
+      notesRef.current.forEach((n) => {
+        if (n.releaseGraceUntil) n.releaseGraceUntil = undefined;
+      });
+      lanePressCountRef.current.fill(0);
+      keysPressedRef.current.fill(false);
+      activeColumnsRef.current.fill(false);
     }
   };
 
@@ -1805,6 +1931,7 @@ export default function GameplayCanvas({
 
     // 2. Reset keyboard arrays
     keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
+    lanePressCountRef.current = new Array(beatmap.keyCount).fill(0);
     activeColumnsRef.current = new Array(beatmap.keyCount).fill(false);
     laneGlowRef.current = new Array(beatmap.keyCount).fill(0);
     hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
@@ -1931,8 +2058,10 @@ export default function GameplayCanvas({
       if (!holdNote || !holdNote.endTime) return;
       const endDiff = frameTime - holdNote.endTime;
       const absEndDiff = Math.abs(endDiff);
-      if (endDiff < -181) {
-        holdNote.releaseGraceUntil = frameTime + 180;
+      const graceThreshold = -missJudg.windowMs - 1;
+      const graceDuration = missJudg.windowMs;
+      if (endDiff < graceThreshold) {
+        holdNote.releaseGraceUntil = frameTime + graceDuration;
         return;
       }
       const greatWindow = greatJudg.windowMs;
@@ -1949,7 +2078,7 @@ export default function GameplayCanvas({
       }
     };
 
-    const simCheckAutonomousMisses = (currentTime: number) => {
+    const simCheckAutonomousMisses = (currentTime: number, keysPressed?: boolean[]) => {
       checkNotesAutonomousMisses(
         notesRef.current,
         currentTime,
@@ -1961,7 +2090,8 @@ export default function GameplayCanvas({
           } else {
             simApplyJudgement(missJudg);
           }
-        }
+        },
+        keysPressed
       );
     };
 
@@ -1971,7 +2101,7 @@ export default function GameplayCanvas({
 
     historicalFrames.forEach(frame => {
       // 1. Check autonomous misses at this frame time
-      simCheckAutonomousMisses(frame.time);
+      simCheckAutonomousMisses(frame.time, prevKeys);
 
       // 2. Process keyboard changes
       for (let col = 0; col < beatmap.keyCount; col++) {
@@ -1987,16 +2117,18 @@ export default function GameplayCanvas({
     });
 
     // 3. Sweep up to targetTimeMs
-    simCheckAutonomousMisses(targetTimeMs);
+    simCheckAutonomousMisses(targetTimeMs, prevKeys);
 
     // Sync key states to the last frame if available
     if (historicalFrames.length > 0) {
       const lastFrame = historicalFrames[historicalFrames.length - 1];
       keysPressedRef.current = [...lastFrame.keysPressed];
       activeColumnsRef.current = [...lastFrame.keysPressed];
+      lanePressCountRef.current = lastFrame.keysPressed.map((p) => (p ? 1 : 0));
     } else {
       keysPressedRef.current.fill(false);
       activeColumnsRef.current.fill(false);
+      lanePressCountRef.current.fill(0);
     }
 
     lastProcessedReplayTimeRef.current = targetTimeMs;
@@ -2011,9 +2143,7 @@ export default function GameplayCanvas({
     mainAudio.seekTo(newTimeMs / 1000);
     audioTimeRef.current = newTimeMs;
     smoothOffsetRef.current = settings.audioOffset;
-    if (videoRef.current) {
-       videoRef.current.currentTime = newTimeMs / 1000;
-    }
+    snapVideoToAudio(newTimeMs, false);
     
     // reset visuals
     hitErrorTicksRef.current = [];
@@ -2797,10 +2927,9 @@ export default function GameplayCanvas({
                                   const newTime = Number((e.target as HTMLInputElement).value);
                                   handleSeek(newTime);
                                   if (wasPlayingRef.current) {
-                                      mainAudio.play(beatmap.bpm, settings.audioOffset);
-                                      if (videoRef.current) {
-                                          try { videoRef.current.play(); } catch (e) {}
-                                      }
+                                      void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
+                                        snapVideoToAudio(newTime, true);
+                                      });
                                   }
                               }}
                               onChange={(e) => {
@@ -2814,12 +2943,10 @@ export default function GameplayCanvas({
                                   }
                                   simulateGameToTime(newTime);
                                   audioTimeRef.current = newTime;
-                                  if (videoRef.current) {
-                                      const now = performance.now();
-                                      if (now - lastVideoSeekTimeRef.current > 100) {
-                                          videoRef.current.currentTime = newTime / 1000;
-                                          lastVideoSeekTimeRef.current = now;
-                                      }
+                                  const now = performance.now();
+                                  if (now - lastVideoSeekTimeRef.current > 80) {
+                                      snapVideoToAudio(newTime, false);
+                                      lastVideoSeekTimeRef.current = now;
                                   }
                               }}
                               className="w-full h-2 rounded-full appearance-none outline-none cursor-pointer group-hover:h-2.5 transition-all z-10 block bg-white/20"
@@ -2942,12 +3069,20 @@ export default function GameplayCanvas({
               src={beatmap.videoUrl}
               muted
               playsInline
-              onError={(e) => {
-                console.warn('Video failed to render or decode');
+              onError={() => {
+                const mediaErr = videoRef.current?.error;
+                const code = mediaErr?.code;
+                const detail =
+                  code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+                    ? 'unsupported container/codec or missing MIME type on blob'
+                    : code === MediaError.MEDIA_ERR_DECODE
+                      ? 'decode failure'
+                      : mediaErr?.message || 'unknown media error';
+                console.warn('Video failed to render or decode:', detail);
                 setIsVideoError(true);
                 setDiagnosticsErrorLog(prev => [
                   ...prev,
-                  'Video format decoding failed on the native browser host.'
+                  `Video decoding failed (${detail}).`
                 ]);
               }}
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"

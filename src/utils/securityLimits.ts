@@ -14,7 +14,7 @@ import { GameSettings, PlayHistoryRecord } from '../types';
 export const MAX_COMPRESSED_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB max compressed size for .osz
 export const MAX_SKIN_COMPRESSED_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB max compressed size for .osk
 export const MAX_TOTAL_UNCOMPRESSED_SIZE_BYTES = 250 * 1024 * 1024; // 250 MB max uncompressed zip size
-export const MAX_ZIP_ENTRIES = 100; // 100 files max per zip/osz
+export const MAX_ZIP_ENTRIES = 500; // 500 files max per zip/osz
 export const MAX_SINGLE_ENTRY_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB max size for any single uncompressed entry
 export const MAX_BEATMAP_NOTES = 20000; // 20k notes max to prevent infinite loops / memory exhaustion
 export const MAX_BEATMAP_TIMING_POINTS = 5000; // 5k timing points max
@@ -223,6 +223,7 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     bindPause: sanitizeString(parsed.bindPause, defaultSettings.bindPause || 'escape', 15),
     bindRetry: sanitizeString(parsed.bindRetry, defaultSettings.bindRetry || 'r', 15),
     renderEngine: parsed.renderEngine === 'pixi' ? 'pixi' : 'canvas',
+    enableMapSV: parsed.enableMapSV !== undefined ? Boolean(parsed.enableMapSV) : true,
   };
 }
 

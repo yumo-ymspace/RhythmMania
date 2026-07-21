@@ -7,6 +7,7 @@ import { HitObject } from '../types';
 import { PlayfieldVisualSettings, VisibleNote, ColumnLayout } from './types';
 import { getScrollYPosition, getHiddenOpacityForY } from './playfieldLayout';
 import { isCircleSkinMode } from './skinTheme';
+import { ScrollModel } from './scrollVelocity';
 
 export function getVisibleNotes(
   notes: HitObject[],
@@ -15,7 +16,8 @@ export function getVisibleNotes(
   height: number,
   receptorY: number,
   visualTime: number,
-  speedFactor: number
+  speedFactor: number,
+  scrollModel?: ScrollModel | null
 ): VisibleNote[] {
   const visible: VisibleNote[] = [];
   const paddingLimit = 100; // Safe cushion to ensure holds / note animations don't pop off screen edge prematurely
@@ -39,8 +41,8 @@ export function getVisibleNotes(
     const colW = columns[n.column]?.width || 50;
 
     // Head Y / End Y
-    const y = getScrollYPosition(n.time, visualTime, receptorY, speedFactor, up);
-    const endY = n.endTime ? getScrollYPosition(n.endTime, visualTime, receptorY, speedFactor, up) : undefined;
+    const y = getScrollYPosition(n.time, visualTime, receptorY, speedFactor, up, scrollModel);
+    const endY = n.endTime ? getScrollYPosition(n.endTime, visualTime, receptorY, speedFactor, up, scrollModel) : undefined;
 
     // Check visibility within playfield boundaries
     let isVisible = false;

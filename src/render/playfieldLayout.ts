@@ -5,6 +5,7 @@
 
 import { getColumnStyles, ColumnStyle } from '../components/GameplayCanvas';
 import { PlayfieldVisualSettings, ColumnLayout } from './types';
+import { ScrollModel, getScrollDelta } from './scrollVelocity';
 
 export function calculateColumnsLayout(
   keyCount: number,
@@ -99,12 +100,17 @@ export function getScrollYPosition(
   visualTime: number,
   receptorY: number,
   speedFactor: number,
-  upsurfaceNoteMode: boolean
+  upsurfaceNoteMode: boolean,
+  scrollModel?: ScrollModel | null
 ): number {
+  const delta = (scrollModel && scrollModel.isEnabled)
+    ? getScrollDelta(scrollModel, visualTime, timeMs)
+    : (timeMs - visualTime);
+
   if (upsurfaceNoteMode) {
-    return receptorY + (timeMs - visualTime) * speedFactor;
+    return receptorY + delta * speedFactor;
   } else {
-    return receptorY - (timeMs - visualTime) * speedFactor;
+    return receptorY - delta * speedFactor;
   }
 }
 

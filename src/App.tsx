@@ -26,6 +26,7 @@ import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount } from './utils/beatmapParser';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
 import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl } from './utils/securityLimits';
+import { AssetLifecycleManager } from './utils/assetLifecycle';
 
 
 const PAGE_TRANSITION_VARIANTS = {
@@ -250,14 +251,19 @@ export default function App() {
     // Look up the beatmap in our selection
     const targetMap = [...customMaps].find(m => m.id === record.beatmapId || m.id === baseId);
     if (targetMap) {
-      // Apply unpacked blob cache URLs to targetMap so replay can play back audio & video perfectly!
+      // Create a shallow copy + notes clone (session clone)
+      const cloned = {
+        ...targetMap,
+        notes: targetMap.notes ? targetMap.notes.map(n => ({ ...n })) : []
+      };
+      // Apply unpacked blob cache URLs to cloned so replay can play back audio & video perfectly!
       const cached = storageManager.lruMediaCache.get(targetMap.id);
       if (cached) {
-        targetMap.audioUrl = cached.audioUrl || targetMap.audioUrl;
-        targetMap.videoUrl = cached.videoUrl || targetMap.videoUrl;
-        targetMap.bgUrl = cached.bgUrl || targetMap.bgUrl;
+        cloned.audioUrl = cached.audioUrl || cloned.audioUrl;
+        cloned.videoUrl = cached.videoUrl || cloned.videoUrl;
+        cloned.bgUrl = cached.bgUrl || cloned.bgUrl;
       }
-      setSelectedBeatmap(targetMap);
+      setSelectedBeatmap(cloned);
       setActiveReplayRecord(record);
       setCurrentScreen('play');
     }
@@ -442,7 +448,11 @@ export default function App() {
 
   const handleSelectMap = (map: Beatmap) => {
     setActiveReplayRecord(null); // Fresh clean live playthrough
-    setSelectedBeatmap(map);
+    const cloned = {
+      ...map,
+      notes: map.notes ? map.notes.map(n => ({ ...n })) : []
+    };
+    setSelectedBeatmap(cloned);
     setCurrentScreen('play');
   };
 
@@ -827,9 +837,22 @@ export default function App() {
                     const returnScreen = activeReplayRecord ? 'history' : 'select';
                     setActiveReplayRecord(null);
                     if (selectedBeatmap) {
-                      if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
-                      if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
-                      if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
+                      const cached = storageManager.lruMediaCache.get(selectedBeatmap.id);
+                      if (!cached) {
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
+                      } else {
+                        if (selectedBeatmap.audioUrl && selectedBeatmap.audioUrl !== cached.audioUrl) {
+                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
+                        }
+                        if (selectedBeatmap.videoUrl && selectedBeatmap.videoUrl !== cached.videoUrl) {
+                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
+                        }
+                        if (selectedBeatmap.bgUrl && selectedBeatmap.bgUrl !== cached.bgUrl) {
+                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
+                        }
+                      }
                     }
                     setSelectedBeatmap(null);
                     setCurrentScreen(returnScreen);
@@ -872,9 +895,22 @@ export default function App() {
                   setActiveReplayRecord(null);
                   setViewingHistoryResult(false);
                   if (selectedBeatmap) {
-                    if (selectedBeatmap.audioUrl?.startsWith('blob:')) selectedBeatmap.audioUrl = '';
-                    if (selectedBeatmap.videoUrl?.startsWith('blob:')) selectedBeatmap.videoUrl = '';
-                    if (selectedBeatmap.bgUrl?.startsWith('blob:')) selectedBeatmap.bgUrl = '';
+                    const cached = storageManager.lruMediaCache.get(selectedBeatmap.id);
+                    if (!cached) {
+                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
+                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
+                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
+                    } else {
+                      if (selectedBeatmap.audioUrl && selectedBeatmap.audioUrl !== cached.audioUrl) {
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
+                      }
+                      if (selectedBeatmap.videoUrl && selectedBeatmap.videoUrl !== cached.videoUrl) {
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
+                      }
+                      if (selectedBeatmap.bgUrl && selectedBeatmap.bgUrl !== cached.bgUrl) {
+                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
+                      }
+                    }
                   }
                   setSelectedBeatmap(null);
                   setCurrentScreen(returnScreen);
@@ -931,7 +967,11 @@ export default function App() {
                       : record.beatmapId;
                     const bm = customMaps.find(m => m.id === record.beatmapId || m.id === baseId);
                     if (bm) {
-                        setSelectedBeatmap(bm);
+                        const cloned = {
+                          ...bm,
+                          notes: bm.notes ? bm.notes.map(n => ({ ...n })) : []
+                        };
+                        setSelectedBeatmap(cloned);
                         setViewingHistoryResult(true);
                         setCurrentScreen('results');
                     }

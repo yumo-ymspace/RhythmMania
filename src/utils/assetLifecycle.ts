@@ -10,6 +10,67 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
+const MIME_BY_EXT: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.flac': 'audio/flac',
+  '.aac': 'audio/aac',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+/** Browser-native playable video containers (not AVI/MKV/FLV from many osu packs). */
+const BROWSER_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm', '.ogv']);
+
+export function getMimeTypeFromFilename(filename: string): string | null {
+  if (!filename) return null;
+  const base = filename.split(/[/\\]/).pop() || filename;
+  const dot = base.lastIndexOf('.');
+  if (dot < 0) return null;
+  const ext = base.slice(dot).toLowerCase();
+  return MIME_BY_EXT[ext] ?? null;
+}
+
+export function isBrowserPlayableVideoFilename(filename: string): boolean {
+  if (!filename) return false;
+  const base = filename.split(/[/\\]/).pop() || filename;
+  const dot = base.lastIndexOf('.');
+  if (dot < 0) return false;
+  return BROWSER_VIDEO_EXTS.has(base.slice(dot).toLowerCase());
+}
+
+/**
+ * Ensure blob has a usable MIME type. JSZip's async('blob') returns type "".
+ * Without this, <video src="blob:..."> often fails with MEDIA_ERR_SRC_NOT_SUPPORTED
+ * even when the bytes are valid H.264/MP4.
+ */
+export function ensureBlobMimeType(blob: Blob, filenameOrMime?: string): Blob {
+  if (!filenameOrMime) return blob;
+  const mime = filenameOrMime.includes('/')
+    ? filenameOrMime
+    : getMimeTypeFromFilename(filenameOrMime);
+  if (!mime) return blob;
+  if (blob.type && blob.type !== 'application/octet-stream' && blob.type === mime) {
+    return blob;
+  }
+  if (blob.type && blob.type !== 'application/octet-stream' && blob.type !== '') {
+    return blob;
+  }
+  return new Blob([blob], { type: mime });
+}
+
 /**
  * Tracks and revokes Blob URLs to avoid main-thread memory leaks
  * in high-performance rhythm browser apps.
@@ -18,10 +79,12 @@ export class AssetLifecycleManager {
   private static activeBlobUrls: Set<string> = new Set();
 
   /**
-   * Encapsulates URL creation and lifecycle scope tracking
+   * Encapsulates URL creation and lifecycle scope tracking.
+   * Pass the source filename so media elements get a correct Content-Type.
    */
-  public static registerBlob(blob: Blob): string {
-    const url = URL.createObjectURL(blob);
+  public static registerBlob(blob: Blob, filenameOrMime?: string): string {
+    const typed = ensureBlobMimeType(blob, filenameOrMime);
+    const url = URL.createObjectURL(typed);
     this.activeBlobUrls.add(url);
     return url;
   }
