@@ -89,7 +89,7 @@ export class HoldLayer extends Container {
         const colW = columns[n.column].width;
 
         let visualStartY = n.y;
-        if (n.isHit && !n.isReleased && !n.isHoldFailed) {
+        if ((n.isHit || n.isMissed) && !n.isReleased && !n.isHoldFailed) {
           visualStartY = receptorY;
         }
 
@@ -125,7 +125,7 @@ export class HoldLayer extends Container {
                 color1 = applyFade(rpColor, fadeStartRounded);
                 color2 = applyFade(rpColor, fadeEndRounded);
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               color1 = applyFade('rgba(100,116,139,0.5)', fadeStartRounded);
               color2 = applyFade('rgba(100,116,139,0.5)', fadeEndRounded);
             } else {
@@ -143,7 +143,7 @@ export class HoldLayer extends Container {
                 color1 = applyFade(hexToRgba(rmColor, 0.8), fadeStartRounded);
                 color2 = applyFade(hexToRgba(rmColor, 0.3), fadeEndRounded);
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               color1 = applyFade('rgba(100,116,139,0.3)', fadeStartRounded);
               color2 = applyFade('rgba(71,85,105,0.1)', fadeEndRounded);
             } else {
@@ -160,7 +160,7 @@ export class HoldLayer extends Container {
                 color1 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)', fadeStartRounded);
                 color2 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)', fadeEndRounded);
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               color1 = applyFade('rgba(100,116,139,0.3)', fadeStartRounded);
               color2 = applyFade('rgba(71,85,105,0.1)', fadeEndRounded);
             } else {

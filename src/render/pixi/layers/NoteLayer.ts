@@ -23,8 +23,8 @@ export class NoteLayer extends Container {
 
     // Draw active visible notes (heads + holds)
     notes.forEach((n) => {
-      // Draw Head
-      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
+      // Draw Head (hide after head miss; body/tail remain for salvage)
+      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit && !n.isMissed);
       if (shouldDrawHead) {
         if (!(n.type === 'hold' && settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle')) {
           const colLayout = columns[n.column];
@@ -48,7 +48,7 @@ export class NoteLayer extends Container {
               let alpha = n.opacity;
               sp.anchor.set(0.5);
 
-              if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
+              if (n.type === 'hold' && n.isHoldFailed) {
                 alpha *= 0.35;
               }
               sp.alpha = alpha;
@@ -80,7 +80,7 @@ export class NoteLayer extends Container {
             let alpha = n.endOpacity ?? n.opacity;
             sp.anchor.set(0.5);
 
-            if (n.isHoldFailed || n.isMissed) {
+            if (n.isHoldFailed) {
               alpha *= 0.35;
             }
             sp.alpha = alpha;

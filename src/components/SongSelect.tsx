@@ -83,6 +83,8 @@ export default function SongSelect({
     }
     return {};
   });
+  const lastSelectedDifficultyBySongRef = useRef(lastSelectedDifficultyBySong);
+  lastSelectedDifficultyBySongRef.current = lastSelectedDifficultyBySong;
   const [unpackTrigger, setUnpackTrigger] = useState<number>(0);
   const [manualExpandedSongKey, setManualExpandedSongKey] = useState<string | null>(null);
 
@@ -315,12 +317,38 @@ export default function SongSelect({
     });
   }, [mergedCustomMaps, searchTerm, minStar, maxStar, collectionFilter, sortBy, filterMode]);
 
-  const getMapSongKey = (map: any) => {
-    const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
-    if (mapPkgId) return `server_pkg_${mapPkgId}`;
+  const getArtistTitleKey = (map: any) => {
     const mapArtist = map.artist || 'Unknown';
     const mapTitle = map.title || 'Untitled';
     return `${mapArtist.toLowerCase().trim()} - ${mapTitle.toLowerCase().trim()}`;
+  };
+
+  const getMapSongKey = (map: any) => {
+    const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
+    if (mapPkgId) return `server_pkg_${mapPkgId}`;
+    return getArtistTitleKey(map);
+  };
+
+  const persistLastDifficultyForMap = (map: any) => {
+    if (!map?.id) return;
+    const keys = new Set<string>([getMapSongKey(map), getArtistTitleKey(map)]);
+    if (map.parentPackageId) keys.add(`server_pkg_${map.parentPackageId}`);
+    if (map.packageId) keys.add(`server_pkg_${String(map.packageId).replace(/^pkg_/, '')}`);
+    // Difficulty name fallback (used when map ids are rebuilt on re-import)
+    const metaKey = `diffname:${getArtistTitleKey(map)}`;
+
+    setLastSelectedDifficultyBySong(prev => {
+      const updated = { ...prev };
+      keys.forEach((k) => { updated[k] = map.id; });
+      if (map.difficulty) updated[metaKey] = String(map.difficulty);
+      lastSelectedDifficultyBySongRef.current = updated;
+      try {
+        localStorage.setItem('rhythm_mania_v1_last_diff_by_song', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Failed to save last selected difficulty by song:', e);
+      }
+      return updated;
+    });
   };
 
   // Save selected difficulty for the song
@@ -328,16 +356,7 @@ export default function SongSelect({
     if (selectedCustomMapId) {
       const selectedMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
       if (selectedMap) {
-        const songKey = getMapSongKey(selectedMap);
-        setLastSelectedDifficultyBySong(prev => {
-          const updated = { ...prev, [songKey]: selectedCustomMapId };
-          try {
-            localStorage.setItem('rhythm_mania_v1_last_diff_by_song', JSON.stringify(updated));
-          } catch (e) {
-            console.warn('Failed to save last selected difficulty by song:', e);
-          }
-          return updated;
-        });
+        persistLastDifficultyForMap(selectedMap);
       }
     }
   }, [selectedCustomMapId, mergedCustomMaps]);
@@ -435,17 +454,55 @@ export default function SongSelect({
 
   const expandedSongKey = manualExpandedSongKey !== null ? manualExpandedSongKey : activeSongKey;
 
-  const handleSelectGroup = (group: any) => {
-    let targetMap = group.maps[0];
-    if (group.maps.length > 0) {
-      const savedMapId = lastSelectedDifficultyBySong[group.songKey];
-      if (savedMapId) {
-        const foundSavedMap = group.maps.find((m: any) => m.id === savedMapId);
-        if (foundSavedMap) {
-          targetMap = foundSavedMap;
+  const resolveGroupTargetMap = (group: any) => {
+    const pool: any[] = [];
+    const seen = new Set<string>();
+    const pushAll = (maps: any[] | undefined) => {
+      (maps || []).forEach((m) => {
+        if (m?.id && !seen.has(m.id)) {
+          seen.add(m.id);
+          pool.push(m);
         }
+      });
+    };
+    pushAll(group.maps);
+    // Include unfiltered sibling diffs (star/search filters can hide the last-picked difficulty from group.maps)
+    const artistTitleKey = getArtistTitleKey(group);
+    mergedCustomMaps.forEach((m) => {
+      if (getMapSongKey(m) === group.songKey || getArtistTitleKey(m) === artistTitleKey) {
+        pushAll([m]);
       }
+    });
+
+    if (pool.length === 0) return null;
+
+    const memory = lastSelectedDifficultyBySongRef.current;
+    const candidateIds = [
+      memory[group.songKey],
+      memory[artistTitleKey],
+      group.packageId ? memory[`server_pkg_${String(group.packageId).replace(/^pkg_/, '')}`] : undefined,
+    ].filter(Boolean) as string[];
+
+    for (const savedMapId of candidateIds) {
+      const found = pool.find((m) => m.id === savedMapId);
+      if (found) return found;
     }
+
+    const savedDiffName = memory[`diffname:${artistTitleKey}`];
+    if (savedDiffName) {
+      const byName = pool.find((m) => String(m.difficulty || '') === savedDiffName);
+      if (byName) return byName;
+    }
+
+    // Prefer keeping the currently selected difficulty when re-clicking the active group
+    const current = pool.find((m) => m.id === selectedCustomMapId);
+    if (current) return current;
+
+    return pool[0];
+  };
+
+  const handleSelectGroup = (group: any) => {
+    const targetMap = resolveGroupTargetMap(group);
 
     if (group.isServerPackage) {
       if (targetMap) {
@@ -570,6 +627,7 @@ export default function SongSelect({
     }
     
     setSelectedCustomMapId(map.id);
+    persistLastDifficultyForMap(map);
     
     const isVirtualPackage = (map as any).isServerPackage || ((map as any).isServerMap && !(map as any).isCached);
     if (!isVirtualPackage) {
@@ -2022,7 +2080,7 @@ export default function SongSelect({
               <div className="h-1 w-full bg-[#ff80a5] shadow-[0_0_8px_rgba(255,128,165,0.3)] flex-none" />
 
               {/* Header section with closing button */}
-              <div className="flex-none px-6 md:px-12 py-5 border-b border-white/5 flex items-center justify-between bg-black/10">
+              <div className="flex-none px-6 md:px-12 py-5 border-b border-white/5 flex flex-col lg:flex-row lg:items-center justify-between bg-black/10 gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-white/5 rounded-xl border border-white/10 shadow-inner">
                     <SlidersHorizontal className="h-6 w-6 text-[#ff80a5]" />
@@ -2037,20 +2095,8 @@ export default function SongSelect({
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setShowModsModal(false)}
-                  className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
-                  title="Close mods selector"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {/* Scrollable Content Area */}
-              <div className="flex-1 overflow-y-auto px-6 md:px-12 py-6 min-h-0 bg-black/5 flex flex-col gap-6">
-                
-                {/* active listing total multiplier stats badge row */}
-                <div className="bg-[#1a1525] border border-[#ff80a5]/20 p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                {/* Active mods span and scoring mult div moved to the top header area */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-[#1a1525]/85 border border-[#ff80a5]/20 px-4 py-2 rounded-xl">
                   <span className="text-xs font-bold text-slate-300 font-mono uppercase">
                     Active Mods: {(settings.selectedMods || []).length > 0 ? (
                       <span className="text-[#ff80a5] font-black ml-1">
@@ -2073,17 +2119,29 @@ export default function SongSelect({
                   </div>
                 </div>
 
+                <button
+                  onClick={() => setShowModsModal(false)}
+                  className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
+                  title="Close mods selector"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto px-6 md:px-12 py-6 min-h-0 bg-black/5 flex flex-col gap-6">
+
                 {/* MODS GRID GROUPS */}
-                <div className="grid grid-cols-1 xl:grid-cols-3 md:grid-cols-2 gap-6 pb-6">
+                <div className="grid grid-cols-1 xl:grid-cols-3 md:grid-cols-2 gap-4 pb-6 max-w-4xl mx-auto w-full">
                   
                   {/* DIFFICULTY REDUCTION MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-5 rounded-2xl flex flex-col gap-4 shadow-md">
+                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md max-w-xs w-full mx-auto">
                     <span className="text-[10px] font-black tracking-wider text-emerald-400 uppercase font-mono border-b border-emerald-500/10 pb-2 flex items-center justify-between">
                       <span>DIFFICULTY REDUCTION</span>
                       <span className="text-[8px] text-slate-500 font-bold">MUTUALLY EXCLUSIVE</span>
                     </span>
                     
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2">
                       {[
                         {
                           id: 'NF',
@@ -2129,18 +2187,18 @@ export default function SongSelect({
                               }
                               updateSettings({ selectedMods: mods });
                             }}
-                            className={`p-3.5 rounded-xl border flex gap-3.5 text-left items-start transition-all cursor-pointer ${
+                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
                               isActive 
                                 ? mod.activeBg 
                                 : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
                             }`}
                           >
                             {/* Circle logo abbreviation */}
-                            <div className={`w-9 h-9 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
+                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
                               {mod.id}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center justify-between gap-1.5">
                                 <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
                                 <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
                               </div>
@@ -2153,13 +2211,13 @@ export default function SongSelect({
                   </div>
 
                   {/* DIFFICULTY INCREASE MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-5 rounded-2xl flex flex-col gap-4 shadow-md">
+                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md max-w-xs w-full mx-auto">
                     <span className="text-[10px] font-black tracking-wider text-rose-400 uppercase font-mono border-b border-rose-500/10 pb-2 flex items-center justify-between">
                       <span>DIFFICULTY INCREASE</span>
                       <span className="text-[8px] text-slate-500 font-bold">TRAINING CHALLENGES</span>
                     </span>
                     
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-2">
                       {[
                         {
                           id: 'HR',
@@ -2204,18 +2262,18 @@ export default function SongSelect({
                               }
                               updateSettings({ selectedMods: mods });
                             }}
-                            className={`p-3.5 rounded-xl border flex gap-3.5 text-left items-start transition-all cursor-pointer ${
+                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
                               isActive 
                                 ? mod.activeBg 
                                 : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
                             }`}
                           >
                             {/* Circle logo abbreviation */}
-                            <div className={`w-9 h-9 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
+                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
                               {mod.id}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center justify-between gap-1.5">
                                 <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
                                 <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
                               </div>
@@ -2228,13 +2286,13 @@ export default function SongSelect({
                   </div>
 
                   {/* KEY CHANGE MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-5 rounded-2xl flex flex-col gap-4 shadow-md col-span-1 md:col-span-2 xl:col-span-1">
+                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 md:col-span-2 xl:col-span-1 max-w-xs w-full mx-auto">
                     <span className="text-[10px] font-black tracking-wider text-cyan-400 uppercase font-mono border-b border-cyan-500/10 pb-2 flex items-center justify-between">
                       <span>KEY CONVERSION</span>
                       <span className="text-[8px] text-slate-500 font-bold">MUTUALLY EXCLUSIVE</span>
                     </span>
                     
-                    <div className="flex flex-col gap-2.5 max-h-[300px] overflow-y-auto pr-1">
+                    <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto pr-1">
                       {[2, 3, 4, 5, 6, 7, 8].map((k) => {
                         const modId = `K${k}`;
                         const isActive = (settings.selectedMods || []).includes(modId);
@@ -2260,7 +2318,7 @@ export default function SongSelect({
                               }
                               updateSettings({ selectedMods: mods });
                             }}
-                            className={`p-3 rounded-xl border flex gap-3 text-left items-start transition-all ${
+                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all ${
                               isDisabled
                                 ? 'bg-black/40 border-white/2.5 text-slate-600 opacity-40 cursor-not-allowed'
                                 : isActive 
@@ -2269,14 +2327,14 @@ export default function SongSelect({
                             }`}
                           >
                             {/* Circle logo abbreviation */}
-                            <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : isDisabled ? 'bg-white/2.5 text-slate-600' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
+                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : isDisabled ? 'bg-white/2.5 text-slate-600' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
                               {k}K
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center justify-between gap-1.5">
                                 <span className="text-[12px] font-black tracking-wide uppercase">{k} Keys (K{k})</span>
                                 {isDisabled ? (
-                                  <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
+                                  <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
                                 ) : (
                                   <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">1.00x Multiplier</span>
                                 )}

@@ -94,6 +94,14 @@ export default function OffsetWizardModal({ initial, onApply, onClose }: OffsetW
     return () => window.removeEventListener('keydown', handleSpacePress);
   }, [step]);
 
+  const handleTapSurface = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (step === 'tap') {
+      registerTapEvent();
+    }
+  };
+
   const triggerWebBeep = (freq: number, duration: number) => {
     try {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -184,7 +192,7 @@ export default function OffsetWizardModal({ initial, onApply, onClose }: OffsetW
         {step === 'start' && (
           <>
             <p className="text-sm text-slate-300 leading-relaxed">
-              When you click Start, you will hear a metronome beat. Tap your <strong>Spacebar</strong> in time with the sound.
+              When you click Start, you will hear a metronome beat. Tap the pad (or press <strong>Spacebar</strong>) in time with the sound.
               <br/><br/>
               Do this 8 times consistently to calculate your hardware&apos;s audio latency offset.
             </p>
@@ -200,19 +208,25 @@ export default function OffsetWizardModal({ initial, onApply, onClose }: OffsetW
         )}
         
         {step === 'tap' && (
-          <div className="flex flex-col items-center justify-center py-6 gap-6">
-            <div className="w-24 h-24 rounded-full border-4 border-slate-700 flex flex-col items-center justify-center relative shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-               <div 
-                  className="absolute inset-0 rounded-full bg-[var(--skin-accent)] opacity-20"
-                  style={{ transform: `scale(${1 + Math.sin(beatProgress * Math.PI) * 0.15})` }}
-               />
-               <span className="text-3xl font-black text-white relative z-10">{tapTimes.length}</span>
-               <span className="text-[10px] text-slate-400 font-bold uppercase relative z-10">of 8 taps</span>
-            </div>
-            
-            <p className="text-sm text-[var(--skin-accent)] font-medium animate-pulse">
-              Tap SPACEBAR to the beat!
-            </p>
+          <div className="flex flex-col items-center justify-center py-4 gap-4">
+            <button
+              type="button"
+              onPointerDown={handleTapSurface}
+              className="w-full min-h-[180px] rounded-xl border-2 border-[var(--skin-accent)]/40 bg-slate-950/60 active:bg-[var(--skin-accent)]/15 flex flex-col items-center justify-center gap-4 select-none touch-manipulation cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--skin-accent)]"
+              aria-label="Tap to the beat"
+            >
+              <div className="w-24 h-24 rounded-full border-4 border-slate-700 flex flex-col items-center justify-center relative shadow-[0_0_20px_rgba(0,0,0,0.5)] pointer-events-none">
+                 <div 
+                    className="absolute inset-0 rounded-full bg-[var(--skin-accent)] opacity-20"
+                    style={{ transform: `scale(${1 + Math.sin(beatProgress * Math.PI) * 0.15})` }}
+                 />
+                 <span className="text-3xl font-black text-white relative z-10">{tapTimes.length}</span>
+                 <span className="text-[10px] text-slate-400 font-bold uppercase relative z-10">of 8 taps</span>
+              </div>
+              <p className="text-sm text-[var(--skin-accent)] font-medium animate-pulse pointer-events-none px-4 text-center">
+                Tap here (or Spacebar) to the beat!
+              </p>
+            </button>
           </div>
         )}
         

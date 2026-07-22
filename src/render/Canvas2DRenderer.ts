@@ -121,8 +121,8 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       // Apply Hidden Mod fade factor for the end receptor!
       let currentOpacity = noteObj.endOpacity ?? 1.0;
 
-      // If the hold failed or was missed, make the end receptor look dimmed/faded!
-      if (noteObj.isHoldFailed || noteObj.isMissed) {
+      // Dim only fully failed holds; head-miss salvageable LNs keep a readable tail
+      if (noteObj.isHoldFailed) {
         currentOpacity *= 0.35;
       }
 
@@ -202,7 +202,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         const colW = columns[n.column].width;
 
         let visualStartY = n.y;
-        if (n.isHit && !n.isReleased && !n.isHoldFailed) {
+        if ((n.isHit || n.isMissed) && !n.isReleased && !n.isHoldFailed) {
           visualStartY = receptorY;
         }
 
@@ -235,7 +235,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                 holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
                 holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.5)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(100,116,139,0.5)', fadeEnd));
             } else {
@@ -253,7 +253,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                 holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.8), fadeStart));
                 holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
             } else {
@@ -270,7 +270,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                 holdGrad.addColorStop(0, applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)', fadeStart));
                 holdGrad.addColorStop(1, applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)', fadeEnd));
               }
-            } else if (n.isHoldFailed || n.isMissed) {
+            } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
             } else {
@@ -339,7 +339,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       }
 
       // Skip completely consumed holds
-      if (n.type === 'hold' && n.isHit && n.isReleased) {
+      if (n.type === 'hold' && n.isReleased) {
         return;
       }
 
@@ -347,7 +347,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       const colW = columns[n.column].width;
       const notePadding = isFocusMode ? 1.5 : 6;
 
-      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit);
+      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit && !n.isMissed);
 
       if (shouldDrawHead) {
         if (!(n.type === 'hold' && settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle')) {
@@ -359,7 +359,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.save();
           let currentOpacity = n.opacity;
 
-          if (n.type === 'hold' && (n.isHoldFailed || n.isMissed)) {
+          if (n.type === 'hold' && n.isHoldFailed) {
             currentOpacity *= 0.35;
           }
 

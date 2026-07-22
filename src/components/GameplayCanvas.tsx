@@ -66,19 +66,37 @@ export function checkNotesAutonomousMisses(
   keysPressed?: boolean[]
 ) {
   notes.forEach((n) => {
-    // 1. Normal and hold notes missed at start
+    // 1. Head window expired: normal notes miss fully; holds only miss the head and stay salvageable for the tail
     if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
       n.isMissed = true;
       if (n.type === 'hold') {
-        n.isHoldFailed = true;
-        n.isReleased = true; // Fully closed
-        onMiss(n, true); // Head miss + Tail miss
+        onMiss(n, false); // Head miss only — body/tail remain active
+        // If the lane is already held when the head times out, engage the LN for tail scoring
+        if (keysPressed && keysPressed[n.column]) {
+          n.isHit = true;
+          n.hitTime = currentTime;
+        }
       } else {
         onMiss(n, false);
       }
     }
+
+    // 1b. Head already missed, never engaged: tail times out separately
+    if (
+      n.type === 'hold' &&
+      n.isMissed &&
+      !n.isHit &&
+      !n.isReleased &&
+      !n.isHoldFailed &&
+      n.endTime &&
+      currentTime - n.endTime > missBound
+    ) {
+      n.isHoldFailed = true;
+      n.isReleased = true;
+      onMiss(n, false);
+    }
     
-    // 2. Continuous hold note missed intermediate bounds
+    // 2. Continuous hold note missed intermediate bounds (engaged holds, including post-head-miss salvage)
     if (n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.endTime) {
       const stillHeld = !!(keysPressed && keysPressed[n.column]);
 
@@ -1167,13 +1185,13 @@ export default function GameplayCanvas({
       handleTouchStart = (e: TouchEvent) => {
         if (replayData) return;
         const rect = touchTarget.getBoundingClientRect();
-        touchAdapter?.handleTouchStart(e, rect, keyCount);
+        touchAdapter?.handleTouchStart(e, rect, keyCount, settingsRef.current.upsurfaceNoteMode);
       };
 
       handleTouchMove = (e: TouchEvent) => {
         if (replayData) return;
         const rect = touchTarget.getBoundingClientRect();
-        touchAdapter?.handleTouchMove(e, rect, keyCount);
+        touchAdapter?.handleTouchMove(e, rect, keyCount, settingsRef.current.upsurfaceNoteMode);
       };
 
       handleTouchEnd = (e: TouchEvent) => {
@@ -1206,7 +1224,7 @@ export default function GameplayCanvas({
       }
       touchAdapter?.reset();
     };
-  }, [beatmap.keyCount, replayData]);
+  }, [beatmap.keyCount, replayData, isAudioLoaded]);
 
   // Judgement scoring evaluator
   const triggerHitEvent = (colIndex: number) => {
@@ -1224,19 +1242,37 @@ export default function GameplayCanvas({
       return; // Handled re-keying successfully, exit.
     }
 
-    // Find earliest unhit note in target column
+    // Find earliest hittable note, or a head-missed LN that can still be salvaged for the tail
     const note = notesRef.current.find(
-      (n) => n.column === colIndex && !n.isHit && !n.isMissed
+      (n) =>
+        n.column === colIndex &&
+        (
+          (!n.isHit && !n.isMissed) ||
+          (n.type === 'hold' && n.isMissed && !n.isHit && !n.isReleased && !n.isHoldFailed)
+        )
     );
     
     if (!note) return;
+
+    const missWindow = judgementWindows[judgementWindows.length - 1].windowMs;
+
+    // Head already missed: pressing during the body/tail engages the LN for end scoring only
+    if (note.type === 'hold' && note.isMissed && !note.isHit) {
+      if (note.endTime && playTime - note.endTime > missWindow) {
+        return;
+      }
+      note.isHit = true;
+      note.hitTime = playTime;
+      spawnParticles(colIndex, '#22d3ee');
+      return;
+    }
 
     // Absolute distance in timeline
     const diff = playTime - note.time;
     const absDiff = Math.abs(diff);
 
     // The note must fall within the maximum allowable window (Bad/Miss window boundary)
-    const maxWindow = judgementWindows[judgementWindows.length - 1].windowMs;
+    const maxWindow = missWindow;
     
     // If the note is too early to even register, disregard inputs
     if (diff < -maxWindow) {
@@ -1287,13 +1323,12 @@ export default function GameplayCanvas({
         screenShakeRef.current = 4;
       }
     } else {
-      // Tap in miss band (bad < |err| <= miss), apply miss immediately and resolve note
+      // Tap in miss band (bad < |err| <= miss): head miss only; holds stay alive for tail salvage
       note.isMissed = true;
       if (note.type === 'hold') {
-        note.isHoldFailed = true;
-        note.isReleased = true; // Fully closed
-        applyJudgement(resolvedJudgement, colIndex); // Head miss
-        applyJudgement(resolvedJudgement, colIndex); // Tail miss
+        applyJudgement(resolvedJudgement, colIndex); // Head miss only
+        note.isHit = true; // Engage body/tail while key is down
+        note.hitTime = playTime;
       } else {
         applyJudgement(resolvedJudgement, colIndex);
       }
@@ -1974,12 +2009,27 @@ export default function GameplayCanvas({
         return;
       }
       const note = notesRef.current.find(
-        (n) => n.column === colIndex && !n.isHit && !n.isMissed
+        (n) =>
+          n.column === colIndex &&
+          (
+            (!n.isHit && !n.isMissed) ||
+            (n.type === 'hold' && n.isMissed && !n.isHit && !n.isReleased && !n.isHoldFailed)
+          )
       );
       if (!note) return;
+      const maxWindow = judgementWindows[judgementWindows.length - 1].windowMs;
+
+      if (note.type === 'hold' && note.isMissed && !note.isHit) {
+        if (note.endTime && frameTime - note.endTime > maxWindow) {
+          return;
+        }
+        note.isHit = true;
+        note.hitTime = frameTime;
+        return;
+      }
+
       const diff = frameTime - note.time;
       const absDiff = Math.abs(diff);
-      const maxWindow = judgementWindows[judgementWindows.length - 1].windowMs;
       if (diff < -maxWindow) {
         return; 
       }
@@ -1994,6 +2044,15 @@ export default function GameplayCanvas({
         note.isHit = true;
         note.hitTime = frameTime;
         simApplyJudgement(resolvedJudgement);
+      } else {
+        note.isMissed = true;
+        if (note.type === 'hold') {
+          simApplyJudgement(resolvedJudgement);
+          note.isHit = true;
+          note.hitTime = frameTime;
+        } else {
+          simApplyJudgement(resolvedJudgement);
+        }
       }
     };
 

@@ -27,12 +27,18 @@ export function getVisibleNotes(
   const noteOpacityVal = settings.noteOpacity ?? 1.0;
 
   notes.forEach((n) => {
-    // 1. Determine if hold bodies are drawn or active
-    const isHoldBodyActive = n.type === 'hold' && n.endTime && (!n.isHit || !n.isReleased) && !n.isMissed && !n.isHoldFailed;
+    // 1. Hold body stays visible after a head miss so the player can still catch middle/tail
+    const isHoldBodyActive = n.type === 'hold' && !!n.endTime && !n.isReleased && !n.isHoldFailed;
+    // Ground body to receptor while engaged or after head miss (salvageable LNs stay anchored).
+    const isHoldBodyGrounded =
+      n.type === 'hold' &&
+      !n.isReleased &&
+      !n.isHoldFailed &&
+      (!!n.isHit || !!n.isMissed);
     
-    // 2. Note head/head receptor visibilities
+    // 2. Note head/head receptor visibilities (head hides after miss; end stays until release/fail)
     const shouldDrawHead = (n.type === 'normal' && !n.isHit && !n.isMissed) || (n.type === 'hold' && !n.isHit && !n.isMissed && !n.isHoldFailed);
-    const shouldDrawEnd = n.type === 'hold' && n.endTime && !n.isReleased && !n.isMissed && !n.isHoldFailed;
+    const shouldDrawEnd = n.type === 'hold' && !!n.endTime && !n.isReleased && !n.isHoldFailed;
 
     if (!isHoldBodyActive && !shouldDrawHead && !shouldDrawEnd) {
       return;
@@ -44,24 +50,28 @@ export function getVisibleNotes(
     const y = getScrollYPosition(n.time, visualTime, receptorY, speedFactor, up, scrollModel);
     const endY = n.endTime ? getScrollYPosition(n.endTime, visualTime, receptorY, speedFactor, up, scrollModel) : undefined;
 
-    // Check visibility within playfield boundaries
+    const bodyStartY = isHoldBodyGrounded ? receptorY : y;
+
+    // Check visibility within playfield boundaries.
+    // Active hold bodies must use the full span (receptor→tail); tail-only checks cull long LNs
+    // while the end is still above/below the playfield, causing the body to flicker out.
     let isVisible = false;
-    if (shouldDrawHead) {
+    if (isHoldBodyActive && endY !== undefined) {
+      const minY = Math.min(bodyStartY, endY);
+      const maxY = Math.max(bodyStartY, endY);
+      isVisible = maxY >= -paddingLimit && minY <= height + paddingLimit;
+    } else if (shouldDrawHead) {
       isVisible = y >= -paddingLimit && y <= height + paddingLimit;
     } else if (shouldDrawEnd && endY !== undefined) {
       isVisible = endY >= -paddingLimit && endY <= height + paddingLimit;
-    } else if (isHoldBodyActive && endY !== undefined) {
-      const minY = Math.min(y, endY);
-      const maxY = Math.max(y, endY);
-      isVisible = maxY >= -paddingLimit && minY <= height + paddingLimit;
     }
 
     if (!isVisible) {
       return;
     }
 
-    // HD Fade Opacity
-    const opacity = getHiddenOpacityForY(y, height, receptorY, up, isHD) * noteOpacityVal;
+    // HD Fade Opacity — held LN head is past the receptor; fade from receptor / tail instead
+    const opacity = getHiddenOpacityForY(bodyStartY, height, receptorY, up, isHD) * noteOpacityVal;
     const endOpacity = endY !== undefined ? getHiddenOpacityForY(endY, height, receptorY, up, isHD) * noteOpacityVal : undefined;
 
     // Style keys for texture binding / recycling
