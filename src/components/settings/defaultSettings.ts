@@ -58,6 +58,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   bindRetry: 'r',
   renderEngine: 'canvas',
   enableMapSV: true,
+  disableLaneShake: false,
 } as GameSettings);
 
 /** True when a setting's value differs from its default. */

@@ -1265,6 +1265,7 @@ export default function SongSelect({
                       MULTIPLIER: {(() => {
                         let factor = 1.0;
                         const active = settings.selectedMods || [];
+                        if (active.includes('AT')) return 'UNRANKED';
                         if (active.includes('NF')) factor *= 0.5;
                         if (active.includes('EZ')) factor *= 0.5;
                         if (active.includes('HT')) factor *= 0.3;
@@ -1398,6 +1399,36 @@ export default function SongSelect({
                                   : `Forces playfield to utilize ${k}-lane layout.`}
                               </span>
                             </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 text-left">
+                    <span className="text-[9px] font-black tracking-wider text-sky-400 uppercase font-mono">AUTOMATION MODS</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'AT', name: 'Autoplay (AT)', desc: 'Plays with perfect timing. Unranked.' }
+                      ].map((mod) => {
+                        const isActive = (settings.selectedMods || []).includes(mod.id);
+                        return (
+                          <button
+                            type="button"
+                            key={mod.id}
+                            onClick={() => {
+                              let mods = [...(settings.selectedMods || [])];
+                              if (isActive) {
+                                mods = mods.filter(m => m !== mod.id);
+                              } else {
+                                mods.push(mod.id);
+                              }
+                              updateSettings({ selectedMods: mods });
+                            }}
+                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-sky-500/10 border-sky-500/60 text-sky-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
+                          >
+                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
+                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
                           </button>
                         );
                       })}
@@ -2114,7 +2145,9 @@ export default function SongSelect({
                       if (active.includes('HR')) factor *= 1.06;
                       if (active.includes('HD')) factor *= 1.06;
                       if (active.includes('DT')) factor *= 1.12;
-                      return factor.toFixed(2) + 'x';
+                      const str = factor.toFixed(2) + 'x';
+                      if (active.includes('AT')) return str + ' (UNRANKED)';
+                      return str;
                     })()}
                   </div>
                 </div>
@@ -2132,7 +2165,7 @@ export default function SongSelect({
               <div className="flex-1 overflow-y-auto px-6 md:px-12 py-6 min-h-0 bg-black/5 flex flex-col gap-6">
 
                 {/* MODS GRID GROUPS */}
-                <div className="grid grid-cols-1 xl:grid-cols-3 md:grid-cols-2 gap-4 pb-6 max-w-4xl mx-auto w-full">
+                <div className="grid grid-cols-1 xl:grid-cols-4 md:grid-cols-2 gap-4 pb-6 max-w-6xl mx-auto w-full">
                   
                   {/* DIFFICULTY REDUCTION MODS */}
                   <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md max-w-xs w-full mx-auto">
@@ -2286,7 +2319,7 @@ export default function SongSelect({
                   </div>
 
                   {/* KEY CHANGE MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 md:col-span-2 xl:col-span-1 max-w-xs w-full mx-auto">
+                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 max-w-xs w-full mx-auto">
                     <span className="text-[10px] font-black tracking-wider text-cyan-400 uppercase font-mono border-b border-cyan-500/10 pb-2 flex items-center justify-between">
                       <span>KEY CONVERSION</span>
                       <span className="text-[8px] text-slate-500 font-bold">MUTUALLY EXCLUSIVE</span>
@@ -2344,6 +2377,62 @@ export default function SongSelect({
                                   ? `Native ${k}K difficulty is already available` 
                                   : `Forces playfield to utilize ${k}-lane layout.`}
                               </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* AUTOMATION MODS */}
+                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 max-w-xs w-full mx-auto">
+                    <span className="text-[10px] font-black tracking-wider text-sky-400 uppercase font-mono border-b border-sky-500/10 pb-2 flex items-center justify-between">
+                      <span>AUTOMATION MODS</span>
+                      <span className="text-[8px] text-slate-500 font-bold">DEMO & PRACTICE</span>
+                    </span>
+                    
+                    <div className="flex flex-col gap-2">
+                      {[
+                        {
+                          id: 'AT',
+                          title: 'Autoplay (AT)',
+                          desc: 'Plays every note with perfect timing for demonstration. Unranked.',
+                          activeBg: 'bg-sky-500/20 border-sky-500/60 text-sky-400',
+                          mult: 'Unranked'
+                        }
+                      ].map((mod) => {
+                        const isActive = (settings.selectedMods || []).includes(mod.id);
+                        return (
+                          <button
+                            type="button"
+                            key={mod.id}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              let mods = [...(settings.selectedMods || [])];
+                              if (isActive) {
+                                mods = mods.filter(m => m !== mod.id);
+                              } else {
+                                mods.push(mod.id);
+                              }
+                              updateSettings({ selectedMods: mods });
+                            }}
+                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
+                              isActive 
+                                ? mod.activeBg 
+                                : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
+                            }`}
+                          >
+                            {/* Circle logo abbreviation */}
+                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
+                              {mod.id}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
+                                <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult}</span>
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
                             </div>
                           </button>
                         );

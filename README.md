@@ -9,9 +9,9 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.7.5
+**HIGH DENSITY MATRIX** · v0.7.6
 
-RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and **HTML5 Canvas** for low-latency rendering, it delivers a professional-grade experience right in your browser.
+RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a dual rendering engine (**HTML5 Canvas 2D** default and **PixiJS v8** WebGL option), it delivers a professional-grade experience right in your browser.
 
 ### 🕹️ Play Now : **[https://www.rhythm-mania.com/](https://www.rhythm-mania.com/)**
 
@@ -26,7 +26,7 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 
 ## Overview
 
-RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, procedural beatmap generation, and a full suite of precision calibration tools — all without any server-side runtime.
+RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, dual Canvas2D/PixiJS v8 playfield renderers, hit error tracking, and a full suite of precision calibration tools — all without any server-side runtime.
 
 ---
 
@@ -35,16 +35,19 @@ RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre 
 ### Gameplay
 - **2K – 8K lane modes** with per-key-count default bindings and full rebind support
 - **Upward & downward scroll** direction toggle
+- **Dual playfield renderers**: Canvas2D (immediate-mode default) and PixiJS v8 (WebGL scene-graph with sprite pooling and texture atlasing)
 - **Six-tier judgement system**: Marvelous → Perfect → Great → Good → Bad → Miss, each with tuned timing windows, score weights, and HP deltas derived from `overallDifficulty`
+- **Real-time precision diagnostics**: Live hit error meter, Unstable Rate (UR) metric calculation (population standard deviation of hit timing errors × 10), and post-play timing feedback
 - **Hold notes** with early-release detection and a configurable release grace period to absorb brief key bounces
+- **Autoplay (AT) mod**: Deterministic automation mode that plays all notes and hold tails perfectly for demonstration and practice; unranked, bypasses play history saving, and suppresses high score recording
 - **Particle burst effects** on every hit; column colour-coded by standard competitive conventions (blue/white outer lanes, accent centre column)
 - **Focus Mode** — collapses the HUD during play
 - **HP drain & fail state** with a configurable drain rate sourced from beatmap metadata
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Bundled server map**: Bundled maps, ships in `public/beatmaps/`
-- **Procedural beatmap engine** — generates deterministic, seed-locked beatmaps on the fly; supports stairs, trills, chords, and hold patterns scaled to a 1.0–10.0 star target
+- **Bundled beatmap catalog**: Pre-packaged beatmaps served as static assets in `public/beatmaps/` with `manifest.json` for in-app catalog browsing and client-side downloading (no backend server process required)
+- **Internal procedural beatmap generator**: Developer helper module (`src/data/songs.ts`) for seed-locked, deterministic map generation (note: internal helper with no active player UI path)
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 
 ### Audio
@@ -72,7 +75,8 @@ A Phase-Locked Loop controller (`VideoSyncController`) continuously monitors aud
 - **> 900 ms drift** → hard seek to re-align immediately
 
 ### Storage & Asset Management
-- Beatmap metadata and note data stored in **IndexedDB** (`RhythmManiaDB`) with automatic migration from a legacy `localStorage` fallback
+- Beatmaps and raw `.osz` ZIP packages stored in **IndexedDB** (`RhythmManiaDB` v3), with automatic one-way migration for legacy maps previously saved in `localStorage`
+- User preferences (`rhythm_mania_v1_settings`) and play history (`rhythm_mania_v1_play_history`) persisted in `localStorage`
 - Raw `.osz` ZIP bytes stored as `ArrayBuffer` (more stable than `Blob` across page reloads)
 - **LRU Blob URL cache** (capacity 3) tracks object URLs for audio, video, and background assets; evicts and revokes the least-recently-used entry automatically
 - `AssetLifecycleManager` tracks every `URL.createObjectURL()` call and revokes on teardown, preventing memory leaks
@@ -91,12 +95,12 @@ A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with propo
 | Language | TypeScript 5.8 (strict) |
 | Build | Vite 6 |
 | Styling | Tailwind CSS v4 (Vite plugin) |
-| Rendering | HTML Canvas 2D API |
+| Rendering | Dual Engine: HTML5 Canvas 2D (default) & PixiJS v8 (WebGL scene-graph) |
 | Audio | Web Audio API |
 | ZIP parsing | JSZip 3 |
 | Icons | lucide-react |
 | Animation | Motion (Framer Motion v12) |
-| Persistence | IndexedDB + localStorage fallback |
+| Persistence | IndexedDB (beatmaps/packages) + localStorage (settings/history) |
 
 ---
 
@@ -115,9 +119,9 @@ RhythmMania/
 ├── public/
 │   ├── sw.js                           # Service Worker for offline caching & PWA
 │   ├── backgrounds/                    # Static background images for menus
-│   └── beatmaps/                       # Server-side beatmap packages (.osz) + manifest
-│       ├── manifest.json               # Registry of downloadable beatmaps from server
-│       └── osz_files.osz               # Bundled maps
+│   └── beatmaps/                       # Static bundled beatmap packages (.osz) + manifest catalog
+│       ├── manifest.json               # Catalog index of bundled downloadable beatmaps
+│       └── *.osz                       # Bundled map packages
 │
 └── src/
     ├── main.tsx                        # React entry point, mounts <App/>, registers service worker
@@ -129,13 +133,27 @@ RhythmMania/
     │   └── AudioEngine.ts              # Web Audio API engine: music/hitsound playback, volume, offset, decoder
     │
     ├── data/
-    │   └── songs.ts                    # Procedural beatmap generator (seed-locked, deterministic patterns)
+    │   └── songs.ts                    # Internal procedural beatmap generator helper (no active UI path)
+    │
+    ├── render/                         # Playfield rendering subsystem
+    │   ├── Canvas2DRenderer.ts         # Immediate-mode Canvas2D playfield renderer
+    │   ├── playfieldLayout.ts          # Column width, layout weights, and note position math
+    │   ├── noteVisibility.ts           # Note culling and opacity calculation (including Hidden mod)
+    │   ├── scrollVelocity.ts           # Scroll Velocity (SV) integral modeling & scroll position engine
+    │   ├── skinTheme.ts                # Skin color resolution helpers
+    │   ├── types.ts                    # PlayfieldFrame and IPlayfieldRenderer interfaces
+    │   └── pixi/                       # PixiJS v8 WebGL renderer subsystem
+    │       ├── PixiPlayfieldRenderer.ts # Root PixiJS container & layer manager
+    │       ├── PixiAppFactory.ts        # Manual-tick PixiJS Application factory
+    │       ├── layers/                 # Scene-graph layers (Background, Lane, Hold, Note, Receptor, Particle, MobileZone, HitError)
+    │       ├── pool/                   # ObjectPool and SpritePool for sprite reuse
+    │       └── skin/                   # TextureAtlasBuilder & SkinTextureCache
     │
     ├── components/
     │   ├── MainMenu.tsx                # Main menu screen with animated bg, play/settings/history nav
-    │   ├── SongSelect.tsx              # Beatmap browser: search, filter, drag-drop import, download, play
-    │   ├── GameplayCanvas.tsx          # Core gameplay: Canvas2D render loop, note processing, scoring, input, replay
-    │   ├── ResultsScreen.tsx           # Post-play results: grade, stats breakdown, play history, replay watch
+    │   ├── SongSelect.tsx              # Beatmap browser: search, filter, drag-drop import, download, mods (including AT), play
+    │   ├── GameplayCanvas.tsx          # Core gameplay: dual Canvas2D/Pixi loop, input, timing, scoring, replay
+    │   ├── ResultsScreen.tsx           # Post-play results: grade, max combo, hit error meter, history/replay
     │   ├── PlayZoneOverlay.tsx         # HUD overlay during gameplay (score, accuracy, focus toggle)
     │   ├── PersonalHistoryScreen.tsx   # Play history archive: song grouping, difficulty selector, replay/view
     │   ├── SettingsScreen.tsx          # Re-exports SettingsDrawer for the settings panel
@@ -163,6 +181,7 @@ RhythmMania/
     │
     └── utils/
         ├── beatmapParser.ts            # Parses .osu beatmap files into Beatmap objects & extracts media paths
+        ├── performanceMetrics.ts       # Unstable Rate (UR) stddev calculation and per-column judgement metrics
         ├── storageManager.ts           # IndexedDB storage for beatmaps, packages, and LRU media cache
         ├── assetLifecycle.ts           # Manages lifecycle of blob URLs to prevent memory leaks
         ├── mediaRegistry.ts            # Global singleton registry for active HTMLVideoElement reference

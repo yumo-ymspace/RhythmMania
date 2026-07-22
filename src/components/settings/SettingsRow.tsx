@@ -38,14 +38,14 @@ export default function SettingsRow({ id, label, description, isChanged, onReset
           }
         }}
       />
-      <div className="flex flex-col justify-center">
-        <label htmlFor={`setting-${id}`} className="text-sm font-medium text-slate-100 select-none">
+      <label htmlFor={`setting-${id}`} className="flex flex-col justify-center cursor-pointer min-w-0">
+        <span className="text-sm font-medium text-slate-100 select-none">
           {label}
-        </label>
+        </span>
         <div className="text-xs text-slate-400 mt-0.5 max-w-prose leading-snug">
           {description}
         </div>
-      </div>
+      </label>
       <div className="flex items-center justify-end">
         {children}
       </div>

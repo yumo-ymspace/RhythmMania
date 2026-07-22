@@ -154,6 +154,13 @@ export const ROWS: RowDef[] = [
     defaultValue: DEFAULT_SETTINGS.disableParticles,
   },
   {
+    id: 'disableLaneShake', section: 'graphics', label: 'Disable lane shake',
+    description: 'Turn off lane vibration when hitting marvelous judgements.',
+    control: { kind: 'toggle' },
+    defaultValue: DEFAULT_SETTINGS.disableLaneShake,
+    keywords: ['shake', 'vibration', 'marvelous', 'lane', 'screen'],
+  },
+  {
     id: 'renderEngine', section: 'graphics', label: 'Rendering engine',
     description: 'Choose the gameplay rendering engine. PixiJS v8 offers high-performance WebGL rendering.',
     control: { kind: 'select', options: [

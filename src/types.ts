@@ -71,6 +71,16 @@ export interface Beatmap extends BeatmapMetadata {
 
 export type JudgementType = 'marvelous' | 'perfect' | 'great' | 'good' | 'bad' | 'miss';
 
+export interface ColumnJudgementCounts {
+  column: number;
+  marvelousCount: number;
+  perfectCount: number;
+  greatCount: number;
+  goodCount: number;
+  badCount: number;
+  missCount: number;
+}
+
 export interface JudgementWindow {
   type: JudgementType;
   name: string;
@@ -96,6 +106,10 @@ export interface ScoreState {
   completed: boolean;
   failed: boolean;
   recordId?: string;
+  unstableRate: number | null;
+  hitErrorSampleCount: number;
+  columnJudgements: ColumnJudgementCounts[];
+  isAutoplay?: boolean;
 }
 
 export interface ReplayFrame {
@@ -164,6 +178,7 @@ export interface GameSettings {
   bindRetry?: string; // gameplay quick retry keybind
   renderEngine?: 'canvas' | 'pixi';
   enableMapSV?: boolean;
+  disableLaneShake?: boolean;
 }
 
 export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';

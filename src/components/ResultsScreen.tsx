@@ -19,6 +19,7 @@ interface ResultsScreenProps {
   scoreState: ScoreState;
   beatmap: Beatmap;
   playHistory?: PlayHistoryRecord[];
+  currentMods?: string[];
   onRetry: () => void;
   onWatchReplay?: (record: PlayHistoryRecord) => void;
   onBack: () => void;
@@ -30,6 +31,7 @@ export default function ResultsScreen({
   scoreState,
   beatmap,
   playHistory = [],
+  currentMods,
   onRetry,
   onWatchReplay,
   onBack,
@@ -75,12 +77,11 @@ export default function ResultsScreen({
       const matchById = mapRecords.find(r => r.id === scoreState.recordId);
       if (matchById) return matchById;
     }
-    const matching = mapRecords.find(r => r.score === scoreState.score && Math.abs(r.accuracy - scoreState.accuracy) < 0.05);
-    return matching || mapRecords[0] || null;
+    return null;
   }, [selectedRecordId, mapRecords, scoreState]);
 
   const activeScoreState = activeRecord ? activeRecord.scoreState : scoreState;
-  const activeMods = activeRecord ? activeRecord.mods : undefined;
+  const activeMods = activeRecord ? activeRecord.mods : (currentMods || undefined);
 
   const {
     score,
@@ -170,10 +171,11 @@ export default function ResultsScreen({
 
   // Check if this run is the all-time high score
   const isNewRecord = useMemo(() => {
+    if (activeScoreState.isAutoplay || (activeMods && activeMods.includes('AT'))) return false;
     if (mapRecords.length <= 1) return true;
     const maxPastScore = Math.max(...mapRecords.map(r => r.id === activeRecord?.id ? 0 : r.score));
     return score >= maxPastScore;
-  }, [mapRecords, activeRecord, score]);
+  }, [mapRecords, activeRecord, score, activeScoreState.isAutoplay, activeMods]);
 
   const formatDate = (timestamp: number) => {
     try {
@@ -249,7 +251,7 @@ export default function ResultsScreen({
       </header>
 
       {/* 3. VERTICALLY CENTERED HORIZONTAL SCORE BAR CONTAINER */}
-      <div className="flex-1 w-full flex flex-col justify-center items-center z-10 px-4">
+      <div className="flex-1 w-full flex flex-col justify-start md:justify-center items-center z-10 px-4 overflow-y-auto py-6">
         
         <div className="w-full max-w-5xl py-8 md:py-10 bg-black/75 backdrop-blur-md border-y border-white/10 relative shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
           
@@ -283,11 +285,15 @@ export default function ResultsScreen({
                   Score
                 </span>
                 
-                {isNewRecord && (
+                {(activeScoreState.isAutoplay || (activeMods && activeMods.includes('AT'))) ? (
+                  <span className="px-3 py-1 bg-sky-500/20 text-sky-400 font-sans font-black text-[9px] uppercase tracking-wider rounded-lg border border-sky-500/40 shadow-[0_0_15px_rgba(56,189,248,0.25)] flex items-center gap-1">
+                    <span>UNRANKED (AUTOPLAY)</span>
+                  </span>
+                ) : isNewRecord ? (
                   <span className="px-3 py-1 bg-amber-500 text-slate-950 font-sans font-black text-[9px] uppercase tracking-wider rounded-lg shadow-[0_0_15px_rgba(245,158,11,0.5)] animate-pulse border border-white/25">
                     New Record
                   </span>
-                )}
+                ) : null}
               </div>
 
               {/* Giant clean spacing numeric readout */}
@@ -296,10 +302,11 @@ export default function ResultsScreen({
               </h1>
 
               {/* Max Combo underneath */}
-              <div className="flex items-center gap-1.5 text-slate-400 font-sans font-bold text-sm uppercase tracking-wide mt-1">
-                <span>Max Combo</span>
-                <span className="text-slate-500">-</span>
-                <span className="text-white font-black">{maxCombo.toLocaleString()}</span>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-400 font-sans font-bold text-sm uppercase tracking-wide mt-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500">Max Combo:</span>
+                  <span className="text-white font-black">{maxCombo.toLocaleString()}</span>
+                </div>
               </div>
 
               {/* Active mods sub-pills row */}

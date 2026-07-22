@@ -266,6 +266,41 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     scoreState.completed = Boolean(record.scoreState.completed);
     scoreState.failed = Boolean(record.scoreState.failed);
     scoreState.recordId = sanitizeString(record.scoreState.recordId, 50);
+
+    // Sanitize precision metric fields
+    if (typeof record.scoreState.unstableRate === 'number' && Number.isFinite(record.scoreState.unstableRate) && record.scoreState.unstableRate >= 0) {
+      scoreState.unstableRate = clamp(record.scoreState.unstableRate, 0, 10000, 0);
+    } else {
+      scoreState.unstableRate = null;
+    }
+
+    scoreState.hitErrorSampleCount = clamp(record.scoreState.hitErrorSampleCount, 0, 100000, 0);
+
+    const keyCount = clamp(record.keyCount, 2, 8, 4);
+    const columnJudgements: any[] = [];
+    if (Array.isArray(record.scoreState.columnJudgements)) {
+      for (const item of record.scoreState.columnJudgements) {
+        if (item && typeof item === 'object') {
+          const colIndex = clamp(item.column, 0, keyCount - 1, -1);
+          if (colIndex >= 0) {
+            columnJudgements.push({
+              column: colIndex,
+              marvelousCount: clamp(item.marvelousCount, 0, 100000, 0),
+              perfectCount: clamp(item.perfectCount, 0, 100000, 0),
+              greatCount: clamp(item.greatCount, 0, 100000, 0),
+              goodCount: clamp(item.goodCount, 0, 100000, 0),
+              badCount: clamp(item.badCount, 0, 100000, 0),
+              missCount: clamp(item.missCount, 0, 100000, 0),
+            });
+          }
+        }
+      }
+    }
+    scoreState.columnJudgements = columnJudgements;
+
+    if (record.scoreState.isAutoplay !== undefined) {
+      scoreState.isAutoplay = Boolean(record.scoreState.isAutoplay);
+    }
   } else {
     return null;
   }

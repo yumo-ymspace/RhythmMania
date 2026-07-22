@@ -398,6 +398,7 @@ export default function App() {
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
         renderEngine: updated.renderEngine === 'pixi' ? 'pixi' : 'canvas',
         enableMapSV: updated.enableMapSV !== false,
+        disableLaneShake: Boolean(updated.disableLaneShake),
       };
 
       if (updated.bindings) {
@@ -480,7 +481,7 @@ export default function App() {
 
     const newRecordId = `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-    if (selectedBeatmap && !activeReplayRecord && isMania && finalScore.completed && !finalScore.failed) {
+    if (selectedBeatmap && !activeReplayRecord && isMania && finalScore.completed && !finalScore.failed && !finalScore.isAutoplay) {
       let gradeChar = 'D';
       const acc = finalScore.accuracy;
       if (acc >= 100) gradeChar = 'SS';
@@ -876,6 +877,7 @@ export default function App() {
                 scoreState={scoreState}
                 beatmap={activePlayBeatmap}
                 playHistory={playHistory}
+                currentMods={settings.selectedMods}
                 onRetry={handleRetrySong}
                 onWatchReplay={(record) => {
                   setViewingHistoryResult(false);

@@ -14,6 +14,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
 import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
+import { initializeColumnJudgements, incrementColumnJudgement, calculateUnstableRate } from '../utils/performanceMetrics';
 import { VideoSyncController, computeTargetVideoTimeSec } from '../utils/videoSyncController';
 import { PlayZoneOverlay } from './PlayZoneOverlay';
 import { executeTeardown } from '../utils/gameplayTeardown';
@@ -529,7 +530,22 @@ export default function GameplayCanvas({
     accuracy: 100,
     completed: false,
     failed: false,
+    unstableRate: null,
+    hitErrorSampleCount: 0,
+    columnJudgements: initializeColumnJudgements(beatmap.keyCount),
   });
+
+  const hitErrorSamplesRef = useRef<number[]>([]);
+  const [uiUr, setUiUr] = useState<number | null>(null);
+
+  const recordHitErrorSample = (error: number) => {
+    if (typeof error !== 'number' || !Number.isFinite(error)) return;
+    hitErrorSamplesRef.current.push(error);
+    const ur = calculateUnstableRate(hitErrorSamplesRef.current);
+    scoreStateRef.current.unstableRate = ur;
+    scoreStateRef.current.hitErrorSampleCount = hitErrorSamplesRef.current.length;
+    setUiUr(ur);
+  };
 
   const maxRawScoreRef = useRef<number>(1);
   const currentRawScoreRef = useRef<number>(0);
@@ -554,6 +570,7 @@ export default function GameplayCanvas({
   const wasPlayingRef = useRef<boolean>(false);
   const timeLabelRef = useRef<HTMLSpanElement>(null);
   const isReplayMode = !!replayRecord;
+  const isAutoplay = !isReplayMode && (settings.selectedMods || []).includes('AT');
   const finishTimeoutRef = useRef<any>(null);
   const uiJudgementTimeoutRef = useRef<any>(null);
   const isMountedRef = useRef<boolean>(true);
@@ -783,6 +800,9 @@ export default function GameplayCanvas({
     laneGlowRef.current = new Array(beatmap.keyCount).fill(0);
     hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
     
+    hitErrorSamplesRef.current = [];
+    setUiUr(null);
+    
     // Reset score tracking
     scoreStateRef.current = {
       score: 0,
@@ -798,6 +818,10 @@ export default function GameplayCanvas({
       accuracy: 100,
       completed: false,
       failed: false,
+      unstableRate: null,
+      hitErrorSampleCount: 0,
+      columnJudgements: initializeColumnJudgements(beatmap.keyCount),
+      isAutoplay: isAutoplay,
     };
 
     // Calculate maximum possible raw score for the combo-based formula
@@ -1043,7 +1067,7 @@ export default function GameplayCanvas({
     
     // Refcounted lane press so keyboard + touch on the same column do not fight.
     const virtualKeyDown = (colIndex: number) => {
-      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed) return;
+      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
       if (colIndex < 0 || colIndex >= keyCount) return;
 
       const counts = lanePressCountRef.current;
@@ -1069,7 +1093,7 @@ export default function GameplayCanvas({
     };
 
     const virtualKeyUp = (colIndex: number) => {
-      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed) return;
+      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
       if (colIndex < 0 || colIndex >= keyCount) return;
 
       const counts = lanePressCountRef.current;
@@ -1132,7 +1156,7 @@ export default function GameplayCanvas({
         return;
       }
 
-      if (replayData) return; // ignore user key taps in replay mode
+      if (replayData || isAutoplay) return; // ignore user key taps in replay mode or autoplay
 
       const keyLayout = currentSettings.bindings[keyCount] || [];
       const key = e.key.toLowerCase();
@@ -1145,7 +1169,7 @@ export default function GameplayCanvas({
     const handleKeyUp = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
       
-      if (replayData) return; // ignore user key taps in replay mode
+      if (replayData || isAutoplay) return; // ignore user key taps in replay mode or autoplay
 
       const currentSettings = settingsRef.current;
       const keyLayout = currentSettings.bindings[keyCount] || [];
@@ -1183,24 +1207,24 @@ export default function GameplayCanvas({
       touchAdapter = new TouchInputAdapter(virtualKeyDown, virtualKeyUp);
 
       handleTouchStart = (e: TouchEvent) => {
-        if (replayData) return;
+        if (replayData || isAutoplay) return;
         const rect = touchTarget.getBoundingClientRect();
         touchAdapter?.handleTouchStart(e, rect, keyCount, settingsRef.current.upsurfaceNoteMode);
       };
 
       handleTouchMove = (e: TouchEvent) => {
-        if (replayData) return;
+        if (replayData || isAutoplay) return;
         const rect = touchTarget.getBoundingClientRect();
         touchAdapter?.handleTouchMove(e, rect, keyCount, settingsRef.current.upsurfaceNoteMode);
       };
 
       handleTouchEnd = (e: TouchEvent) => {
-        if (replayData) return;
+        if (replayData || isAutoplay) return;
         touchAdapter?.handleTouchEnd(e);
       };
 
       handleTouchCancel = (e: TouchEvent) => {
-        if (replayData) return;
+        if (replayData || isAutoplay) return;
         touchAdapter?.handleTouchCancel(e);
       };
 
@@ -1299,6 +1323,8 @@ export default function GameplayCanvas({
 
       // Calculate and store Hit Error details for timing feedback meter
       const hitError = playTime - note.time;
+      recordHitErrorSample(hitError);
+
       let tickColor = '#3b82f6'; // Default perfect blue
       if (resolvedJudgement.type === 'marvelous' || resolvedJudgement.type === 'perfect') {
         tickColor = '#3b82f6'; // Blue for 300 range
@@ -1319,7 +1345,7 @@ export default function GameplayCanvas({
       spawnParticles(colIndex, resolvedJudgement.color);
       
       // Screen shake for excellent accuracy
-      if (resolvedJudgement.type === 'marvelous') {
+      if (resolvedJudgement.type === 'marvelous' && !settingsRef.current.disableLaneShake) {
         screenShakeRef.current = 4;
       }
     } else {
@@ -1367,20 +1393,30 @@ export default function GameplayCanvas({
     if (absEndDiff <= greatWindow) {
       // Beautiful hold completion!
       applyJudgement(marvelousJudg, colIndex); // counts as Marvelous completion!
+      recordHitErrorSample(endDiff);
     } else if (absEndDiff <= missWindow) {
       // Sluggish release
       applyJudgement(goodJudg, colIndex); // counts as Good
+      recordHitErrorSample(endDiff);
     } else {
       // Released way too early or late
       holdNote.isHoldFailed = true;
       applyJudgement(missJudg, colIndex); // Miss
-      screenShakeRef.current = 6;
+      if (!settingsRef.current.disableLaneShake) {
+        screenShakeRef.current = 6;
+      }
     }
   };
 
   // Score counter math accumulator
   const applyJudgement = (judg: JudgementWindow, col: number) => {
     const state = scoreStateRef.current;
+    if (!state.columnJudgements || state.columnJudgements.length === 0) {
+      state.columnJudgements = initializeColumnJudgements(beatmap.keyCount);
+    }
+    if (typeof col === 'number' && col >= 0) {
+      incrementColumnJudgement(state.columnJudgements, col, judg.type);
+    }
 
     // Upgrades
     if (judg.type === 'miss') {
@@ -1654,6 +1690,70 @@ export default function GameplayCanvas({
       }
 
       if (isPlayingRef.current && !isPaused && showCountdown === 0) {
+        if (isAutoplay) {
+          const dueEvents: { type: 'head' | 'tail'; note: HitObject; eventTime: number }[] = [];
+
+          for (const note of notesRef.current) {
+            if (!note.isHit && !note.isMissed && note.time <= songTime) {
+              dueEvents.push({ type: 'head', note, eventTime: note.time });
+            }
+            if (note.type === 'hold' && note.isHit && !note.isReleased && !note.isHoldFailed && note.endTime !== undefined && note.endTime <= songTime) {
+              dueEvents.push({ type: 'tail', note, eventTime: note.endTime });
+            }
+          }
+
+          if (dueEvents.length > 0) {
+            dueEvents.sort((a, b) => a.eventTime - b.eventTime);
+
+            for (const evt of dueEvents) {
+              const n = evt.note;
+              if (evt.type === 'head') {
+                if (n.isHit || n.isMissed) continue;
+                n.isHit = true;
+                n.hitTime = n.time;
+
+                applyJudgement(marvelousJudg, n.column);
+                recordHitErrorSample(0);
+
+                hitErrorTicksRef.current.push({
+                  id: Math.random().toString(36).substring(2, 9),
+                  error: 0,
+                  timestamp: Date.now(),
+                  color: '#3b82f6'
+                });
+
+                mainAudio.playHitsound();
+                laneGlowRef.current[n.column] = 1.0;
+                spawnParticles(n.column, marvelousJudg.color);
+                if (!settingsRef.current.disableLaneShake) {
+                  screenShakeRef.current = 4;
+                }
+              } else if (evt.type === 'tail') {
+                if (n.isReleased || n.isHoldFailed) continue;
+                n.isReleased = true;
+                n.releaseTime = n.endTime!;
+
+                applyJudgement(marvelousJudg, n.column);
+                recordHitErrorSample(0);
+
+                spawnParticles(n.column, marvelousJudg.color);
+              }
+            }
+          }
+
+          // Maintain active receptor/lane state for holds, including chords
+          for (let col = 0; col < beatmap.keyCount; col++) {
+            const isHolding = notesRef.current.some(
+              n => n.column === col && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed
+            );
+            keysPressedRef.current[col] = isHolding;
+            activeColumnsRef.current[col] = isHolding;
+            if (isHolding) {
+              laneGlowRef.current[col] = Math.max(laneGlowRef.current[col] || 0, 0.8);
+            }
+          }
+        }
+
         checkAutonomousMisses(songTime);
         
         const currentSettings = settingsRef.current;
@@ -1773,7 +1873,7 @@ export default function GameplayCanvas({
           particles: particlesRef.current,
           hitErrorTicks: hitErrorTicksRef.current,
           hitErrorAvgMs,
-          shake: screenShakeRef.current,
+          shake: currentSettings.disableLaneShake ? 0 : screenShakeRef.current,
           settingsSlice: currentSettings,
           showKeyLabels: true,
           keyLabels: keyLabelsMapped,
@@ -1932,6 +2032,9 @@ export default function GameplayCanvas({
       accuracy: 100,
       completed: false,
       failed: false,
+      unstableRate: null,
+      hitErrorSampleCount: 0,
+      columnJudgements: initializeColumnJudgements(beatmap.keyCount),
     };
 
     // Reset hit error timing ticks
@@ -1947,8 +2050,15 @@ export default function GameplayCanvas({
     let simCurrentRawScore = 0;
 
     // Helper functions for chronological simulation
-    const simApplyJudgement = (judg: JudgementWindow) => {
+    const simApplyJudgement = (judg: JudgementWindow, col: number) => {
       const state = scoreStateRef.current;
+      if (!state.columnJudgements || state.columnJudgements.length === 0) {
+        state.columnJudgements = initializeColumnJudgements(beatmap.keyCount);
+      }
+      if (typeof col === 'number' && col >= 0) {
+        incrementColumnJudgement(state.columnJudgements, col, judg.type);
+      }
+
       if (judg.type === 'miss') {
         state.missCount++;
         state.combo = 0;
@@ -2043,15 +2153,16 @@ export default function GameplayCanvas({
       if (resolvedJudgement.type !== 'miss') {
         note.isHit = true;
         note.hitTime = frameTime;
-        simApplyJudgement(resolvedJudgement);
+        simApplyJudgement(resolvedJudgement, colIndex);
+        recordHitErrorSample(frameTime - note.time);
       } else {
         note.isMissed = true;
         if (note.type === 'hold') {
-          simApplyJudgement(resolvedJudgement);
+          simApplyJudgement(resolvedJudgement, colIndex);
           note.isHit = true;
           note.hitTime = frameTime;
         } else {
-          simApplyJudgement(resolvedJudgement);
+          simApplyJudgement(resolvedJudgement, colIndex);
         }
       }
     };
@@ -2074,12 +2185,14 @@ export default function GameplayCanvas({
       holdNote.isReleased = true;
       holdNote.releaseTime = frameTime;
       if (absEndDiff <= greatWindow) {
-        simApplyJudgement(marvelousJudg);
+        simApplyJudgement(marvelousJudg, colIndex);
+        recordHitErrorSample(endDiff);
       } else if (absEndDiff <= missWindow) {
-        simApplyJudgement(goodJudg);
+        simApplyJudgement(goodJudg, colIndex);
+        recordHitErrorSample(endDiff);
       } else {
         holdNote.isHoldFailed = true;
-        simApplyJudgement(missJudg);
+        simApplyJudgement(missJudg, colIndex);
       }
     };
 
@@ -2090,10 +2203,10 @@ export default function GameplayCanvas({
         missJudg.windowMs,
         (n, isDoubleMiss) => {
           if (isDoubleMiss) {
-            simApplyJudgement(missJudg);
-            simApplyJudgement(missJudg);
+            simApplyJudgement(missJudg, n.column);
+            simApplyJudgement(missJudg, n.column);
           } else {
-            simApplyJudgement(missJudg);
+            simApplyJudgement(missJudg, n.column);
           }
         },
         keysPressed
@@ -3054,7 +3167,7 @@ export default function GameplayCanvas({
               {scoreStateRef.current.accuracy.toFixed(2)}%
             </span>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-2">SCORE</span>
-            <span className="text-3xl md:text-4xl font-extrabold text-white font-mono tracking-tighter leading-none">
+            <span className="text-3xl md:text-4xl font-extrabold text-white font-mono tracking-tighter leading-none mb-1">
               {uiScore.toLocaleString('en-US', { minimumIntegerDigits: 7, useGrouping: false })}
             </span>
           </div>

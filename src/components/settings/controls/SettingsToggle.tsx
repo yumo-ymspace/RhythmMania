@@ -20,20 +20,25 @@ interface SettingsToggleProps {
 
 export default function SettingsToggle({ checked, onChange, id }: SettingsToggleProps) {
   return (
-    <button
-      id={id}
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-[var(--skin-accent)] ${
-        checked ? 'bg-[var(--skin-accent)]' : 'bg-slate-700'
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${
-          checked ? 'translate-x-4' : 'translate-x-0'
-        }`}
+    <label className="relative inline-flex items-center cursor-pointer select-none h-5 w-9 shrink-0">
+      <input
+        type="checkbox"
+        id={id}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only peer"
       />
-    </button>
+      <span
+        className={`w-9 h-5 rounded-full transition-colors flex-shrink-0 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--skin-accent)] ${
+          checked ? 'bg-[var(--skin-accent)]' : 'bg-slate-700'
+        }`}
+      >
+        <span
+          className={`block mt-0.5 ml-0.5 bg-white w-4 h-4 rounded-full transition-transform ${
+            checked ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </span>
+    </label>
   );
 }

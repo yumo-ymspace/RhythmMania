@@ -268,7 +268,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                           />
                         )}
                         
-                        <div className={`flex flex-col justify-center min-w-0 flex-1 ${isChanged ? 'pl-2' : ''}`}>
+                        <label htmlFor={`setting-mobile-${row.id}`} className={`flex flex-col justify-center min-w-0 flex-1 cursor-pointer ${isChanged ? 'pl-2' : ''}`}>
                           <span className="text-sm font-sans font-extrabold text-white leading-tight uppercase tracking-wider">
                             {row.label}
                           </span>
@@ -277,7 +277,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                               {row.description}
                             </p>
                           )}
-                        </div>
+                        </label>
 
                         <div className={`${isVertical ? 'w-full' : 'shrink-0'}`}>
                           {controlNode}
