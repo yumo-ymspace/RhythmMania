@@ -8,7 +8,8 @@
  */
 
 import JSZip from 'jszip';
-import { GameSettings, PlayHistoryRecord } from '../types';
+import { Beatmap, GameSettings, PlayHistoryRecord, ReplaySource, UploadEligibility, UploadStatus } from '../types';
+import { migrateHistoryRecord } from './replayManager';
 
 // SECURITY LIMIT CONSTANTS
 export const MAX_COMPRESSED_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB max compressed size for .osz
@@ -231,7 +232,7 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
  * Validates and sanitizes a history record loaded from local storage.
  * Ensures strip/clamp of values and removes potential dangerous blob URLs.
  */
-export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings): PlayHistoryRecord | null {
+export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
   if (!record || typeof record !== 'object') return null;
 
   const clamp = (val: any, min: number, max: number, fallback: number): number => {
@@ -331,7 +332,7 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     }
   }
 
-  return {
+  const baseCleaned: PlayHistoryRecord = {
     id: sanitizeString(record.id, 50),
     timestamp: clamp(record.timestamp, 0, 2000000000000, Date.now()),
     beatmapId: sanitizeString(record.beatmapId, 100),
@@ -346,8 +347,19 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     scoreState,
     replayFrames,
     recordedSettings,
-    mods
+    mods,
+    // Preserve existing v2 fields if already populated
+    schemaVersion: record.schemaVersion,
+    replaySource: record.replaySource,
+    catalogSetId: record.catalogSetId,
+    catalogMapId: record.catalogMapId,
+    beatmapHash: record.beatmapHash,
+    uploadEligibility: record.uploadEligibility,
+    uploadStatus: record.uploadStatus,
+    isServerCatalogMap: record.isServerCatalogMap,
   };
+
+  return migrateHistoryRecord(baseCleaned, availableBeatmaps);
 }
 
 /**

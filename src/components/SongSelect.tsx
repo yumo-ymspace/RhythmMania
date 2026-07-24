@@ -19,7 +19,7 @@ import {
   ChevronDown, ChevronUp, Star, Check, SlidersHorizontal, Shuffle, 
   Repeat, Layers, Eye, Volume2, User, Clock, Heart, Award, ArrowUpRight, X
 } from 'lucide-react';
-import { Beatmap, GameSettings } from '../types';
+import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
 import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
@@ -28,6 +28,8 @@ import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
 import { TempMemoryCache } from '../utils/tempMemoryCache';
 import { unpackBeatmap } from '../utils/unpackHelper';
+import { computeBeatmapHash } from '../utils/replayManager';
+import { LeaderboardReplayItem, fetchLeaderboardReplays, fetchReplayDetail } from '../utils/replayClient';
 import metadata from '../../metadata.json';
 
 interface SongSelectProps {
@@ -43,6 +45,8 @@ interface SongSelectProps {
   setSongSelectBgUrl?: (url: string) => void;
   onBack?: () => void;
   onOpenOnlineCatalog?: () => void;
+  onWatchReplay?: (record: PlayHistoryRecord, beatmap?: Beatmap) => Promise<{ success: boolean; error?: string }> | void;
+  onAddHistoryRecord?: (record: PlayHistoryRecord) => void;
 }
 
 export default function SongSelect({
@@ -57,7 +61,9 @@ export default function SongSelect({
   filterMode,
   setSongSelectBgUrl,
   onBack,
-  onOpenOnlineCatalog
+  onOpenOnlineCatalog,
+  onWatchReplay,
+  onAddHistoryRecord
 }: SongSelectProps) {
   // Search & Basic UI State
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -172,6 +178,15 @@ export default function SongSelect({
       console.warn('Failed to load performance score logs:', e);
     }
   }, [selectedCustomMapId, showPreplayOptions]);
+
+  // Online Leaderboard Replays State
+  const [onlineReplays, setOnlineReplays] = useState<LeaderboardReplayItem[]>([]);
+  const [isLoadingOnlineReplays, setIsLoadingOnlineReplays] = useState<boolean>(false);
+  const [onlineReplayError, setOnlineReplayError] = useState<string | null>(null);
+  const [leaderboardTab, setLeaderboardTab] = useState<'online' | 'local'>('online');
+  const [actionNotice, setActionNotice] = useState<{ id?: string; text: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const [downloadingReplayId, setDownloadingReplayId] = useState<string | null>(null);
+  const [watchingReplayId, setWatchingReplayId] = useState<string | null>(null);
 
   // Clean raw local custom URL allocations prior to page reload/destruction
   useEffect(() => {
@@ -521,6 +536,127 @@ export default function SongSelect({
   };
 
   const selectedCustomMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId) || null;
+  const isServerLeaderboardMap = Boolean(
+    selectedCustomMap &&
+    (selectedCustomMap as any).isServerMap === true &&
+    !(selectedCustomMap as any).isServerPackage
+  );
+
+  useEffect(() => {
+    setLeaderboardTab(isServerLeaderboardMap ? 'online' : 'local');
+  }, [selectedCustomMapId, isServerLeaderboardMap]);
+
+  // Fetch online replays for current selected beatmap difficulty
+  useEffect(() => {
+    if (!selectedCustomMapId || !isServerLeaderboardMap) {
+      setOnlineReplays([]);
+      setOnlineReplayError(null);
+      return;
+    }
+
+    const currentMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
+    if (!currentMap) {
+      setOnlineReplays([]);
+      return;
+    }
+
+    const diffId = (currentMap as any).catalogMapId || currentMap.id;
+    const hash = (currentMap as any).beatmapHash || computeBeatmapHash(currentMap);
+
+    setIsLoadingOnlineReplays(true);
+    setOnlineReplayError(null);
+
+    fetchLeaderboardReplays(diffId, hash).then((res) => {
+      setIsLoadingOnlineReplays(false);
+      if (res.success) {
+        setOnlineReplays(res.replays);
+      } else {
+        setOnlineReplayError(res.error || 'Failed to load online replays');
+      }
+    });
+  }, [selectedCustomMapId, mergedCustomMaps, isServerLeaderboardMap]);
+
+  const handleDownloadOnlineReplay = async (replayId: string) => {
+    const replayItem = onlineReplays.find((replay) => replay.id === replayId);
+    if (!replayItem?.isOwn) {
+      setActionNotice({ id: replayId, text: 'Only your own scores can be downloaded to Local History.', type: 'error' });
+      return;
+    }
+
+    setDownloadingReplayId(replayId);
+    setActionNotice({ id: replayId, text: 'Downloading replay file...', type: 'info' });
+
+    const res = await fetchReplayDetail(replayId);
+    setDownloadingReplayId(null);
+
+    if (!res.success || !res.record) {
+      setActionNotice({ id: replayId, text: res.error || 'Failed to download replay data', type: 'error' });
+      return;
+    }
+
+    const record = res.record;
+
+    if (onAddHistoryRecord) {
+      onAddHistoryRecord(record);
+      setLocalScores(prev => (
+        prev.some((existing) => existing.id === record.id)
+          ? prev
+          : [record, ...prev]
+      ));
+    } else {
+      try {
+        const storedHistoryText = localStorage.getItem('rhythm_mania_v1_play_history');
+        let currentHistory: any[] = [];
+        if (storedHistoryText) {
+          currentHistory = JSON.parse(storedHistoryText);
+        }
+        if (!currentHistory.some((r: any) => r.id === record.id)) {
+          const updated = [record, ...currentHistory];
+          localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(updated));
+          setLocalScores(updated);
+        }
+      } catch (e) {
+        console.warn('Failed to save replay to local history:', e);
+      }
+    }
+
+    setActionNotice({ id: replayId, text: 'Replay downloaded to Local History!', type: 'success' });
+    setTimeout(() => setActionNotice(null), 3000);
+  };
+
+  const handleWatchOnlineReplay = async (replayItem: LeaderboardReplayItem) => {
+    setWatchingReplayId(replayItem.id);
+    setActionNotice({ id: replayItem.id, text: 'Preparing replay playback...', type: 'info' });
+
+    const res = await fetchReplayDetail(replayItem.id);
+
+    if (!res.success || !res.record) {
+      setWatchingReplayId(null);
+      setActionNotice({ id: replayItem.id, text: res.error || 'Failed to load replay details', type: 'error' });
+      return;
+    }
+
+    const record = res.record;
+
+    if (onWatchReplay) {
+      const currentMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
+      const targetMap = currentMap && (currentMap.id === record.beatmapId || (currentMap as any).catalogMapId === record.catalogMapId)
+        ? currentMap
+        : undefined;
+
+      const watchRes = await onWatchReplay(record, targetMap);
+      setWatchingReplayId(null);
+
+      if (watchRes && !watchRes.success) {
+        setActionNotice({ id: replayItem.id, text: watchRes.error || 'Failed to launch replay playback', type: 'error' });
+      } else {
+        setActionNotice(null);
+      }
+    } else {
+      setWatchingReplayId(null);
+      setActionNotice({ id: replayItem.id, text: 'Replay playback is unavailable in this view', type: 'error' });
+    }
+  };
 
   // Background cover images (Always ensure we have a beautiful wallpaper background with vibrant, lively colors)
   const selectBgUrl = selectedCustomMap?.bgUrl || '';
@@ -768,8 +904,25 @@ export default function SongSelect({
 
           for (let i = 0; i < beatmapFiles.length; i++) {
             const beatmapStr = beatmapFiles[i];
-            const mapId = `${serverMapId}_idx${i}`;
-            const parsedMap = parseBeatmap(beatmapStr.content, mapId);
+            const matchingServerObj = serverManifest.find(s => s.id === serverMapId);
+
+            let canonicalMapId = `${serverMapId}_idx${i}`;
+            let tempParsedDifficulty = '';
+            const diffMatch = beatmapStr.content.match(/^Version:(.*)$/m);
+            if (diffMatch) {
+              tempParsedDifficulty = diffMatch[1].trim();
+            }
+
+            if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
+              const matchedDiff = matchingServerObj.difficulties.find((d: any) =>
+                d.name && tempParsedDifficulty && d.name.trim().toLowerCase() === tempParsedDifficulty.toLowerCase()
+              );
+              if (matchedDiff?.id) {
+                canonicalMapId = matchedDiff.id;
+              }
+            }
+
+            const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
 
             if (parsedMap.notes.length > 0) {
               const media = parseMediaPaths(beatmapStr.content);
@@ -777,14 +930,16 @@ export default function SongSelect({
 
               mapWithMeta.packageId = packageId;
               mapWithMeta.parentPackageId = serverMapId;
+              mapWithMeta.catalogSetId = serverMapId;
+              mapWithMeta.catalogMapId = canonicalMapId;
               mapWithMeta.audioFilename = media.audioFilename;
               mapWithMeta.videoFilename = media.videoFilename;
               mapWithMeta.bgFilename = media.bgFilename;
               mapWithMeta.originalContent = beatmapStr.content;
               mapWithMeta.isServerMap = true;
               mapWithMeta.oszUrl = oszUrl;
+              mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
-              const matchingServerObj = serverManifest.find(s => s.id === serverMapId);
               if (matchingServerObj && matchingServerObj.mode !== undefined) {
                 parsedMap.mode = matchingServerObj.mode;
                 const diffSummary = matchingServerObj.difficultiesSummary || matchingServerObj.difficultsSummary;
@@ -893,6 +1048,10 @@ export default function SongSelect({
         mapWithMeta.videoFilename = media.videoFilename;
         mapWithMeta.bgFilename = media.bgFilename;
         mapWithMeta.originalContent = text;
+        mapWithMeta.isServerMap = false;
+        mapWithMeta.catalogSetId = null;
+        mapWithMeta.catalogMapId = null;
+        mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
         onImportBeatmap(parsedMap);
         setImportStatus({ type: 'ok', msg: `Successfully imported "${parsedMap.title}" - [${parsedMap.difficulty}] difficulty!` });
@@ -956,6 +1115,10 @@ export default function SongSelect({
             mapWithMeta.bgFilename = media.bgFilename;
             mapWithMeta.originalContent = beatmapStr.content;
             mapWithMeta.isCached = true;
+            mapWithMeta.isServerMap = false;
+            mapWithMeta.catalogSetId = null;
+            mapWithMeta.catalogMapId = null;
+            mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
             onImportBeatmap(parsedMap);
             successCount++;
@@ -1829,47 +1992,255 @@ export default function SongSelect({
                 <span>PLAY SONG</span>
               </button>
 
-              {/* DELETE CUSTOM SONG SET */}
-              {(!(selectedCustomMap as any).isServerMap || (selectedCustomMap as any).isCached) && (
-                <div className="w-full">
-                  {showDeleteConfirm ? (
-                    <div className="flex gap-2 p-2 bg-red-950/20 border border-red-500/30 rounded-xl">
-                      <button
-                        onClick={async () => {
-                          if (selectedCustomMap) {
-                            const songKey = getMapSongKey(selectedCustomMap);
-                            const mapsToDelete = customMaps.filter(m => getMapSongKey(m) === songKey).map(m => m.id);
-                            if (onDeleteSongGroup && mapsToDelete.length > 0) {
-                              onDeleteSongGroup(mapsToDelete);
-                            } else if (onDeleteCustomMap) {
-                              onDeleteCustomMap(selectedCustomMap.id);
-                            }
-                            setSelectedCustomMapId('');
-                          }
-                          setShowDeleteConfirm(false);
-                        }}
-                        className="flex-1 py-1.5 bg-red-650 hover:bg-red-700 text-white font-mono text-[10px] font-black uppercase rounded-lg transition cursor-pointer"
-                      >
-                        CONFIRM DEL
-                      </button>
-                      <button
-                        onClick={() => setShowDeleteConfirm(false)}
-                        className="px-3 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-350 font-mono text-[10px] font-black uppercase rounded-lg border border-white/5 transition cursor-pointer"
-                      >
-                        CANCEL
-                      </button>
+              {/* ONLINE & LOCAL LEADERBOARD REPLAYS PANEL */}
+              <div className="flex flex-col bg-[#08080d] rounded-2xl border border-white/10 shadow-2xl overflow-hidden mt-1">
+                {/* TAB BAR HEADER */}
+                <div className="flex border-b border-white/10 bg-black/40">
+                {isServerLeaderboardMap && (
+                  <button
+                    onClick={() => setLeaderboardTab('online')}
+                    className={`flex-1 py-2 px-3 text-[10px] font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      leaderboardTab === 'online'
+                        ? 'bg-pink-500/20 text-pink-300 border-b-2 border-pink-500'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Cloud className="h-3.5 w-3.5" />
+                    <span>Online Leaderboard</span>
+                    {onlineReplays.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-pink-500/30 text-[8px] text-pink-200">
+                        {onlineReplays.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setLeaderboardTab('local')}
+                  className={`${isServerLeaderboardMap ? 'flex-1' : 'w-full'} py-2 px-3 text-[10px] font-mono font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    leaderboardTab === 'local'
+                      ? 'bg-cyan-500/20 text-cyan-300 border-b-2 border-cyan-500'
+                      : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Award className="h-3.5 w-3.5" />
+                    <span>Local Scores</span>
+                  </button>
+                </div>
+
+                {/* TAB CONTENT */}
+                <div className="p-3 max-h-[360px] overflow-y-auto space-y-2 text-left">
+                  {/* Action/Notification Bar */}
+                  {actionNotice && (
+                    <div className={`p-2 rounded-xl text-[10px] font-mono flex items-center justify-between ${
+                      actionNotice.type === 'error' ? 'bg-red-950/40 text-red-300 border border-red-500/30' :
+                      actionNotice.type === 'success' ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30' :
+                      'bg-cyan-950/40 text-cyan-300 border border-cyan-500/30'
+                    }`}>
+                      <span className="truncate pr-2">{actionNotice.text}</span>
+                      {actionNotice.type === 'info' && <Loader className="h-3 w-3 animate-spin shrink-0 text-cyan-300" />}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="w-full py-1.5 bg-red-955/20 hover:bg-red-955/40 border border-red-500/15 hover:border-red-500/35 text-red-400 font-mono text-[9px] uppercase font-black tracking-widest rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer mt-0.5"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      <span>DELETE BEATMAP SET</span>
-                    </button>
+                  )}
+
+                  {isServerLeaderboardMap && leaderboardTab === 'online' && (
+                    <>
+                      {isLoadingOnlineReplays ? (
+                        <div className="py-8 flex flex-col items-center justify-center text-slate-400 text-xs gap-2">
+                          <Loader className="h-5 w-5 animate-spin text-pink-400" />
+                          <span className="font-mono text-[10px] uppercase tracking-wider">Fetching Online Leaderboard...</span>
+                        </div>
+                      ) : onlineReplayError ? (
+                        <div className="py-6 px-3 text-center text-slate-400 text-[10px] font-mono uppercase space-y-1">
+                          <p className="text-red-400">{onlineReplayError}</p>
+                          <button 
+                            onClick={() => {
+                              if (selectedCustomMap) {
+                                const diffId = (selectedCustomMap as any).catalogMapId || selectedCustomMap.id;
+                                const hash = (selectedCustomMap as any).beatmapHash || computeBeatmapHash(selectedCustomMap);
+                                setIsLoadingOnlineReplays(true);
+                                fetchLeaderboardReplays(diffId, hash).then(res => {
+                                  setIsLoadingOnlineReplays(false);
+                                  if (res.success) setOnlineReplays(res.replays);
+                                });
+                              }
+                            }}
+                            className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-[9px] text-slate-300 mt-2 cursor-pointer"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : onlineReplays.length === 0 ? (
+                        <div className="py-8 text-center text-slate-500 text-[10px] font-mono uppercase">
+                          <CloudOff className="h-6 w-6 mx-auto mb-1.5 opacity-40 text-slate-400" />
+                          <p>No online replays submitted yet for this difficulty</p>
+                          <p className="text-[9px] text-slate-600 mt-1">Play and log in to submit a record!</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {onlineReplays.map((rep, idx) => {
+                            const gradeColor =
+                              rep.grade === 'SS' ? 'text-amber-300 bg-amber-500/20 border-amber-500/40' :
+                              rep.grade === 'S' ? 'text-amber-400 bg-amber-500/15 border-amber-500/30' :
+                              rep.grade === 'A' ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30' :
+                              rep.grade === 'B' ? 'text-cyan-400 bg-cyan-500/15 border-cyan-500/30' :
+                              'text-rose-400 bg-rose-500/15 border-rose-500/30';
+
+                            const rankLabel = `#${idx + 1}`;
+                            const formattedDate = new Date(rep.createdAt).toLocaleDateString();
+
+                            return (
+                              <div 
+                                key={rep.id} 
+                                className="p-2.5 bg-black/40 hover:bg-black/60 border border-white/5 rounded-xl transition flex flex-col gap-2"
+                              >
+                                {/* Top Row: Rank, Avatar + Name, Grade, Score */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-black ${
+                                      idx === 0 ? 'bg-amber-400 text-black' :
+                                      idx === 1 ? 'bg-slate-300 text-black' :
+                                      idx === 2 ? 'bg-amber-700 text-white' :
+                                      'bg-white/10 text-slate-400'
+                                    }`}>
+                                      {rankLabel}
+                                    </span>
+
+                                    {rep.avatarUrl ? (
+                                      <img src={rep.avatarUrl} alt="" className="w-4 h-4 rounded-full" />
+                                    ) : (
+                                      <div className="w-4 h-4 rounded-full bg-pink-500/30 flex items-center justify-center text-[8px] font-black text-pink-300 shrink-0">
+                                        {rep.username.charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+
+                                    <span className="text-xs font-bold text-white truncate font-sans">
+                                      {rep.username}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-black border ${gradeColor}`}>
+                                      {rep.grade}
+                                    </span>
+                                    <span className="text-xs font-black font-mono text-amber-300">
+                                      {rep.score.toLocaleString()}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Middle Row: Accuracy, Combo, Mods, Date */}
+                                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-white/5 pt-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-cyan-300 font-bold">{rep.accuracy.toFixed(2)}%</span>
+                                    <span>•</span>
+                                    <span>{rep.maxCombo}x combo</span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5">
+                                    {rep.mods && rep.mods.length > 0 ? (
+                                      <div className="flex gap-1">
+                                        {rep.mods.map(m => (
+                                          <span key={m} className="px-1 py-0.2 bg-pink-500/20 text-pink-300 rounded text-[8px] font-bold uppercase">
+                                            {m}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[9px] text-slate-500">No Mods</span>
+                                    )}
+                                    <span className="text-[9px] text-slate-500">{formattedDate}</span>
+                                  </div>
+                                </div>
+
+                                {/* Bottom Row: Actions (Download & Watch Replay) */}
+                                <div className="flex items-center gap-2 pt-1">
+                                  {rep.isOwn ? (
+                                    <button
+                                      onClick={() => handleDownloadOnlineReplay(rep.id)}
+                                      disabled={downloadingReplayId === rep.id}
+                                      className="flex-1 py-1 px-2 bg-white/5 hover:bg-white/10 active:scale-95 text-slate-300 hover:text-white rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
+                                      title="Download your replay to Local History"
+                                    >
+                                      {downloadingReplayId === rep.id ? (
+                                        <Loader className="h-3 w-3 animate-spin text-pink-400" />
+                                      ) : (
+                                        <FileText className="h-3 w-3 text-cyan-400" />
+                                      )}
+                                      <span>Download</span>
+                                    </button>
+                                  ) : (
+                                    <span className="flex-1 py-1 px-2 text-slate-500 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1">
+                                      <span>Watch-only</span>
+                                    </span>
+                                  )}
+
+                                  <button
+                                    onClick={() => handleWatchOnlineReplay(rep)}
+                                    disabled={watchingReplayId === rep.id}
+                                    className="flex-1 py-1 px-2 bg-pink-500/20 hover:bg-pink-500/30 active:scale-95 text-pink-300 hover:text-pink-100 border border-pink-500/30 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
+                                    title="Watch Replay Playback"
+                                  >
+                                    {watchingReplayId === rep.id ? (
+                                      <Loader className="h-3 w-3 animate-spin text-pink-300" />
+                                    ) : (
+                                      <Play className="h-3 w-3 text-pink-400 fill-current" />
+                                    )}
+                                    <span>Watch Replay</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {leaderboardTab === 'local' && (
+                    <div className="space-y-2">
+                      {localScores.filter(s => 
+                        selectedCustomMap && (s.beatmapId === selectedCustomMap.id || s.catalogMapId === (selectedCustomMap as any).catalogMapId)
+                      ).length === 0 ? (
+                        <div className="py-6 text-center text-slate-500 text-[10px] font-mono uppercase">
+                          <Award className="h-6 w-6 mx-auto mb-1.5 opacity-40 text-slate-400" />
+                          <p>No local score history for this difficulty</p>
+                        </div>
+                      ) : (
+                        localScores
+                          .filter(s => selectedCustomMap && (s.beatmapId === selectedCustomMap.id || s.catalogMapId === (selectedCustomMap as any).catalogMapId))
+                          .sort((a, b) => b.score - a.score)
+                          .map((s, idx) => (
+                            <div key={s.id || idx} className="p-2.5 bg-black/40 border border-white/5 rounded-xl flex items-center justify-between text-xs font-mono">
+                              <div className="flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 rounded text-[9px] font-bold">
+                                  #{idx + 1}
+                                </span>
+                                <div className="flex flex-col">
+                                  <span className="font-bold text-white">{s.score.toLocaleString()}</span>
+                                  <span className="text-[9px] text-slate-400">{s.accuracy.toFixed(2)}% • {s.maxCombo}x</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/10 text-slate-200">
+                                  {s.grade}
+                                </span>
+                                {onWatchReplay && (
+                                  <button
+                                    onClick={() => onWatchReplay(s, selectedCustomMap)}
+                                    className="p-1.5 bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 rounded-lg transition cursor-pointer"
+                                    title="Watch Local Replay"
+                                  >
+                                    <Play className="h-3 w-3 fill-current" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
 
               {/* Integrated file drag and drop area for a compact utility drop */}
               <div 

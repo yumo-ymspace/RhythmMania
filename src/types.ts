@@ -58,6 +58,12 @@ export interface BeatmapMetadata {
   bgUrl?: string;
   id: string;
   mode?: number; // 0 for standard, 3 for mania
+
+  // Canonical identity fields
+  catalogSetId?: string | null;
+  catalogMapId?: string | null;
+  beatmapHash?: string;
+  isServerMap?: boolean;
 }
 
 export interface Beatmap extends BeatmapMetadata {
@@ -117,6 +123,18 @@ export interface ReplayFrame {
   keysPressed: boolean[];
 }
 
+export type ReplaySource = 'guest-local' | 'account-local' | 'server-remote';
+
+export type UploadEligibility =
+  | 'eligible'
+  | 'ineligible_local_map'
+  | 'ineligible_autoplay'
+  | 'ineligible_failed'
+  | 'ineligible_mode'
+  | 'ineligible_no_replay_frames';
+
+export type UploadStatus = 'local_only' | 'pending' | 'uploaded' | 'failed';
+
 export interface PlayHistoryRecord {
   id: string;
   timestamp: number;
@@ -133,6 +151,16 @@ export interface PlayHistoryRecord {
   replayFrames: ReplayFrame[];
   recordedSettings?: Partial<GameSettings>;
   mods?: string[];
+
+  // Versioned replay schema & canonical catalog identity fields
+  schemaVersion?: number; // e.g. 2
+  replaySource?: ReplaySource;
+  catalogSetId?: string | null; // e.g., 'server_usseewa'
+  catalogMapId?: string | null; // e.g., 'server_usseewa_idx0'
+  beatmapHash?: string; // deterministic hash of content or metadata
+  uploadEligibility?: UploadEligibility;
+  uploadStatus?: UploadStatus;
+  isServerCatalogMap?: boolean;
 }
 
 export interface KeyBindings {

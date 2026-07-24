@@ -21,6 +21,7 @@ import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { RobustZipResolver } from '../utils/zipResolver';
 import { storageManager } from '../utils/storageManager';
 import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl } from '../utils/securityLimits';
+import { computeBeatmapHash } from '../utils/replayManager';
 
 interface OnlineBeatmapCatalogProps {
   open: boolean;
@@ -213,8 +214,26 @@ export default function OnlineBeatmapCatalog({
 
       for (let i = 0; i < beatmapFiles.length; i++) {
         const beatmapStr = beatmapFiles[i];
-        const mapId = `${serverMapId}_idx${i}`;
-        const parsedMap = parseBeatmap(beatmapStr.content, mapId);
+        const matchingServerObj = serverManifest.find(sm => sm.id === serverMapId);
+
+        let canonicalMapId = `${serverMapId}_idx${i}`;
+        let tempParsedDifficulty = '';
+        const diffMatch = beatmapStr.content.match(/^Version:(.*)$/m);
+        if (diffMatch) {
+          tempParsedDifficulty = diffMatch[1].trim();
+        }
+
+        if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
+          const matchedDiff = matchingServerObj.difficulties.find((d: any) =>
+            d.osuFilename === beatmapStr.name ||
+            (d.name && tempParsedDifficulty && d.name.trim().toLowerCase() === tempParsedDifficulty.toLowerCase())
+          );
+          if (matchedDiff?.id) {
+            canonicalMapId = matchedDiff.id;
+          }
+        }
+
+        const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
 
         if (parsedMap.notes.length > 0) {
           const media = parseMediaPaths(beatmapStr.content);
@@ -222,14 +241,16 @@ export default function OnlineBeatmapCatalog({
 
           mapWithMeta.packageId = packageId;
           mapWithMeta.parentPackageId = serverMapId;
+          mapWithMeta.catalogSetId = serverMapId;
+          mapWithMeta.catalogMapId = canonicalMapId;
           mapWithMeta.audioFilename = media.audioFilename;
           mapWithMeta.videoFilename = media.videoFilename;
           mapWithMeta.bgFilename = media.bgFilename;
           mapWithMeta.originalContent = beatmapStr.content;
           mapWithMeta.isServerMap = true;
           mapWithMeta.oszUrl = oszUrl;
+          mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
-          const matchingServerObj = serverManifest.find(sm => sm.id === serverMapId);
           if (matchingServerObj && matchingServerObj.mode !== undefined) {
             parsedMap.mode = matchingServerObj.mode;
             const diffSummary = matchingServerObj.difficultiesSummary || matchingServerObj.difficultsSummary;

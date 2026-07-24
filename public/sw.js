@@ -69,9 +69,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // 1. Bypass certain development, extension, or dynamic URLs
+  // 1. API responses carry session and replay state and must never enter an offline cache.
   if (
     event.request.method !== 'GET' ||
+    url.pathname.startsWith('/api/') ||
     url.protocol === 'chrome-extension:' ||
     url.protocol === 'chrome:' ||
     url.pathname.includes('/@vite/') ||

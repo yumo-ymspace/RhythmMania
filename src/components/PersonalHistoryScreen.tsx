@@ -57,6 +57,7 @@ export default function PersonalHistoryScreen({
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [randomBg, setRandomBg] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'uploaded' | 'catalog' | 'local_only' | 'failed'>('all');
 
   useEffect(() => {
     const bgs = [
@@ -105,11 +106,32 @@ export default function PersonalHistoryScreen({
 
   const currentBgUrl = selectedRecord?.bgUrl || randomBg;
 
-  // Search filtering on song titles, artists, difficulties, grades, or mods
+  const filterCounts = useMemo(() => {
+    let uploaded = 0;
+    let catalog = 0;
+    let localOnly = 0;
+    let failed = 0;
+
+    resolvedRecords.forEach(rec => {
+      if (rec.uploadStatus === 'uploaded') uploaded++;
+      if (rec.uploadStatus === 'failed') failed++;
+      if (rec.isServerCatalogMap) catalog++;
+      if (rec.uploadStatus !== 'uploaded' && !rec.isServerCatalogMap) localOnly++;
+    });
+
+    return { all: resolvedRecords.length, uploaded, catalog, localOnly, failed };
+  }, [resolvedRecords]);
+
+  // Search and status filtering on song titles, artists, difficulties, grades, or mods
   const filteredHistory = useMemo(() => {
-    if (!searchTerm) return resolvedRecords;
-    const query = searchTerm.toLowerCase();
     return resolvedRecords.filter(rec => {
+      if (statusFilter === 'uploaded' && rec.uploadStatus !== 'uploaded') return false;
+      if (statusFilter === 'failed' && rec.uploadStatus !== 'failed') return false;
+      if (statusFilter === 'catalog' && !rec.isServerCatalogMap) return false;
+      if (statusFilter === 'local_only' && (rec.uploadStatus === 'uploaded' || rec.isServerCatalogMap)) return false;
+
+      if (!searchTerm) return true;
+      const query = searchTerm.toLowerCase();
       const modsText = rec.mods && rec.mods.length > 0 ? rec.mods.join(' ') : 'no mods';
       return rec.beatmapTitle.toLowerCase().includes(query) ||
              rec.beatmapArtist.toLowerCase().includes(query) ||
@@ -117,7 +139,7 @@ export default function PersonalHistoryScreen({
              rec.grade.toLowerCase().includes(query) ||
              modsText.toLowerCase().includes(query);
     });
-  }, [resolvedRecords, searchTerm]);
+  }, [resolvedRecords, searchTerm, statusFilter]);
 
   // Handle deleted items to safely clear selection if active
   const handleDeleteRecord = (id: string) => {
@@ -297,6 +319,36 @@ export default function PersonalHistoryScreen({
                     <span className="px-2 py-1 bg-pink-500/10 border border-pink-500/20 text-pink-400 rounded">
                       {selectedRecord.mods && selectedRecord.mods.length > 0 ? selectedRecord.mods.join(', ') : 'No Mods'}
                     </span>
+                    {selectedRecord.isServerCatalogMap ? (
+                      <span className="px-2 py-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-bold rounded flex items-center gap-1">
+                        <Database className="h-3 w-3" /> Catalog Map
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 bg-slate-500/10 border border-slate-500/20 text-slate-400 rounded">
+                        Local Import
+                      </span>
+                    )}
+                    {selectedRecord.uploadStatus === 'uploaded' ? (
+                      <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold rounded">
+                        ✓ Server Uploaded
+                      </span>
+                    ) : selectedRecord.uploadStatus === 'pending' ? (
+                      <span className="px-2 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold rounded animate-pulse">
+                        ⟳ Uploading...
+                      </span>
+                    ) : selectedRecord.uploadStatus === 'failed' ? (
+                      <span className="px-2 py-1 bg-red-500/10 border border-red-500/20 text-red-400 font-bold rounded">
+                        ✕ Upload Failed
+                      </span>
+                    ) : selectedRecord.uploadEligibility === 'eligible' ? (
+                      <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold rounded">
+                        Catalog Upload Ready
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 rounded" title={selectedRecord.uploadEligibility === 'ineligible_local_map' ? 'Local imports do not support global catalog leaderboard upload' : 'Not eligible for upload'}>
+                        Local Only
+                      </span>
+                    )}
                   </div>
 
                   {/* Playback timestamp and Grade */}
@@ -417,19 +469,77 @@ export default function PersonalHistoryScreen({
           <div className="lg:col-span-7 flex flex-col gap-3 h-full min-h-0 -mr-4 lg:-mr-10">
             
             {/* SEARCH INTERFACE MATCHING SONG SELECT */}
-            <div className="px-4 lg:px-6 relative flex-shrink-0">
-              <Search className="absolute left-7 top-2.5 h-4 w-4 text-slate-400" />
-              <input 
-                id="replay-search-input"
-                type="text"
-                placeholder="Search replay name, difficulty, grade, or mods..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-6 py-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-skin-accent/50 focus:ring-1 focus:ring-skin-accent/30 transition-all shadow-lg"
-              />
-              <span className="absolute right-7 top-2 px-2 py-0.5 bg-[#1b1c24] border border-white/10 text-[9px] font-mono text-slate-400 font-bold rounded">
-                {filteredHistory.length} attempts
-              </span>
+            <div className="px-4 lg:px-6 relative flex-shrink-0 flex flex-col gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input 
+                  id="replay-search-input"
+                  type="text"
+                  placeholder="Search replay name, difficulty, grade, or mods..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-24 py-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-skin-accent/50 focus:ring-1 focus:ring-skin-accent/30 transition-all shadow-lg"
+                />
+                <span className="absolute right-3 top-2 px-2 py-0.5 bg-[#1b1c24] border border-white/10 text-[9px] font-mono text-slate-400 font-bold rounded">
+                  {filteredHistory.length} attempts
+                </span>
+              </div>
+
+              {/* Status & Origin Filter Buttons */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
+                    statusFilter === 'all'
+                      ? 'bg-skin-accent text-slate-950 font-black shadow-sm'
+                      : 'bg-black/40 text-slate-400 hover:text-white border border-white/5'
+                  }`}
+                >
+                  All ({filterCounts.all})
+                </button>
+                <button
+                  onClick={() => setStatusFilter('uploaded')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
+                    statusFilter === 'uploaded'
+                      ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                      : 'bg-black/40 text-slate-400 hover:text-emerald-400 border border-white/5'
+                  }`}
+                >
+                  Uploaded ({filterCounts.uploaded})
+                </button>
+                <button
+                  onClick={() => setStatusFilter('catalog')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
+                    statusFilter === 'catalog'
+                      ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
+                      : 'bg-black/40 text-slate-400 hover:text-cyan-400 border border-white/5'
+                  }`}
+                >
+                  Catalog ({filterCounts.catalog})
+                </button>
+                <button
+                  onClick={() => setStatusFilter('local_only')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
+                    statusFilter === 'local_only'
+                      ? 'bg-zinc-600 text-white font-black shadow-sm'
+                      : 'bg-black/40 text-slate-400 hover:text-slate-200 border border-white/5'
+                  }`}
+                >
+                  Local Only ({filterCounts.localOnly})
+                </button>
+                {filterCounts.failed > 0 && (
+                  <button
+                    onClick={() => setStatusFilter('failed')}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
+                      statusFilter === 'failed'
+                        ? 'bg-rose-600 text-white font-black shadow-sm'
+                        : 'bg-black/40 text-slate-400 hover:text-rose-400 border border-white/5'
+                    }`}
+                  >
+                    Failed ({filterCounts.failed})
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* SCROLL LIST OF INDIVIDUAL UNCOLLAPSED PLAYED SONGS */}
@@ -465,8 +575,25 @@ export default function PersonalHistoryScreen({
                           <div className="flex flex-col text-left overflow-hidden min-w-0 pr-2 flex-1">
                             
                             {/* COMPOSITE TITLE BOX HEADER MANDATED */}
-                            <div className="text-[10px] uppercase font-mono tracking-wider text-slate-400 group-hover:text-skin-accent transition-colors truncate" title={boxTitle}>
-                              {songName} [{rec.difficultyName}]
+                            <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono tracking-wider text-slate-400 group-hover:text-skin-accent transition-colors truncate" title={boxTitle}>
+                              {rec.uploadStatus === 'uploaded' ? (
+                                <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 font-bold rounded text-[8px] shrink-0 border border-emerald-500/30">
+                                  UPLOADED
+                                </span>
+                              ) : rec.uploadStatus === 'pending' ? (
+                                <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 font-bold rounded text-[8px] shrink-0 border border-amber-500/30 animate-pulse">
+                                  UPLOADING
+                                </span>
+                              ) : rec.uploadStatus === 'failed' ? (
+                                <span className="px-1.5 py-0.2 bg-red-500/20 text-red-300 font-bold rounded text-[8px] shrink-0 border border-red-500/30">
+                                  FAILED
+                                </span>
+                              ) : rec.isServerCatalogMap ? (
+                                <span className="px-1.5 py-0.2 bg-cyan-500/20 text-cyan-300 font-bold rounded text-[8px] shrink-0 border border-cyan-500/30">
+                                  CATALOG
+                                </span>
+                              ) : null}
+                              <span className="truncate">{songName} [{rec.difficultyName}]</span>
                             </div>
 
                             <h4 className="font-extrabold font-sans text-base lg:text-lg text-white tracking-tight truncate leading-tight mt-1">

@@ -6,7 +6,10 @@
     "creator": "Claren",
     "oszUrl": "/beatmaps/ado - usseewa.osz",
     "mode": 3,
-    "difficultiesSummary": ["???"]
+    "difficultiesSummary": ["???"],
+    "difficulties": [
+      { "id": "server_usseewa_unknown", "name": "???", "osuFilename": "ado - usseewa (raghel) [].osu" }
+    ]
   },
   {
     "id": "server_mach_roger",
@@ -15,7 +18,14 @@
     "creator": "Pho",
     "oszUrl": "/beatmaps/MYUKKE. - Mach Roger.osz",
     "mode": 3,
-    "difficultiesSummary": ["Easy", "Normal", "Py's Hard", "Insane", "Maharaja"]
+    "difficultiesSummary": ["Easy", "Normal", "Py's Hard", "Insane", "Maharaja"],
+    "difficulties": [
+      { "id": "server_mach_roger_easy", "name": "Easy", "osuFilename": "MYUKKE. - Mach Roger (Syadow-) [Easy].osu" },
+      { "id": "server_mach_roger_normal", "name": "Normal", "osuFilename": "MYUKKE. - Mach Roger (Syadow-) [Normal].osu" },
+      { "id": "server_mach_roger_pys_hard", "name": "Py's Hard", "osuFilename": "MYUKKE. - Mach Roger (Syadow-) [Py's Hard].osu" },
+      { "id": "server_mach_roger_insane", "name": "Insane", "osuFilename": "MYUKKE. - Mach Roger (Syadow-) [Insane].osu" },
+      { "id": "server_mach_roger_maharaja", "name": "Maharaja", "osuFilename": "MYUKKE. - Mach Roger (Syadow-) [Maharaja].osu" }
+    ]
   },
   {
     "id": "server_brain_power",
@@ -24,7 +34,21 @@
     "creator": "Akasha-",
     "oszUrl": "/beatmaps/NOMA - Brain Power.osz",
     "mode": 3,
-    "difficultiesSummary": ["Chicken's 4K BASIC", "Starry's 4K NOVICE", "Avalon's 4K ADVANCED", "Lirai's 4K EXHAUST", "Spy's 4K INFINITE", "SY's 4K OVERDRIVE", "Arzen's 7K BASIC", "ZZH's 7K NOVICE", "R1's 7K ADVANCED", "7K EXHAUST", "Pew's 7K INFINITE", "CS x _KB's 7K OVERDRIVE"]
+    "difficultiesSummary": ["Chicken's 4K BASIC", "Starry's 4K NOVICE", "Avalon's 4K ADVANCED", "Lirai's 4K EXHAUST", "Spy's 4K INFINITE", "SY's 4K OVERDRIVE", "Arzen's 7K BASIC", "ZZH's 7K NOVICE", "R1's 7K ADVANCED", "7K EXHAUST", "Pew's 7K INFINITE", "CS x _KB's 7K OVERDRIVE"],
+    "difficulties": [
+      { "id": "server_brain_power_chickens_4k_basic", "name": "Chicken's 4K BASIC", "osuFilename": "NOMA - Brain Power (Akasha-) [Chicken's 4K BASIC].osu" },
+      { "id": "server_brain_power_starrys_4k_novice", "name": "Starry's 4K NOVICE", "osuFilename": "NOMA - Brain Power (Akasha-) [Starry's 4K NOVICE].osu" },
+      { "id": "server_brain_power_avalons_4k_advanced", "name": "Avalon's 4K ADVANCED", "osuFilename": "NOMA - Brain Power (Akasha-) [Avalon's 4K ADVANCED].osu" },
+      { "id": "server_brain_power_lirais_4k_exhaust", "name": "Lirai's 4K EXHAUST", "osuFilename": "NOMA - Brain Power (Akasha-) [Lirai's 4K EXHAUST].osu" },
+      { "id": "server_brain_power_spys_4k_infinite", "name": "Spy's 4K INFINITE", "osuFilename": "NOMA - Brain Power (Akasha-) [Spy's 4K INFINITE].osu" },
+      { "id": "server_brain_power_sy_4k_overdrive", "name": "SY's 4K OVERDRIVE", "osuFilename": "NOMA - Brain Power (Akasha-) [SY's 4K OVERDRIVE].osu" },
+      { "id": "server_brain_power_arzens_7k_basic", "name": "Arzen's 7K BASIC", "osuFilename": "NOMA - Brain Power (Akasha-) [Arzen's 7K BASIC].osu" },
+      { "id": "server_brain_power_zzh_7k_novice", "name": "ZZH's 7K NOVICE", "osuFilename": "NOMA - Brain Power (Akasha-) [ZZH's 7K NOVICE].osu" },
+      { "id": "server_brain_power_r1s_7k_advanced", "name": "R1's 7K ADVANCED", "osuFilename": "NOMA - Brain Power (Akasha-) [R1's 7K ADVANCED].osu" },
+      { "id": "server_brain_power_7k_exhaust", "name": "7K EXHAUST", "osuFilename": "NOMA - Brain Power (Akasha-) [7K EXHAUST].osu" },
+      { "id": "server_brain_power_pews_7k_infinite", "name": "Pew's 7K INFINITE", "osuFilename": "NOMA - Brain Power (Akasha-) [Pew's 7K INFINITE].osu" },
+      { "id": "server_brain_power_cs_x_kb_7k_overdrive", "name": "CS x _KB's 7K OVERDRIVE", "osuFilename": "NOMA - Brain Power (Akasha-) [CS x _KB's 7K OVERDRIVE].osu" }
+    ]
   },
   {
     "id": "server_freedom_dive",
@@ -33,7 +57,18 @@
     "creator": "razlteh",
     "oszUrl": "/beatmaps/xi - FREEDOM DiVE.osz",
     "mode": 3,
-    "difficultiesSummary": ["4K Normal", "4K Hyper", "4K Another", "Fullerene's 4K DIMENSIONS", "Dain's 7K Light", "Blocko's 7K Normal", "Tear's 7K Hyper", "Blocko's 7K Another", "Blocko's 7K Black Another"]
+    "difficultiesSummary": ["4K Normal", "4K Hyper", "4K Another", "Fullerene's 4K DIMENSIONS", "Dain's 7K Light", "Blocko's 7K Normal", "Tear's 7K Hyper", "Blocko's 7K Another", "Blocko's 7K Black Another"],
+    "difficulties": [
+      { "id": "server_freedom_dive_4k_normal", "name": "4K Normal", "osuFilename": "xi - FREEDOM DiVE (razlteh) [4K Normal].osu" },
+      { "id": "server_freedom_dive_4k_hyper", "name": "4K Hyper", "osuFilename": "xi - FREEDOM DiVE (razlteh) [4K Hyper].osu" },
+      { "id": "server_freedom_dive_4k_another", "name": "4K Another", "osuFilename": "xi - FREEDOM DiVE (razlteh) [4K Another].osu" },
+      { "id": "server_freedom_dive_fullerenes_4k_dimensions", "name": "Fullerene's 4K DIMENSIONS", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Fullerene's 4K DIMENSIONS].osu" },
+      { "id": "server_freedom_dive_dains_7k_light", "name": "Dain's 7K Light", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Dain's 7K Light].osu" },
+      { "id": "server_freedom_dive_blockos_7k_normal", "name": "Blocko's 7K Normal", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Blocko's 7K Normal].osu" },
+      { "id": "server_freedom_dive_tears_7k_hyper", "name": "Tear's 7K Hyper", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Tear's 7K Hyper].osu" },
+      { "id": "server_freedom_dive_blockos_7k_another", "name": "Blocko's 7K Another", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Blocko's 7K Another].osu" },
+      { "id": "server_freedom_dive_blockos_7k_black_another", "name": "Blocko's 7K Black Another", "osuFilename": "xi - FREEDOM DiVE (razlteh) [Blocko's 7K Black Another].osu" }
+    ]
   },
   {
     "id": "server_unravel",
@@ -42,6 +77,16 @@
     "creator": "arcwinolivirus",
     "oszUrl": "/beatmaps/Ado - unravel.osz",
     "mode": 3,
-    "difficultiesSummary": ["4K Easy 'Vocal'", "4K Normal 'Melody'", "4K Advanced 'Instrumental'", "4K Hard 'Light Jumpstream'", "4K Insane 'Full Jumpstream'", "4K 'Complicated Existence' Half Dump Arc", "4K 'Twisted Fate' Full Dump Arc", "7K 'Distorted Presence' Delay Arc"]
+    "difficultiesSummary": ["4K Easy 'Vocal'", "4K Normal 'Melody'", "4K Advanced 'Instrumental'", "4K Hard 'Light Jumpstream'", "4K Insane 'Full Jumpstream'", "4K 'Complicated Existence' Half Dump Arc", "4K 'Twisted Fate' Full Dump Arc", "7K 'Distorted Presence' Delay Arc"],
+    "difficulties": [
+      { "id": "server_unravel_4k_easy_vocal", "name": "4K Easy 'Vocal'", "osuFilename": "Ado - unravel (arcwinolivirus) [4K Easy 'Vocal'].osu" },
+      { "id": "server_unravel_4k_normal_melody", "name": "4K Normal 'Melody'", "osuFilename": "Ado - unravel (arcwinolivirus) [4K Normal 'Melody'].osu" },
+      { "id": "server_unravel_4k_advanced_instrumental", "name": "4K Advanced 'Instrumental'", "osuFilename": "Ado - unravel (arcwinolivirus) [4K Advanced 'Instrumental'].osu" },
+      { "id": "server_unravel_4k_hard_light_jumpstream", "name": "4K Hard 'Light Jumpstream'", "osuFilename": "Ado - unravel (arcwinolivirus) [4K Hard 'Light Jumpstream'].osu" },
+      { "id": "server_unravel_4k_insane_full_jumpstream", "name": "4K Insane 'Full Jumpstream'", "osuFilename": "Ado - unravel (arcwinolivirus) [4K Insane 'Full Jumpstream'].osu" },
+      { "id": "server_unravel_4k_complicated_existence", "name": "4K 'Complicated Existence' Half Dump Arc", "osuFilename": "Ado - unravel (arcwinolivirus) [4K 'Complicated Existence' Half Dump Arc].osu" },
+      { "id": "server_unravel_4k_twisted_fate", "name": "4K 'Twisted Fate' Full Dump Arc", "osuFilename": "Ado - unravel (arcwinolivirus) [4K 'Twisted Fate' Full Dump Arc].osu" },
+      { "id": "server_unravel_7k_distorted_presence", "name": "7K 'Distorted Presence' Delay Arc", "osuFilename": "Ado - unravel (arcwinolivirus) [7K 'Distorted Presence' Delay Arc].osu" }
+    ]
   }
 ]

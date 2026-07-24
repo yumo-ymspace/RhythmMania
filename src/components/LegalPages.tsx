@@ -149,10 +149,13 @@ export const TermsOfServicePage: React.FC<LegalPageProps> = ({ onBack }) => {
 
             <section className="space-y-3">
               <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">04.</span> USER REGISTRATION
+                <span className="text-pink-500 font-mono text-sm font-black">04.</span> USER ACCOUNTS, AUTHENTICATION & REPLAYS
               </h2>
               <p>
-                You may be required to register with the Site. You agree to keep your password confidential and will be responsible for all use of your account and password. We reserve the right to remove, reclaim, or change a username you select if we determine, in our sole discretion, that such username is inappropriate, obscene, or otherwise objectionable.
+                You may register an account or sign in using supported authentication providers, including Google Sign-In. You are responsible for maintaining the security of your account credentials and all activities occurring under your account.
+              </p>
+              <p>
+                When participating in ranked gameplay on verified server catalog beatmaps, your gameplay statistics, score records, and frame-by-frame replay inputs are automatically submitted to our backend database to construct public leaderboards and enable online replay viewing. Automated scripts, modified clients, or unauthorized assist tools designed to artificially forge replay data or manipulate global rankings are strictly prohibited and will result in account suspension and score removal.
               </p>
             </section>
 
@@ -348,14 +351,24 @@ export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({ onBack }) => {
 
             <section className="space-y-3">
               <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-cyan-500 font-mono text-sm font-black">02.</span> HOW WE STORE YOUR DATA
+                <span className="text-cyan-500 font-mono text-sm font-black">02.</span> DATA STORAGE, ACCOUNTS & REPLAY UPLOADS
               </h2>
               <p>
-                Because RhythmMania stores game progress, configurations, personal performance limits, customized hotkeys, and custom beatmap databases locally:
+                RhythmMania offers both local offline gameplay and optional connected cloud features:
               </p>
-              <ul className="list-disc list-inside pl-4 space-y-1 text-slate-300">
-                <li><strong>Local Storage:</strong> Your custom key bindings, calibration values, game volumes, and user configuration settings are saved directly in your browser's local cache.</li>
-                <li><strong>Local Score DB:</strong> Your personal play history, combos, and grades are logged entirely on your local machine. Clearing your browser cache or site data will erase these local metrics permanently.</li>
+              <ul className="list-disc list-inside pl-4 space-y-2 text-slate-300">
+                <li>
+                  <strong>Local Storage & IndexedDB:</strong> Your custom key bindings, audio/visual offsets, game volumes, local custom maps, and offline play history are saved directly in your browser's local sandbox and IndexedDB.
+                </li>
+                <li>
+                  <strong>Google Sign-In & User Accounts:</strong> You may optionally authenticate using Google Sign-In (OAuth 2.0). When you log in, we store basic profile information (Google User ID, email, display name, avatar URL) to manage your verified player account and associate your server activity.
+                </li>
+                <li>
+                  <strong>Replay Uploads & Leaderboards:</strong> When playing verified server catalog beatmaps without gameplay automation cheats (Autoplay), your performance score and keypress replay telemetry frames are uploaded to our secure backend database. These replays and scores are stored on server infrastructure to render global leaderboards and allow public replay spectating.
+                </li>
+                <li>
+                  <strong>Server-Hosted User Data:</strong> Server-hosted account records and uploaded replays are retained to maintain global ranks and leaderboard integrity. You may request account deletion or data purge by contacting our support team.
+                </li>
               </ul>
             </section>
 

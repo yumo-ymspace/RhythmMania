@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.7.6
+**HIGH DENSITY MATRIX** · v0.8.0
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a dual rendering engine (**HTML5 Canvas 2D** default and **PixiJS v8** WebGL option), it delivers a professional-grade experience right in your browser.
 
@@ -50,6 +50,20 @@ RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre 
 - **Internal procedural beatmap generator**: Developer helper module (`src/data/songs.ts`) for seed-locked, deterministic map generation (note: internal helper with no active player UI path)
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 
+The parser supports mania maps and can convert standard-mode objects where
+the format provides enough slider information. Imports are bounded to protect
+the browser:
+
+| Limit | Value |
+| --- | ---: |
+| Compressed beatmap package | 100 MB |
+| Total uncompressed package | 250 MB |
+| Package entries | 500 |
+| Single uncompressed entry | 80 MB |
+| `.osu` text | 2 MB |
+| Hit objects | 20,000 |
+| Timing points | 5,000 |
+
 ### Audio
 - **Web Audio API engine** with interpolated, sub-millisecond `getCurrentTimeMs()` — smooths over the coarse 128-sample block increments of `AudioContext.currentTime` using `performance.now()` interpolation
 - **Synthesised hitsound** (frequency-swept decay pulse) generated once at init, no asset downloads required
@@ -87,6 +101,51 @@ A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with propo
 
 ---
 
+## Accounts and online replays
+
+Google sign-in uses an HTTP-only PostgreSQL-backed session cookie. Signed-in
+players can upload completed, non-failed, non-autoplay replays from supported
+catalog difficulties. Local maps, autoplay runs, failed runs, unsupported
+modes, and records without replay frames are not eligible.
+
+The API surface is:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | Report application and database health |
+| `GET /api/config` | Return public application capabilities |
+| `GET /api/auth/me` | Read the current session |
+| `GET /api/auth/google/url` | Start Google OAuth |
+| `GET /api/auth/google/callback` | Complete Google OAuth |
+| `POST /api/auth/logout` | End the current session |
+| `POST /api/replays/upload` | Upload an eligible replay |
+| `GET /api/replays/list` | List the top replays for a catalog difficulty or hash |
+| `GET /api/replays/get` | Retrieve a replay by ID |
+
+Create the PostgreSQL schema with `database/schema.sql`. The backend accepts
+either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/`POSTGRES_*` connection
+variables. Google OAuth additionally uses `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`. Set `SESSION_SECRET` in deployed environments.
+
+---
+
+## Local persistence
+
+| Store | Data |
+| --- | --- |
+| IndexedDB `RhythmManiaDB` v3 | Beatmaps and raw package buffers |
+| `rhythm_mania_v1_settings` | Sanitized game settings |
+| `rhythm_mania_v1_play_history` | Schema-v2 local play history and replay frames |
+| `rhythm_mania_v1_history_limit` | Local history retention limit |
+| `rhythm_mania_v1_custom_maps` | Legacy map storage migrated into IndexedDB |
+| `rhythm_mania_v1_last_selected_map_id` | Last selected map |
+| `rhythm_mania_v1_last_diff_by_song` | Last selected difficulty per song |
+
+Media blob URLs are tracked and revoked through `AssetLifecycleManager`.
+`storageManager` keeps a three-map least-recently-used media cache.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -104,107 +163,28 @@ A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with propo
 
 ---
 
-## Project Structure
+## Settings and controls
 
-```
-RhythmMania/
-├── index.html                          # App entry point HTML shell
-├── package.json                        # Dependencies & scripts (React, Vite, Tailwind)
-├── vite.config.ts                      # Vite build configuration
-├── tsconfig.json                       # TypeScript configuration
-├── metadata.json                       # App version/metadata manifest
-├── LICENSE.md                          # License file
-├── README.md                           # Project overview
-│
-├── public/
-│   ├── sw.js                           # Service Worker for offline caching & PWA
-│   ├── backgrounds/                    # Static background images for menus
-│   └── beatmaps/                       # Static bundled beatmap packages (.osz) + manifest catalog
-│       ├── manifest.json               # Catalog index of bundled downloadable beatmaps
-│       └── *.osz                       # Bundled map packages
-│
-└── src/
-    ├── main.tsx                        # React entry point, mounts <App/>, registers service worker
-    ├── App.tsx                         # Root component: screen router, global state, history/settings management
-    ├── types.ts                        # All shared TypeScript interfaces (HitObject, Beatmap, ScoreState, GameSettings, etc.)
-    ├── index.css                       # Global styles, Tailwind imports, CSS variables, custom animations, scrollbar
-    │
-    ├── audio/
-    │   └── AudioEngine.ts              # Web Audio API engine: music/hitsound playback, volume, offset, decoder
-    │
-    ├── data/
-    │   └── songs.ts                    # Internal procedural beatmap generator helper (no active UI path)
-    │
-    ├── render/                         # Playfield rendering subsystem
-    │   ├── Canvas2DRenderer.ts         # Immediate-mode Canvas2D playfield renderer
-    │   ├── playfieldLayout.ts          # Column width, layout weights, and note position math
-    │   ├── noteVisibility.ts           # Note culling and opacity calculation (including Hidden mod)
-    │   ├── scrollVelocity.ts           # Scroll Velocity (SV) integral modeling & scroll position engine
-    │   ├── skinTheme.ts                # Skin color resolution helpers
-    │   ├── types.ts                    # PlayfieldFrame and IPlayfieldRenderer interfaces
-    │   └── pixi/                       # PixiJS v8 WebGL renderer subsystem
-    │       ├── PixiPlayfieldRenderer.ts # Root PixiJS container & layer manager
-    │       ├── PixiAppFactory.ts        # Manual-tick PixiJS Application factory
-    │       ├── layers/                 # Scene-graph layers (Background, Lane, Hold, Note, Receptor, Particle, MobileZone, HitError)
-    │       ├── pool/                   # ObjectPool and SpritePool for sprite reuse
-    │       └── skin/                   # TextureAtlasBuilder & SkinTextureCache
-    │
-    ├── components/
-    │   ├── MainMenu.tsx                # Main menu screen with animated bg, play/settings/history nav
-    │   ├── SongSelect.tsx              # Beatmap browser: search, filter, drag-drop import, download, mods (including AT), play
-    │   ├── GameplayCanvas.tsx          # Core gameplay: dual Canvas2D/Pixi loop, input, timing, scoring, replay
-    │   ├── ResultsScreen.tsx           # Post-play results: grade, max combo, hit error meter, history/replay
-    │   ├── PlayZoneOverlay.tsx         # HUD overlay during gameplay (score, accuracy, focus toggle)
-    │   ├── PersonalHistoryScreen.tsx   # Play history archive: song grouping, difficulty selector, replay/view
-    │   ├── SettingsScreen.tsx          # Re-exports SettingsDrawer for the settings panel
-    │   │
-    │   └── settings/
-    │       ├── SettingsDrawer.tsx       # Settings drawer container with sidebar + content pane
-    │       ├── SettingsSidebar.tsx      # Left sidebar: category navigation in settings
-    │       ├── SettingsPane.tsx         # Right pane: renders grouped setting rows per category
-    │       ├── SettingsRow.tsx          # Single settings row: rail, label, control
-    │       ├── SettingsSearchBar.tsx    # Search bar for filtering settings
-    │       ├── settingsRegistry.tsx     # Central registry of all settings (categories, keys, controls)
-    │       ├── defaultSettings.ts       # Default GameSettings values (frozen object)
-    │       ├── SectionSkinPreview.tsx   # Skin preview component in settings
-    │       ├── BindingMatrix.tsx        # Key binding matrix editor for lane columns
-    │       ├── OffsetWizardModal.tsx    # Offset calibration wizard modal
-    │       ├── skinParser.ts           # Parses .ini skin files to extract custom colors
-    │       │
-    │       └── controls/                # Reusable setting control components
-    │           ├── SettingsSlider.tsx   # Range slider control
-    │           ├── SettingsToggle.tsx   # Toggle/switch control
-    │           ├── SettingsSelect.tsx   # Dropdown select control
-    │           ├── SettingsButton.tsx   # Action button control
-    │           ├── ColorSwatchRow.tsx   # Color picker row control
-    │           └── ConfirmModal.tsx     # Confirmation dialog modal
-    │
-    └── utils/
-        ├── beatmapParser.ts            # Parses .osu beatmap files into Beatmap objects & extracts media paths
-        ├── performanceMetrics.ts       # Unstable Rate (UR) stddev calculation and per-column judgement metrics
-        ├── storageManager.ts           # IndexedDB storage for beatmaps, packages, and LRU media cache
-        ├── assetLifecycle.ts           # Manages lifecycle of blob URLs to prevent memory leaks
-        ├── mediaRegistry.ts            # Global singleton registry for active HTMLVideoElement reference
-        ├── zipResolver.ts              # Robust JSZip file finder/resolver for beatmap archives
-        ├── unpackHelper.ts             # Unpacks beatmap media (audio, video, bg) from zip archives
-        ├── tempMemoryCache.ts          # In-memory cache for zip buffers
-        ├── videoSyncController.ts      # PLL-based video-audio sync controller during gameplay
-        ├── gameplayTeardown.ts         # Cleanup: stops audio, cancels animation frame, revokes blobs
-        ├── fullscreenManager.ts        # Fullscreen API wrapper for focus mode
-        └── touchInputAdapter.ts        # Multi-touch input adapter for mobile gameplay on canvas
-```
+The settings drawer covers general, graphics, gameplay, audio, skin, input,
+and maintenance sections. Important defaults include:
 
----
+- 4K mode with `D F J K` bindings.
+- Scroll speed `21`, audio and visual offsets `0 ms`.
+- Canvas2D renderer, square playfield, RhythmMania note style.
+- Map scroll velocity enabled.
+- Empty modifier selection.
 
-## Importing Beatmaps
+All 2K-8K bindings can be changed. The default bindings are:
 
-RhythmMania reads standard osu! mania beatmaps:
-
-1. **Drag and drop** a `.osz` file (or plain `.osu` file) anywhere on the Song Select screen.
-2. The parser extracts all mania difficulties, resolves audio/video/background assets from the ZIP, and stores everything in IndexedDB.
-3. Maps persist across page reloads. Delete them individually from the Song Select screen.
-
-**Supported fields from `.osu` files:** `Title`, `Artist`, `Creator`, `Version`, `CircleSize` (key count), `OverallDifficulty`, `HPDrainRate`, `AudioFilename`, `[TimingPoints]`, `[HitObjects]`, storyboard video/background via `[Events]`.
+| Mode | Keys |
+| --- | --- |
+| 2K | `F J` |
+| 3K | `F Space J` |
+| 4K | `D F J K` |
+| 5K | `D F Space J K` |
+| 6K | `S D F J K L` |
+| 7K | `S D F Space J K L` |
+| 8K | `A S D F J K L ;` |
 
 ---
 
@@ -223,22 +203,6 @@ RhythmMania reads standard osu! mania beatmaps:
 
 ---
 
-## Default Key Bindings
-
-| Mode | Keys |
-|------|------|
-| 2K | `F` `J` |
-| 3K | `F` `Space` `J` |
-| 4K | `D` `F` `J` `K` |
-| 5K | `D` `F` `Space` `J` `K` |
-| 6K | `S` `D` `F` `J` `K` `L` |
-| 7K | `S` `D` `F` `Space` `J` `K` `L` |
-| 8K | `A` `S` `D` `F` `J` `K` `L` `;` |
-
-All bindings are fully rebindable per lane count in the Settings screen.
-
----
-
 ## Grading
 
 | Grade | Accuracy |
@@ -252,12 +216,45 @@ All bindings are fully rebindable per lane count in the Settings screen.
 
 ---
 
-## License
+## Project structure
 
-Licensed under the [PolyForm Perimeter 1.0.1](LICENSE).
+```text
+RhythmMania-Beta/
+├── api/                         Vercel Functions and shared backend helpers
+├── database/schema.sql          PostgreSQL schema
+├── public/
+│   ├── backgrounds/             Menu and history artwork
+│   ├── beatmaps/                Catalog manifest and bundled .osz packages
+│   └── sw.js                    Optional service worker
+├── src/
+│   ├── App.tsx                  Screen router and application state
+│   ├── audio/AudioEngine.ts     Web Audio transport and fallback synth
+│   ├── components/              Screens, gameplay host, and settings UI
+│   ├── render/                  Shared math and Canvas2D/Pixi renderers
+│   ├── utils/                   Parsing, storage, replay, input, and media
+│   └── types.ts                 Domain types
+├── metadata.json                Build-time application metadata
+├── package.json                 Scripts and dependencies
+├── vite.config.ts               Vite and path alias configuration
+└── AGENTS.md                    Source-derived engineering guide
+```
+
+`GameplayCanvas.tsx` owns live timing, input, scoring, replay recording,
+media synchronization, and renderer hosting. Shared visual math belongs in
+`src/render/`; update both renderers when changing playfield visuals.
 
 ---
 
-<div align="center">
-Crafted by Yumo(yumo-ymspace) · Respecting competitive integrity & game feel
-</div>
+## Development notes
+
+There is no automated unit or end-to-end test suite wired into `package.json`.
+The normal validation commands are `npm run lint` and `npm run build`, followed
+by manual play checks for importing, 4K play, hold notes, modifiers, replay
+history, video, touch input, and both render engines.
+
+---
+
+## License
+
+Licensed under the [PolyForm Perimeter License 1.0.1](LICENSE.md).
+Community beatmaps, audio, and video may be third-party content.
