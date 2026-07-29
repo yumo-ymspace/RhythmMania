@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
- * Google OAuth Callback Handler
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -9,6 +16,7 @@ import { query } from '../../_lib/db.js';
 import {
   clearOAuthStateCookie,
   generateSessionId,
+  generateUserId,
   isSecureRequest,
   isValidOAuthState,
   setSessionCookie,
@@ -81,8 +89,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const avatarUrl = (profile.picture as string) || null;
 
     // 3. Find or create user in Postgres
-    let userId: number;
-    const existingUserRes = await query<{ id: number }>(
+    let userId: string;
+    const existingUserRes = await query<{ id: string }>(
       'SELECT id FROM users WHERE google_id = $1',
       [googleId]
     );
@@ -96,12 +104,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else {
       // Clean username (max 32 chars)
       const sanitizedUsername = name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().substring(0, 32) || 'RhythmPlayer';
-      const newUserRes = await query<{ id: number }>(
-        `INSERT INTO users (google_id, username, email, avatar_url) 
-         VALUES ($1, $2, $3, $4) 
-         RETURNING id`,
-        [googleId, sanitizedUsername, email, avatarUrl]
-      );
+      let newUserRes: { rows: Array<{ id: string }> } | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidateId = generateUserId(16);
+        try {
+          newUserRes = await query<{ id: string }>(
+            `INSERT INTO users (id, google_id, username, email, avatar_url) 
+             VALUES ($1, $2, $3, $4, $5) 
+             RETURNING id`,
+            [candidateId, googleId, sanitizedUsername, email, avatarUrl]
+          );
+          break;
+        } catch (insertErr: any) {
+          // Retry only on primary-key collision; other errors bubble up.
+          if (insertErr?.code !== '23505' || !String(insertErr?.constraint || '').includes('users_pkey')) {
+            throw insertErr;
+          }
+        }
+      }
+      if (!newUserRes?.rows[0]?.id) {
+        throw new Error('Failed to allocate a unique public user id');
+      }
       userId = newUserRes.rows[0].id;
     }
 

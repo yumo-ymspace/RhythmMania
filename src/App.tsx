@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass } from 'lucide-react';
+import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass, UserRound } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
 import { AnimatePresence, motion } from 'motion/react';
@@ -20,6 +20,7 @@ import GameplayCanvas from './components/GameplayCanvas';
 import ResultsScreen from './components/ResultsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PersonalHistoryScreen from './components/PersonalHistoryScreen';
+import ProfileScreen from './components/ProfileScreen';
 import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import JSZip from 'jszip';
 import { mainAudio } from './audio/AudioEngine';
@@ -46,9 +47,41 @@ const LOCAL_STORAGE_CUSTOM_MAPS_KEY = 'rhythm_mania_v1_custom_maps';
 import { DEFAULT_SETTINGS } from './components/settings/defaultSettings';
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<GameScreen>('menu');
-  const [selectedBeatmap, setSelectedBeatmap] = useState<Beatmap | null>(null);
   const [path, setPath] = useState<string>(() => typeof window !== 'undefined' ? window.location.pathname : '/');
+  const [profileUserId, setProfileUserId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const match = window.location.pathname.match(/^\/profile\/([A-Za-z0-9]{16})$/);
+    return match ? match[1] : null;
+  });
+  const [currentScreen, setCurrentScreen] = useState<GameScreen>(() => {
+    if (typeof window !== 'undefined' && /^\/profile\/[A-Za-z0-9]{16}$/.test(window.location.pathname)) {
+      return 'profile';
+    }
+    return 'menu';
+  });
+  const [selectedBeatmap, setSelectedBeatmap] = useState<Beatmap | null>(null);
+
+  const navigateToPath = useCallback((href: string) => {
+    if (typeof window !== 'undefined' && window.location.pathname !== href) {
+      window.history.pushState({}, '', href);
+    }
+    setPath(href);
+  }, []);
+
+  const openProfile = useCallback((userId: string) => {
+    navigateToPath(`/profile/${userId}`);
+    setProfileUserId(userId);
+    setCurrentScreen('profile');
+  }, [navigateToPath]);
+
+  const leaveProfilePath = useCallback((screen: GameScreen = 'menu') => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/profile/')) {
+      window.history.pushState({}, '', '/');
+    }
+    setPath('/');
+    setProfileUserId(null);
+    setCurrentScreen(screen);
+  }, []);
 
   // Listen to popstate for browser back/forward buttons
   useEffect(() => {
@@ -58,6 +91,31 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Sync profile route from URL path
+  useEffect(() => {
+    const match = path.match(/^\/profile\/([A-Za-z0-9]{16})$/);
+    if (match) {
+      setProfileUserId(match[1]);
+      setCurrentScreen('profile');
+      return;
+    }
+    if (path.startsWith('/profile')) {
+      setProfileUserId(null);
+      setCurrentScreen('profile');
+      return;
+    }
+    // The URL dropped out of the profile route (e.g. the browser
+    // back/forward button landed on "/" while the in-app screen state
+    // was still showing the profile). Reset to the menu so the visible
+    // UI matches the URL. Other non-profile screens (play/select/
+    // results/history) deliberately share the "/" URL, so we only
+    // intervene when the screen state is actually stale on 'profile'.
+    if (currentScreen === 'profile') {
+      setProfileUserId(null);
+      setCurrentScreen('menu');
+    }
+  }, [path, currentScreen]);
 
   // Globally intercept local link clicks to enable single-page transitions
   useEffect(() => {
@@ -77,6 +135,7 @@ export default function App() {
     return () => document.removeEventListener('click', handleAnchorClick);
   }, []);
   const [scoreState, setScoreState] = useState<ScoreState | null>(null);
+  const [lastHitErrors, setLastHitErrors] = useState<number[] | null>(null);
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(() => {
     if (typeof window !== 'undefined') {
@@ -140,6 +199,10 @@ export default function App() {
   };
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
   const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
+  // Tracks whether the user has played a map this browser session. Used to
+  // decide whether Song Select should auto-resume the last selected map: only
+  // post-gameplay returns auto-select; fresh app loads do not.
+  const [hasPlayedThisSession, setHasPlayedThisSession] = useState(false);
 
   const activePlayBeatmap = React.useMemo(() => {
     if (!selectedBeatmap) return null;
@@ -222,6 +285,9 @@ export default function App() {
               .map(item => sanitizeHistoryRecord(item, DEFAULT_SETTINGS, customMaps))
               .filter((item): item is PlayHistoryRecord => item !== null);
             setPlayHistory(sanitized);
+            if (sanitized.length !== parsed.length) {
+              localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(sanitized));
+            }
           }
         }
         
@@ -247,14 +313,18 @@ export default function App() {
       let changed = false;
       const reSanitized = prev.map(record => {
         const migrated = sanitizeHistoryRecord(record, DEFAULT_SETTINGS, customMaps);
-        if (migrated && (
+        if (!migrated) {
+          changed = true;
+          return null;
+        }
+        if (
           migrated.catalogSetId !== record.catalogSetId ||
           migrated.catalogMapId !== record.catalogMapId ||
           migrated.beatmapHash !== record.beatmapHash ||
           migrated.schemaVersion !== record.schemaVersion ||
           migrated.isServerCatalogMap !== record.isServerCatalogMap ||
           migrated.uploadEligibility !== record.uploadEligibility
-        )) {
+        ) {
           changed = true;
           return migrated;
         }
@@ -295,6 +365,25 @@ export default function App() {
       }
       return updated;
     });
+  };
+
+  // Merges sanitized imported replay records into history; returns how many were new.
+  const handleImportRecords = (records: PlayHistoryRecord[]): number => {
+    const existingIds = new Set(playHistory.map(r => r.id));
+    const fresh = records.filter(r => !existingIds.has(r.id));
+    if (fresh.length === 0) return 0;
+    setPlayHistory(prev => {
+      const merged = [...fresh, ...prev].slice(0, historyLimit);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(merged));
+        } catch (e) {
+          console.error('Failed to persist imported replays:', e);
+        }
+      }
+      return merged;
+    });
+    return fresh.length;
   };
 
   const handleSetHistoryLimit = (limit: number) => {
@@ -572,6 +661,7 @@ export default function App() {
         upsurfaceNoteMode: updated.upsurfaceNoteMode === true || String(updated.upsurfaceNoteMode) === 'true',
         videoOpacity: 1.0,
         backgroundDim: Number(updated.backgroundDim !== undefined ? updated.backgroundDim : 0.60),
+        menuBackgroundDim: Number(updated.menuBackgroundDim !== undefined ? updated.menuBackgroundDim : 0.30),
         disableVideo: Boolean(updated.disableVideo),
         videoOffset: Number(updated.videoOffset !== undefined ? updated.videoOffset : 0),
         disableParticles: Boolean(updated.disableParticles),
@@ -601,6 +691,8 @@ export default function App() {
         renderEngine: updated.renderEngine === 'pixi' ? 'pixi' : 'canvas',
         enableMapSV: updated.enableMapSV !== false,
         disableLaneShake: Boolean(updated.disableLaneShake),
+        enableSongPreview: updated.enableSongPreview !== false,
+        showFpsCounter: Boolean(updated.showFpsCounter),
       };
 
       if (updated.bindings) {
@@ -657,10 +749,13 @@ export default function App() {
       notes: map.notes ? map.notes.map(n => ({ ...n })) : []
     };
     setSelectedBeatmap(cloned);
+    setHasPlayedThisSession(true);
     setCurrentScreen('play');
   };
 
-  const handleGameplayFinish = (finalScore: ScoreState, replayFrames: ReplayFrame[] = []) => {
+  const handleGameplayFinish = (finalScore: ScoreState, replayFrames: ReplayFrame[] = [], hitErrors?: number[]) => {
+    // Session-only precision samples; never persisted (AGENTS.md storage contract).
+    setLastHitErrors(hitErrors && hitErrors.length > 0 ? [...hitErrors] : null);
     try {
       if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
         if (document.exitFullscreen) {
@@ -683,7 +778,10 @@ export default function App() {
 
     const newRecordId = `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-    if (selectedBeatmap && !activeReplayRecord && isMania && finalScore.completed && !finalScore.failed && !finalScore.isAutoplay) {
+    const hasNoFailMod = (settings.selectedMods || []).some(mod => mod.toUpperCase() === 'NF');
+    const shouldKeepRun = !finalScore.failed || hasNoFailMod;
+
+    if (selectedBeatmap && !activeReplayRecord && isMania && (finalScore.completed || finalScore.failed) && !finalScore.isAutoplay && shouldKeepRun) {
       const targetBm = activePlayBeatmap || selectedBeatmap;
       const isUserLoggedIn = Boolean(currentUser);
       const replaySource = isUserLoggedIn ? 'account-local' : 'guest-local';
@@ -693,7 +791,7 @@ export default function App() {
         timestamp: Date.now(),
         beatmap: targetBm,
         scoreState: finalScore,
-        replayFrames: replayFrames,
+        replayFrames,
         recordedSettings: settings,
         mods: settings.selectedMods,
         replaySource: replaySource,
@@ -747,13 +845,18 @@ export default function App() {
       return;
     }
 
-    // Do NOT clear spectator frames here so that the results selection knows we are in replay mode
-    setScoreState({ ...finalScore, recordId: newRecordId });
+    // Do NOT clear spectator frames here so that the results selection knows we are in replay mode.
+    // When finishing a spectator replay, anchor the results screen to that exact record so the
+    // detailed options (watch/export/delete) resolve for own-history replays; for autoplay and
+    // others' replays (not in playHistory) the lookup naturally yields no activeRecord, which
+    // keeps the limited results view as intended.
+    setScoreState({ ...finalScore, recordId: activeReplayRecord?.id || newRecordId });
     setCurrentScreen('results');
   };
 
   const handleRetrySong = () => {
     setActiveReplayRecord(null);
+    setLastHitErrors(null);
     setSelectedBeatmap(null);
     setCurrentScreen('select');
   };
@@ -873,23 +976,22 @@ export default function App() {
             <motion.div
               key={songSelectBgUrl}
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.85 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35, ease: "easeInOut" }}
               className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-fixed"
               style={{
-                backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.4), rgba(6, 6, 12, 0.65)), url("${sanitizeCssUrl(songSelectBgUrl)}")`
+                backgroundImage: `linear-gradient(rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3}), rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3})), url("${sanitizeCssUrl(songSelectBgUrl)}")`
               }}
             />
           )}
         </AnimatePresence>
       </div>
 
-      {/* GLOWING TECH GRADIENTS BACKDROP & GRID OVERLAY (CONTAINED TO PREVENT DOUBLE SCROLLBARS AND SPACE LEAKS UNDER THE FOOTER) */}
+      {/* Soft glow backdrop (no grid overlay — background art stays clean) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-1">
         <div className="absolute top-[-300px] left-1/4 w-[600px] h-[600px] rounded-full bg-cyan-500/5 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-100px] right-10 w-[500px] h-[500px] rounded-full bg-indigo-500/5 blur-[120px] pointer-events-none" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
       </div>
 
       {/* 1. MASTER HEADER */}
@@ -899,10 +1001,17 @@ export default function App() {
           className="h-16 flex items-center px-4 md:px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
         >
           <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4">
-            <div 
-              onClick={() => setCurrentScreen('menu')}
+            <div
+              onClick={() => leaveProfilePath('menu')}
               className="flex items-center cursor-pointer group select-none shrink-0"
+              title="Back to Menu"
             >
+              <img
+                src="/icons/favicon-64.png"
+                alt="RhythmMania logo"
+                className="h-7 w-7 md:h-9 md:w-9 mr-2 md:mr-2.5 rounded-lg object-cover shadow-[0_0_12px_rgba(0,176,255,0.45)] group-hover:shadow-[0_0_18px_rgba(0,176,255,0.7)] group-hover:scale-105 transition-all duration-150 pointer-events-none select-none"
+                draggable={false}
+              />
               <h1 className="text-xl md:text-3xl font-bold font-sans tracking-tight text-white leading-none group-hover:scale-105 transition-transform duration-150">
                 Rhythm<span className="text-[#ff4da6] font-bold">Mania</span>
               </h1>
@@ -928,7 +1037,7 @@ export default function App() {
             <nav id="top-nav" className="flex items-center gap-2 md:gap-4 text-xs uppercase tracking-widest shrink-0">
               <button
                 id="header-nav-play"
-                onClick={() => setCurrentScreen('select')}
+                onClick={() => leaveProfilePath('select')}
                 className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'select' 
                     ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-400 border-pink-500/40 shadow-md shadow-pink-500/10' 
@@ -964,7 +1073,7 @@ export default function App() {
 
               <button
                 id="header-nav-history"
-                onClick={() => setCurrentScreen('history')}
+                onClick={() => leaveProfilePath('history')}
                 className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
                   currentScreen === 'history' 
                     ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40 shadow-md shadow-emerald-500/10' 
@@ -1023,6 +1132,30 @@ export default function App() {
                   )}
                 </button>
               )}
+
+              <button
+                id="header-nav-profile"
+                onClick={() => {
+                  if (currentUser) {
+                    openProfile(currentUser.id);
+                  } else {
+                    handleGoogleSignIn();
+                  }
+                }}
+                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
+                  currentScreen === 'profile'
+                    ? 'bg-gradient-to-r from-pink-500/20 to-fuchsia-500/20 text-pink-300 border-pink-500/40 shadow-md shadow-pink-500/10'
+                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
+                }`}
+                title={currentUser ? 'Player Profile' : 'Sign in to view profile'}
+              >
+                <UserRound className="h-5 w-5" />
+                {!isMobile && (
+                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
+                    Profile
+                  </span>
+                )}
+              </button>
             </nav>
           </div>
         </header>
@@ -1039,14 +1172,47 @@ export default function App() {
       >
         <AnimatePresence mode="wait">
           {currentScreen === 'menu' && (
-            <MainMenu 
-              onNavigate={(screen) => setCurrentScreen(screen as any)} 
-              onOpenSettings={() => setShowSettings(true)}
-              currentUser={currentUser}
-              onSignIn={handleGoogleSignIn}
-              onSignOut={requestSignOut}
-              authError={authError}
-            />
+            <motion.div
+              key="menu"
+              variants={PAGE_TRANSITION_VARIANTS}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="w-full"
+            >
+              <MainMenu 
+                onNavigate={(screen) => {
+                  if (screen === 'profile') {
+                    if (currentUser) openProfile(currentUser.id);
+                    else handleGoogleSignIn();
+                    return;
+                  }
+                  leaveProfilePath(screen as GameScreen);
+                }} 
+                onOpenSettings={() => setShowSettings(true)}
+                currentUser={currentUser}
+                onSignIn={handleGoogleSignIn}
+                onSignOut={requestSignOut}
+                authError={authError}
+              />
+            </motion.div>
+          )}
+
+          {currentScreen === 'profile' && (
+            <motion.div
+              key={`profile-${profileUserId ?? 'self'}`}
+              variants={PAGE_TRANSITION_VARIANTS}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="h-full w-full overflow-hidden"
+            >
+              <ProfileScreen
+                user={currentUser}
+                profileId={profileUserId}
+                onBack={() => leaveProfilePath('menu')}
+              />
+            </motion.div>
           )}
 
           {currentScreen === 'select' && (
@@ -1064,6 +1230,7 @@ export default function App() {
                 onSelectMap={handleSelectMap}
                 onOpenSettings={() => setShowSettings(true)}
                 customMaps={customMaps}
+                shouldAutoSelectOnMount={hasPlayedThisSession}
                 onImportBeatmap={handleImportBeatmap}
                 onDeleteCustomMap={handleDeleteCustomMap}
                 onDeleteSongGroup={handleDeleteSongGroup}
@@ -1072,6 +1239,7 @@ export default function App() {
                 onBack={() => setCurrentScreen('menu')}
                 onOpenOnlineCatalog={() => setShowFindBeatmapOverlay(true)}
                 onWatchReplay={handleWatchReplay}
+                playHistory={playHistory}
                 onAddHistoryRecord={(record) => {
                   setPlayHistory(prev => {
                     if (prev.some(r => r.id === record.id)) return prev;
@@ -1156,6 +1324,7 @@ export default function App() {
                 beatmap={activePlayBeatmap}
                 playHistory={playHistory}
                 currentMods={settings.selectedMods}
+                hitErrors={lastHitErrors}
                 onRetry={handleRetrySong}
                 onWatchReplay={(record) => {
                   setViewingHistoryResult(false);
@@ -1242,11 +1411,17 @@ export default function App() {
                   }}
                   onViewResult={(record) => {
                     setActiveReplayRecord(null);
+                    setLastHitErrors(null);
                     setScoreState(record.scoreState);
                     const baseId = record.beatmapId.includes('_converted_')
                       ? record.beatmapId.split('_converted_')[0]
                       : record.beatmapId;
-                    const bm = customMaps.find(m => m.id === record.beatmapId || m.id === baseId);
+                    const bm = customMaps.find(m =>
+                      m.id === record.beatmapId ||
+                      (baseId && m.id === baseId) ||
+                      (record.catalogMapId && m.catalogMapId === record.catalogMapId) ||
+                      (record.beatmapHash && m.beatmapHash === record.beatmapHash)
+                    );
                     if (bm) {
                         const cloned = {
                           ...bm,
@@ -1259,8 +1434,10 @@ export default function App() {
                   }}
                   onClearHistory={handleClearHistory}
                   onDeleteRecord={handleDeleteHistoryRecord}
+                  onImportRecords={handleImportRecords}
                   historyLimit={historyLimit}
                   onSetHistoryLimit={handleSetHistoryLimit}
+                  settings={settings}
                 />
               )}
             </motion.div>

@@ -10,26 +10,21 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Play, 
   Trash2, 
-  Database, 
-  Award, 
-  Calendar, 
   Search, 
   Sliders, 
-  Music,
-  ChevronRight,
-  Sparkles,
-  Trophy,
-  Flame,
   Clock,
-  ArrowRight,
-  Info
+  Info,
+  Download,
+  Upload
 } from 'lucide-react';
-import { PlayHistoryRecord, Beatmap } from '../types';
+import { PlayHistoryRecord, Beatmap, GameSettings } from '../types';
 import { sanitizeCssUrl } from '../utils/securityLimits';
+import { downloadReplayExport, parseReplayImport, MAX_IMPORT_FILE_BYTES } from '../utils/replayTransfer';
+import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import metadata from '../../metadata.json';
 
 interface PersonalHistoryScreenProps {
@@ -39,8 +34,10 @@ interface PersonalHistoryScreenProps {
   onViewResult?: (record: PlayHistoryRecord) => void;
   onClearHistory: () => void;
   onDeleteRecord: (id: string) => void;
+  onImportRecords: (records: PlayHistoryRecord[]) => number;
   historyLimit: number;
   onSetHistoryLimit: (limit: number) => void;
+  settings?: GameSettings;
 }
 
 export default function PersonalHistoryScreen({
@@ -50,14 +47,48 @@ export default function PersonalHistoryScreen({
   onViewResult,
   onClearHistory,
   onDeleteRecord,
+  onImportRecords,
   historyLimit,
-  onSetHistoryLimit
+  onSetHistoryLimit,
+  settings
 }: PersonalHistoryScreenProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [randomBg, setRandomBg] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'uploaded' | 'catalog' | 'local_only' | 'failed'>('all');
+
+  const handleImportFile = async (file: File) => {
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setImportNotice('Import failed: file exceeds the 64 MB limit.');
+      return;
+    }
+    try {
+      const text = await file.text();
+      const { records, rejectedCount } = parseReplayImport(text, DEFAULT_SETTINGS, allBeatmaps);
+      if (records.length === 0) {
+        setImportNotice('Import failed: no valid replay records found in file.');
+        return;
+      }
+      const added = onImportRecords(records);
+      const skipped = records.length - added;
+      setImportNotice(
+        `Imported ${added} run${added === 1 ? '' : 's'}` +
+        (skipped > 0 ? ` (${skipped} duplicate${skipped === 1 ? '' : 's'} skipped)` : '') +
+        (rejectedCount > 0 ? ` (${rejectedCount} invalid entr${rejectedCount === 1 ? 'y' : 'ies'} rejected)` : '') +
+        '.'
+      );
+    } catch {
+      setImportNotice('Import failed: could not read the file.');
+    }
+  };
+
+  useEffect(() => {
+    if (!importNotice) return;
+    const timer = setTimeout(() => setImportNotice(null), 6000);
+    return () => clearTimeout(timer);
+  }, [importNotice]);
 
   useEffect(() => {
     const bgs = [
@@ -83,7 +114,12 @@ export default function PersonalHistoryScreen({
       const baseId = rec.beatmapId.includes('_converted_')
         ? rec.beatmapId.split('_converted_')[0]
         : rec.beatmapId;
-      const matchedMap = allBeatmaps.find(b => b.id === rec.beatmapId || b.id === baseId);
+      const matchedMap = allBeatmaps.find(b =>
+        b.id === rec.beatmapId ||
+        (baseId && b.id === baseId) ||
+        (rec.catalogMapId && b.catalogMapId === rec.catalogMapId) ||
+        (rec.beatmapHash && b.beatmapHash === rec.beatmapHash)
+      );
       const diffName = matchedMap?.difficulty || `${rec.keyCount}K Standard`;
       const stars = matchedMap ? (Number(matchedMap.difficulty) * 0.5 + 2) : 4.50;
       
@@ -95,10 +131,9 @@ export default function PersonalHistoryScreen({
         bpm: matchedMap?.bpm || 120,
         creator: matchedMap?.creator || 'Unknown'
       };
-    }).sort((a, b) => b.timestamp - a.timestamp); // Newest attempts first
+    }).sort((a, b) => b.timestamp - a.timestamp);
   }, [history, allBeatmaps]);
 
-  // Selected active record object
   const selectedRecord = useMemo(() => {
     if (!selectedRecordId) return null;
     return resolvedRecords.find(r => r.id === selectedRecordId) || null;
@@ -106,30 +141,8 @@ export default function PersonalHistoryScreen({
 
   const currentBgUrl = selectedRecord?.bgUrl || randomBg;
 
-  const filterCounts = useMemo(() => {
-    let uploaded = 0;
-    let catalog = 0;
-    let localOnly = 0;
-    let failed = 0;
-
-    resolvedRecords.forEach(rec => {
-      if (rec.uploadStatus === 'uploaded') uploaded++;
-      if (rec.uploadStatus === 'failed') failed++;
-      if (rec.isServerCatalogMap) catalog++;
-      if (rec.uploadStatus !== 'uploaded' && !rec.isServerCatalogMap) localOnly++;
-    });
-
-    return { all: resolvedRecords.length, uploaded, catalog, localOnly, failed };
-  }, [resolvedRecords]);
-
-  // Search and status filtering on song titles, artists, difficulties, grades, or mods
   const filteredHistory = useMemo(() => {
     return resolvedRecords.filter(rec => {
-      if (statusFilter === 'uploaded' && rec.uploadStatus !== 'uploaded') return false;
-      if (statusFilter === 'failed' && rec.uploadStatus !== 'failed') return false;
-      if (statusFilter === 'catalog' && !rec.isServerCatalogMap) return false;
-      if (statusFilter === 'local_only' && (rec.uploadStatus === 'uploaded' || rec.isServerCatalogMap)) return false;
-
       if (!searchTerm) return true;
       const query = searchTerm.toLowerCase();
       const modsText = rec.mods && rec.mods.length > 0 ? rec.mods.join(' ') : 'no mods';
@@ -139,9 +152,8 @@ export default function PersonalHistoryScreen({
              rec.grade.toLowerCase().includes(query) ||
              modsText.toLowerCase().includes(query);
     });
-  }, [resolvedRecords, searchTerm, statusFilter]);
+  }, [resolvedRecords, searchTerm]);
 
-  // Handle deleted items to safely clear selection if active
   const handleDeleteRecord = (id: string) => {
     if (selectedRecordId === id) {
       setSelectedRecordId(null);
@@ -173,37 +185,76 @@ export default function PersonalHistoryScreen({
   };
 
   const getGradeStyle = (grade: string) => {
-    switch(grade) {
-      case 'SS': return { text: 'text-amber-400', border: 'border-amber-400/30', bg: 'bg-amber-400/10', glow: 'shadow-[0_0_15px_rgba(250,204,21,0.25)]' };
-      case 'S': return { text: 'text-pink-400', border: 'border-pink-400/30', bg: 'bg-pink-400/10', glow: 'shadow-[0_0_15px_rgba(244,114,182,0.25)]' };
-      case 'A': return { text: 'text-cyan-400', border: 'border-cyan-400/30', bg: 'bg-cyan-400/10', glow: 'shadow-[0_0_15px_rgba(34,211,238,0.25)]' };
-      case 'B': return { text: 'text-emerald-400', border: 'border-emerald-400/30', bg: 'bg-emerald-400/10', glow: 'shadow-[0_0_15px_rgba(52,211,153,0.25)]' };
-      case 'C': return { text: 'text-indigo-400', border: 'border-indigo-400/30', bg: 'bg-indigo-400/10', glow: 'shadow-[0_0_15px_rgba(129,140,248,0.25)]' };
-      default: return { text: 'text-slate-400', border: 'border-slate-400/30', bg: 'bg-slate-400/10', glow: '' };
+    switch (grade) {
+      case 'SS':
+        return {
+          text: 'text-zinc-100',
+          border: 'border-zinc-200/50',
+          bg: 'bg-white/10',
+          glow: 'shadow-[0_0_15px_rgba(255,255,255,0.35)]',
+        };
+      case 'S':
+        return {
+          text: 'text-yellow-400',
+          border: 'border-yellow-400/50',
+          bg: 'bg-yellow-400/15',
+          glow: 'shadow-[0_0_15px_rgba(250,204,21,0.45)]',
+        };
+      case 'A':
+        return {
+          text: 'text-emerald-400',
+          border: 'border-emerald-400/50',
+          bg: 'bg-emerald-400/15',
+          glow: 'shadow-[0_0_15px_rgba(52,211,153,0.35)]',
+        };
+      case 'B':
+        return {
+          text: 'text-indigo-400',
+          border: 'border-indigo-400/50',
+          bg: 'bg-indigo-400/15',
+          glow: 'shadow-[0_0_15px_rgba(129,140,248,0.35)]',
+        };
+      case 'C':
+        return {
+          text: 'text-pink-400',
+          border: 'border-pink-400/50',
+          bg: 'bg-pink-400/15',
+          glow: 'shadow-[0_0_15px_rgba(244,114,182,0.35)]',
+        };
+      case 'F':
+        return {
+          text: 'text-rose-500',
+          border: 'border-rose-500/50',
+          bg: 'bg-rose-500/15',
+          glow: 'shadow-[0_0_15px_rgba(239,68,68,0.35)]',
+        };
+      default:
+        return {
+          text: 'text-rose-500',
+          border: 'border-rose-500/50',
+          bg: 'bg-rose-500/15',
+          glow: 'shadow-[0_0_15px_rgba(244,63,94,0.35)]',
+        };
     }
   };
 
   return (
     <div id="personal-history-view-container" className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent animate-fade-in">
       
-      {/* Dynamic Background Image with soft dark gradient and blur */}
       <div 
         className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out scale-105 pointer-events-none z-0"
         style={{ 
-          backgroundImage: `linear-gradient(rgba(10, 8, 16, 0.72), rgba(6, 6, 12, 0.88)), url("${sanitizeCssUrl(currentBgUrl)}")`,
+          backgroundImage: `linear-gradient(rgba(0, 0, 0, ${settings?.menuBackgroundDim ?? 0.3}), rgba(0, 0, 0, ${settings?.menuBackgroundDim ?? 0.3})), url("${sanitizeCssUrl(currentBgUrl)}")`,
           filter: 'blur(4px)'
         }}
       />
       
-      {/* WARNING NOTICE LINE */}
-      <div className="bg-indigo-500/10 border-b border-indigo-500/20 px-4 py-2 flex items-center justify-center text-center backdrop-blur-sm shrink-0 relative z-10">
-        <p className="text-[11px] font-sans text-indigo-300 tracking-wide">
-          <strong className="text-indigo-400 font-extrabold uppercase tracking-widest mr-1.5">Archives:</strong>
-          Performance logs, hit grades, and replay telemetry are cached safely inside your local client sandbox.
-        </p>
-      </div>
+      {importNotice && (
+        <div className="bg-cyan-500/10 border-b border-cyan-500/20 px-4 py-1.5 flex items-center justify-center text-center backdrop-blur-sm shrink-0 relative z-10">
+          <p className="text-[11px] font-sans text-cyan-300 tracking-wide">{importNotice}</p>
+        </div>
+      )}
 
-      {/* REPLAYSELECT BIG MAIN HEADER ROW */}
       <div className="w-full max-w-none px-4 lg:px-10 pt-2 pb-1.5 flex justify-between items-center gap-4 z-10 relative select-none border-b border-white/[0.03] bg-zinc-950/80 backdrop-blur-sm shrink-0">
         <div className="flex flex-col text-left shrink-0 bg-[#09090d] border border-white/10 px-5 py-2 rounded-xl shadow-lg">
           <h1 className="text-xl md:text-2xl font-black tracking-[0.2em] text-skin-accent leading-none font-sans uppercase">
@@ -211,9 +262,26 @@ export default function PersonalHistoryScreen({
           </h1>
         </div>
 
-        {/* LOG POLICY RETENTION CONTROLS & WIPE CONTROLS IN HEADER */}
         <div className="flex items-center gap-3">
-          {/* Log policy select */}
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleImportFile(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            onClick={() => importInputRef.current?.click()}
+            title="Import replays from an exported JSON file"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 font-sans text-[10px] font-extrabold uppercase tracking-wider rounded-xl border border-cyan-500/15 transition-all cursor-pointer"
+          >
+            <Upload className="h-3.5 w-3.5" /> Import
+          </button>
+
           <div className="flex items-center gap-2 bg-black/40 border border-white/5 px-3 py-1.5 rounded-xl text-xs text-slate-400">
             <Sliders className="h-3.5 w-3.5 text-skin-accent" />
             <span className="uppercase text-[9px] tracking-wider font-extrabold text-zinc-500">Log policy:</span>
@@ -230,7 +298,6 @@ export default function PersonalHistoryScreen({
             </select>
           </div>
 
-          {/* Wipe logs */}
           {history.length > 0 && (
             <div className="relative">
               {showConfirmClear ? (
@@ -266,7 +333,6 @@ export default function PersonalHistoryScreen({
         </div>
       </div>
 
-      {/* CORE WORKSPACE GRID - SPLIT LAYOUT LIKE SONG SELECT */}
       {resolvedRecords.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-24 gap-3 opacity-75 my-auto max-w-2xl mx-auto w-full z-10">
           <h3 className="text-sm font-sans font-black text-white tracking-widest uppercase">
@@ -279,14 +345,10 @@ export default function PersonalHistoryScreen({
       ) : (
         <div className="flex-1 w-full max-w-none px-4 lg:px-10 min-h-0 p-2 lg:p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 relative overflow-hidden">
           
-          {/* =======================================================
-              LEFT COLUMN: DETAILED INFO OF SELECTED REPLAY OR FALLBACK
-              ======================================================= */}
-          <div className="lg:col-span-5 flex flex-col gap-4 text-left h-full overflow-y-auto pr-1 pb-[72px]">
+          <div className="lg:col-span-4 flex flex-col gap-4 text-left h-full overflow-y-auto pr-1 pb-[72px]">
             {selectedRecord ? (
-              <div className="flex flex-col gap-5 bg-[#0c0c12] p-5 rounded-2xl border border-white/10 shadow-2xl relative z-10">
+              <div className="flex flex-col gap-4 bg-[#0c0c12] p-5 rounded-2xl border border-white/10 shadow-2xl relative z-10">
                 
-                {/* Cover art background overlay */}
                 {selectedRecord.bgUrl && (
                   <div 
                     className="absolute inset-x-0 -top-12 -bottom-12 bg-cover bg-center opacity-[0.045] pointer-events-none scale-105 blur-md"
@@ -295,20 +357,31 @@ export default function PersonalHistoryScreen({
                 )}
 
                 <div className="space-y-4 relative z-10">
-                  {/* Badge Header */}
-                  <div>
-                    <span className="px-3.5 py-1 bg-skin-accent-dim text-skin-accent text-[9px] tracking-widest uppercase font-mono font-black border border-skin-accent/25 rounded-full inline-block">
-                      SELECTED REPLAY INFO
-                    </span>
-                    <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-sans leading-tight mt-2 break-words">
-                      {selectedRecord.beatmapTitle}
-                    </h1>
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
-                      {selectedRecord.beatmapArtist}
-                    </p>
-                  </div>
+                  {(() => {
+                    const style = getGradeStyle(selectedRecord.grade);
+                    return (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <span className="px-3.5 py-1 bg-skin-accent-dim text-skin-accent text-[9px] tracking-widest uppercase font-mono font-black border border-skin-accent/25 rounded-full inline-block">
+                            SELECTED REPLAY INFO
+                          </span>
+                          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight font-sans leading-tight mt-2 break-words">
+                            {selectedRecord.beatmapTitle}
+                          </h1>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
+                            {selectedRecord.beatmapArtist}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-mono mt-1 uppercase tracking-wide">
+                            Mapped by {selectedRecord.creator}
+                          </p>
+                        </div>
+                        <div className={`w-14 h-14 rounded-xl border flex items-center justify-center font-sans font-black tracking-tight text-3xl leading-none uppercase shrink-0 ${style.text} ${style.bg} ${style.border} ${style.glow}`}>
+                          {selectedRecord.grade}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
-                  {/* Meta stats pills */}
                   <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase text-slate-400">
                     <span className="px-2 py-1 bg-white/5 border border-white/10 rounded">
                       {selectedRecord.keyCount}K Mode
@@ -319,56 +392,12 @@ export default function PersonalHistoryScreen({
                     <span className="px-2 py-1 bg-pink-500/10 border border-pink-500/20 text-pink-400 rounded">
                       {selectedRecord.mods && selectedRecord.mods.length > 0 ? selectedRecord.mods.join(', ') : 'No Mods'}
                     </span>
-                    {selectedRecord.isServerCatalogMap ? (
-                      <span className="px-2 py-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-bold rounded flex items-center gap-1">
-                        <Database className="h-3 w-3" /> Catalog Map
-                      </span>
-                    ) : (
-                      <span className="px-2 py-1 bg-slate-500/10 border border-slate-500/20 text-slate-400 rounded">
-                        Local Import
-                      </span>
-                    )}
-                    {selectedRecord.uploadStatus === 'uploaded' ? (
-                      <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold rounded">
-                        ✓ Server Uploaded
-                      </span>
-                    ) : selectedRecord.uploadStatus === 'pending' ? (
-                      <span className="px-2 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold rounded animate-pulse">
-                        ⟳ Uploading...
-                      </span>
-                    ) : selectedRecord.uploadStatus === 'failed' ? (
-                      <span className="px-2 py-1 bg-red-500/10 border border-red-500/20 text-red-400 font-bold rounded">
-                        ✕ Upload Failed
-                      </span>
-                    ) : selectedRecord.uploadEligibility === 'eligible' ? (
-                      <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold rounded">
-                        Catalog Upload Ready
-                      </span>
-                    ) : (
-                      <span className="px-2 py-1 bg-zinc-800/60 border border-zinc-700/40 text-zinc-400 rounded" title={selectedRecord.uploadEligibility === 'ineligible_local_map' ? 'Local imports do not support global catalog leaderboard upload' : 'Not eligible for upload'}>
-                        Local Only
-                      </span>
-                    )}
+                    <span className="px-2 py-1 bg-white/5 border border-white/10 rounded text-slate-300 normal-case tracking-normal">
+                      {formatDate(selectedRecord.timestamp)}
+                      <span className="text-slate-500 ml-1">({getRelativeTime(selectedRecord.timestamp)})</span>
+                    </span>
                   </div>
 
-                  {/* Playback timestamp and Grade */}
-                  {(() => {
-                    const style = getGradeStyle(selectedRecord.grade);
-                    return (
-                      <div className="flex items-center justify-between bg-black/30 border border-white/5 p-4 rounded-xl">
-                        <div className="flex flex-col text-left">
-                          <span className="text-[10px] text-slate-500 uppercase font-mono">Date Played</span>
-                          <span className="text-xs text-slate-300 font-bold font-sans">{formatDate(selectedRecord.timestamp)}</span>
-                          <span className="text-[9px] text-slate-500 font-mono mt-0.5 uppercase">({getRelativeTime(selectedRecord.timestamp)})</span>
-                        </div>
-                        <div className={`w-14 h-14 rounded-xl border flex items-center justify-center font-serif italic text-3xl font-black shrink-0 ${style.text} ${style.bg} ${style.border} ${style.glow}`}>
-                          {selectedRecord.grade}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Scoring stats row */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="bg-black/40 border border-white/5 p-2 rounded-xl text-center">
                       <span className="text-[8px] text-slate-500 font-mono uppercase">Score</span>
@@ -384,49 +413,15 @@ export default function PersonalHistoryScreen({
                     </div>
                   </div>
 
-                  {/* Judgements Breakdown counts */}
-                  {selectedRecord.scoreState && (
-                    <div className="bg-black/20 border border-white/5 p-3.5 rounded-xl space-y-2">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest block font-black border-b border-white/5 pb-1">Judgements Breakdown:</span>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-[#34d399] font-mono text-[10px] uppercase font-black">Marvelous</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.marvelousCount || 0}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-yellow-400 font-mono text-[10px] uppercase font-black">Perfect</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.perfectCount || 0}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-green-500 font-mono text-[10px] uppercase font-black">Great</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.greatCount || 0}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-blue-400 font-mono text-[10px] uppercase font-black">Good</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.goodCount || 0}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-purple-400 font-mono text-[10px] uppercase font-black">Bad</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.badCount || 0}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
-                          <span className="text-red-500 font-mono text-[10px] uppercase font-black">Miss</span>
-                          <span className="font-sans font-bold text-slate-200">{selectedRecord.scoreState.missCount || 0}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* WATCH REPLAY ACTION BUTTON */}
                   <button
                     onClick={() => onWatchReplay(selectedRecord)}
-                    className="w-full py-4 bg-skin-accent hover:brightness-110 active:scale-95 text-slate-950 font-sans font-black text-base uppercase tracking-widest rounded-xl shadow-lg shadow-skin-accent/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer select-none border border-white/10"
+                    disabled={!selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0}
+                    className="w-full py-4 bg-skin-accent hover:brightness-110 active:scale-95 text-slate-950 font-sans font-black text-base uppercase tracking-widest rounded-xl shadow-lg shadow-skin-accent/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer select-none border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:brightness-100"
                   >
                     <Play className="h-4 w-4 fill-current text-slate-950" />
-                    <span>Watch Replay</span>
+                    <span>{(!selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0) ? 'No Replay Saved' : 'Watch Replay'}</span>
                   </button>
 
-                  {/* Secondary buttons */}
                   {onViewResult && (
                     <button
                       onClick={() => onViewResult(selectedRecord)}
@@ -435,6 +430,14 @@ export default function PersonalHistoryScreen({
                       View Detailed Results
                     </button>
                   )}
+
+                  <button
+                    onClick={() => downloadReplayExport([selectedRecord], `${selectedRecord.beatmapArtist} - ${selectedRecord.beatmapTitle}`)}
+                    className="w-full py-2.5 bg-white/5 hover:bg-white/10 active:scale-98 text-slate-200 font-sans font-extrabold text-xs uppercase tracking-widest rounded-xl border border-white/10 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Export Replay</span>
+                  </button>
 
                   <button
                     onClick={() => handleDeleteRecord(selectedRecord.id)}
@@ -463,12 +466,10 @@ export default function PersonalHistoryScreen({
             )}
           </div>
 
-          {/* =======================================================
-              RIGHT COLUMN: SEARCH AND COMPREHENSIVE LIST OF SEPARATE ATTEMPTS
-              ======================================================= */}
-          <div className="lg:col-span-7 flex flex-col gap-3 h-full min-h-0 -mr-4 lg:-mr-10">
+          <div className="lg:col-span-4 hidden lg:flex flex-col justify-center items-center pointer-events-none relative select-none" />
+
+          <div className="lg:col-span-4 flex flex-col gap-3 h-full min-h-0 -mr-4 lg:-mr-10">
             
-            {/* SEARCH INTERFACE MATCHING SONG SELECT */}
             <div className="px-4 lg:px-6 relative flex-shrink-0 flex flex-col gap-2">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -484,65 +485,8 @@ export default function PersonalHistoryScreen({
                   {filteredHistory.length} attempts
                 </span>
               </div>
-
-              {/* Status & Origin Filter Buttons */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button
-                  onClick={() => setStatusFilter('all')}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
-                    statusFilter === 'all'
-                      ? 'bg-skin-accent text-slate-950 font-black shadow-sm'
-                      : 'bg-black/40 text-slate-400 hover:text-white border border-white/5'
-                  }`}
-                >
-                  All ({filterCounts.all})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('uploaded')}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
-                    statusFilter === 'uploaded'
-                      ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
-                      : 'bg-black/40 text-slate-400 hover:text-emerald-400 border border-white/5'
-                  }`}
-                >
-                  Uploaded ({filterCounts.uploaded})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('catalog')}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
-                    statusFilter === 'catalog'
-                      ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
-                      : 'bg-black/40 text-slate-400 hover:text-cyan-400 border border-white/5'
-                  }`}
-                >
-                  Catalog ({filterCounts.catalog})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('local_only')}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
-                    statusFilter === 'local_only'
-                      ? 'bg-zinc-600 text-white font-black shadow-sm'
-                      : 'bg-black/40 text-slate-400 hover:text-slate-200 border border-white/5'
-                  }`}
-                >
-                  Local Only ({filterCounts.localOnly})
-                </button>
-                {filterCounts.failed > 0 && (
-                  <button
-                    onClick={() => setStatusFilter('failed')}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer ${
-                      statusFilter === 'failed'
-                        ? 'bg-rose-600 text-white font-black shadow-sm'
-                        : 'bg-black/40 text-slate-400 hover:text-rose-400 border border-white/5'
-                    }`}
-                  >
-                    Failed ({filterCounts.failed})
-                  </button>
-                )}
-              </div>
             </div>
 
-            {/* SCROLL LIST OF INDIVIDUAL UNCOLLAPSED PLAYED SONGS */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 flex flex-col gap-1.5 relative z-10 min-h-0 pb-[72px]">
               {filteredHistory.length > 0 ? (
                 filteredHistory.map((rec) => {
@@ -563,7 +507,6 @@ export default function PersonalHistoryScreen({
                             : 'border-white/[0.03] bg-[#0c0c12]/80 backdrop-blur-md hover:bg-[#12121a]/95 hover:border-white/10'
                         } border-r-0`}
                       >
-                        {/* Cover image bg layer matching Song Select card texture */}
                         {rec.bgUrl && (
                           <div 
                             className="absolute inset-0 bg-cover bg-center opacity-[0.03] pointer-events-none scale-102 blur-sm"
@@ -574,7 +517,6 @@ export default function PersonalHistoryScreen({
                         <div className="flex items-center justify-between p-4 py-3 relative z-10">
                           <div className="flex flex-col text-left overflow-hidden min-w-0 pr-2 flex-1">
                             
-                            {/* COMPOSITE TITLE BOX HEADER MANDATED */}
                             <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono tracking-wider text-slate-400 group-hover:text-skin-accent transition-colors truncate" title={boxTitle}>
                               {rec.uploadStatus === 'uploaded' ? (
                                 <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 font-bold rounded text-[8px] shrink-0 border border-emerald-500/30">
@@ -610,12 +552,11 @@ export default function PersonalHistoryScreen({
 
                           </div>
 
-                          {/* Right elements: keyCount indicator and big high-impact Grade badge */}
                           <div className="flex items-center gap-3 shrink-0 select-none">
                             <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] font-mono font-black text-slate-400">
                               {rec.keyCount}K
                             </span>
-                            <div className={`w-10 h-10 rounded-lg border flex items-center justify-center font-serif italic text-lg font-black shrink-0 ${style.text} ${style.bg} ${style.border} ${style.glow}`}>
+                            <div className={`w-10 h-10 rounded-lg border flex items-center justify-center font-sans font-black tracking-tight text-lg leading-none uppercase shrink-0 ${style.text} ${style.bg} ${style.border} ${style.glow}`}>
                               {rec.grade}
                             </div>
                           </div>
@@ -640,7 +581,6 @@ export default function PersonalHistoryScreen({
         </div>
       )}
 
-      {/* Bottom Left Version Tag */}
       <div className="absolute bottom-4 left-6 text-xs text-slate-500 font-mono z-20 select-none pointer-events-none">
         {metadata.version}
       </div>

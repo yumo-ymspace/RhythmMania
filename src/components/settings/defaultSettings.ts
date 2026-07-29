@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   upsurfaceNoteMode: false,
   videoOpacity: 1.0,
   backgroundDim: 0.60,
+  menuBackgroundDim: 0.30,
   disableVideo: false,
   videoOffset: 0,
   disableParticles: false,
@@ -59,6 +60,8 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   renderEngine: 'canvas',
   enableMapSV: true,
   disableLaneShake: false,
+  enableSongPreview: true,
+  showFpsCounter: false,
 } as GameSettings);
 
 /** True when a setting's value differs from its default. */

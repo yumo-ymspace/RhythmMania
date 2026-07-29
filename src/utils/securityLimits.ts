@@ -5,6 +5,9 @@
  * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import JSZip from 'jszip';
@@ -197,6 +200,7 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     upsurfaceNoteMode: Boolean(parsed.upsurfaceNoteMode),
     videoOpacity: 1.0,
     backgroundDim: clamp(parsed.backgroundDim, 0, 1, defaultSettings.backgroundDim),
+    menuBackgroundDim: clamp(parsed.menuBackgroundDim, 0, 1, defaultSettings.menuBackgroundDim ?? 0.3),
     disableVideo: Boolean(parsed.disableVideo),
     videoOffset: clamp(parsed.videoOffset, -10000, 10000, defaultSettings.videoOffset || 0),
     disableParticles: Boolean(parsed.disableParticles),
@@ -225,6 +229,8 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     bindRetry: sanitizeString(parsed.bindRetry, defaultSettings.bindRetry || 'r', 15),
     renderEngine: parsed.renderEngine === 'pixi' ? 'pixi' : 'canvas',
     enableMapSV: parsed.enableMapSV !== undefined ? Boolean(parsed.enableMapSV) : true,
+    enableSongPreview: parsed.enableSongPreview !== undefined ? Boolean(parsed.enableSongPreview) : true,
+    showFpsCounter: Boolean(parsed.showFpsCounter),
   };
 }
 
@@ -332,6 +338,11 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     }
   }
 
+  // Failed runs are intentionally ephemeral unless No Fail was active.
+  if ((Boolean(record.isFailed) || scoreState.failed) && !mods.some(mod => mod.toUpperCase() === 'NF')) {
+    return null;
+  }
+
   const baseCleaned: PlayHistoryRecord = {
     id: sanitizeString(record.id, 50),
     timestamp: clamp(record.timestamp, 0, 2000000000000, Date.now()),
@@ -411,4 +422,3 @@ export function sanitizeCssUrl(url: string, fallback = '/backgrounds/Ferineon.we
 
   return safe;
 }
-

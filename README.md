@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.0
+**HIGH DENSITY MATRIX** · v0.8.1
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a dual rendering engine (**HTML5 Canvas 2D** default and **PixiJS v8** WebGL option), it delivers a professional-grade experience right in your browser.
 
@@ -47,7 +47,6 @@ RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
 - **Bundled beatmap catalog**: Pre-packaged beatmaps served as static assets in `public/beatmaps/` with `manifest.json` for in-app catalog browsing and client-side downloading (no backend server process required)
-- **Internal procedural beatmap generator**: Developer helper module (`src/data/songs.ts`) for seed-locked, deterministic map generation (note: internal helper with no active player UI path)
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 
 The parser supports mania maps and can convert standard-mode objects where
@@ -192,14 +191,14 @@ All 2K-8K bindings can be changed. The default bindings are:
 
 | Judgement | Timing Window* | Score | HP Delta |
 |-----------|---------------|-------|----------|
-| Marvelous | ±16 ms | 320 | +3 |
-| Perfect | max(20, 44 − 2.4×OD) ms | 300 | +2 |
-| Great | max(35, 74 − 3.9×OD) ms | 200 | +1 |
-| Good | max(53, 104 − 5.1×OD) ms | 100 | +0.2 |
-| Bad | max(72, 134 − 6.2×OD) ms | 50 | −3 |
+| Marvelous | ±21 ms (fixed) | 320 | +3 |
+| Perfect | max(20, 44 − 2.4×OD) + 5 ms | 300 | +2 |
+| Great | max(35, 74 − 3.9×OD) + 5 ms | 200 | +1 |
+| Good | max(53, 104 − 5.1×OD) + 5 ms | 100 | +0.2 |
+| Bad | max(72, 134 − 6.2×OD) + 5 ms | 50 | −3 |
 | Miss | — | 0 | −10 |
 
-*Windows scale with beatmap `overallDifficulty` (0–10). At OD 8 the windows are: Miss 124 ms, Bad 84 ms, Good 63 ms, Great 43 ms, Perfect 25 ms. HP deltas are further multiplied by a drain-rate scalar (0.8× when `hpDrainRate > 5`, otherwise 1.2×).
+*Windows scale with beatmap `overallDifficulty` (0–10), and every tier includes a fixed +5 ms input grace on top of the OD-scaled formula. At OD 8 the effective windows are: Miss 129 ms, Bad 89 ms, Good 68 ms, Great 48 ms, Perfect 30 ms. HP deltas are further multiplied by a drain-rate scalar (0.8× when `hpDrainRate > 5`, otherwise 1.2×).
 
 ---
 
@@ -235,8 +234,7 @@ RhythmMania-Beta/
 │   └── types.ts                 Domain types
 ├── metadata.json                Build-time application metadata
 ├── package.json                 Scripts and dependencies
-├── vite.config.ts               Vite and path alias configuration
-└── AGENTS.md                    Source-derived engineering guide
+└── vite.config.ts               Vite and path alias configuration
 ```
 
 `GameplayCanvas.tsx` owns live timing, input, scoring, replay recording,

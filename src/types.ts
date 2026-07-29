@@ -12,6 +12,14 @@
 
 export type NoteType = 'normal' | 'hold';
 
+export interface HitSample {
+  normalSet: number;
+  additionSet: number;
+  index: number;
+  volume: number;
+  filename?: string;
+}
+
 export interface HitObject {
   id: string;
   time: number; // in milliseconds
@@ -27,6 +35,8 @@ export interface HitObject {
   isMissed: boolean;
   isHoldFailed: boolean; // if released early
   releaseGraceUntil?: number; // For brief key-bounces / re-keying
+  hitSound?: number;
+  hitSample?: HitSample;
 
   // standard specific properties
   x?: number; // 0-512
@@ -55,7 +65,9 @@ export interface BeatmapMetadata {
   audioUrl?: string;
   videoUrl?: string;
   videoStartTime?: number; // storyboard video start offset (in milliseconds)
+  previewTime?: number; // .osu General:PreviewTime in ms; negative/undefined means unset
   bgUrl?: string;
+  hitSoundUrls?: Record<string, string>;
   id: string;
   mode?: number; // 0 for standard, 3 for mania
 
@@ -73,6 +85,7 @@ export interface Beatmap extends BeatmapMetadata {
   timingPoints: TimingControlPoint[];
   sliderMultiplier: number;
   baseBeatLength?: number;
+  breaks?: Array<{ startTime: number; endTime: number }>;
 }
 
 export type JudgementType = 'marvelous' | 'perfect' | 'great' | 'good' | 'bad' | 'miss';
@@ -123,7 +136,7 @@ export interface ReplayFrame {
   keysPressed: boolean[];
 }
 
-export type ReplaySource = 'guest-local' | 'account-local' | 'server-remote';
+export type ReplaySource = 'guest-local' | 'account-local' | 'server-remote' | 'imported';
 
 export type UploadEligibility =
   | 'eligible'
@@ -178,6 +191,7 @@ export interface GameSettings {
   upsurfaceNoteMode: boolean; // whether notes scroll upwards rather than downwards
   videoOpacity: number; // background video opacity (0 to 1)
   backgroundDim: number; // solid-black lane background shielding opacity (0 to 1)
+  menuBackgroundDim?: number; // black overlay opacity over Song Select & Replay Select background artwork (0 to 1)
   disableVideo?: boolean; // whether background video playback is completely disabled
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
   disableParticles?: boolean; // completely disable particle visual burst generator
@@ -207,9 +221,11 @@ export interface GameSettings {
   renderEngine?: 'canvas' | 'pixi';
   enableMapSV?: boolean;
   disableLaneShake?: boolean;
+  enableSongPreview?: boolean; // play an audio preview of the selected map on Song Select
+  showFpsCounter?: boolean; // render a small FPS readout during gameplay
 }
 
-export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history';
+export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history' | 'profile';
 
 declare global {
   const __APP_VERSION__: string;

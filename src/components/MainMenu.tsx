@@ -24,7 +24,7 @@ export const MainMenu = ({
   onSignOut,
   authError,
 }: {
-  onNavigate: (screen: 'select' | 'history') => void;
+  onNavigate: (screen: 'select' | 'history' | 'profile') => void;
   onOpenSettings: () => void;
   currentUser?: AuthUser | null;
   onSignIn?: () => void;
@@ -94,6 +94,12 @@ export const MainMenu = ({
                   <span className="text-pink-400 text-[9px] font-mono leading-tight">Logged In</span>
                 </div>
               </div>
+              <button
+                onClick={() => onNavigate('profile')}
+                className="px-2.5 py-1 text-[10px] font-bold text-pink-200 hover:text-white bg-pink-500/15 hover:bg-pink-500/25 rounded-lg transition-colors cursor-pointer"
+              >
+                Profile
+              </button>
               <button
                 onClick={onSignOut}
                 className="px-2.5 py-1 text-[10px] font-bold text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
@@ -262,6 +268,12 @@ export const MainMenu = ({
               <span className="text-white text-xs font-bold leading-tight">{currentUser.username}</span>
               <span className="text-pink-400 text-[10px] font-mono leading-tight">Logged In</span>
             </div>
+            <button
+              onClick={() => onNavigate('profile')}
+              className="ml-1 px-3 py-1 text-xs font-bold text-pink-200 hover:text-white bg-pink-500/15 hover:bg-pink-500/25 rounded-xl transition-colors cursor-pointer"
+            >
+              Profile
+            </button>
             <button
               onClick={onSignOut}
               className="ml-2 px-3 py-1 text-xs font-bold text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-xl transition-colors cursor-pointer"

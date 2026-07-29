@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
- * Serverless Authentication & Cookie Helpers
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import crypto from 'crypto';
@@ -9,13 +16,28 @@ import { getEnvConfig } from './env.js';
 
 export interface UserSession {
   sessionId: string;
-  userId: number;
+  userId: string;
   username: string;
   email?: string;
   avatarUrl?: string;
   googleId?: string;
   role: string;
   expiresAt: Date;
+}
+
+const USER_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+export function generateUserId(length: number = 16): string {
+  const bytes = crypto.randomBytes(length);
+  let id = '';
+  for (let i = 0; i < length; i++) {
+    id += USER_ID_ALPHABET[bytes[i]! % USER_ID_ALPHABET.length];
+  }
+  return id;
+}
+
+export function isValidUserId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9]{16}$/.test(value);
 }
 
 export const SESSION_COOKIE_NAME = 'rm_session_token';
@@ -105,7 +127,7 @@ export async function getSessionFromReq(req: VercelRequest): Promise<UserSession
     const { query } = await import('./db.js');
     const res = await query<{
       session_id: string;
-      user_id: number;
+      user_id: string;
       username: string;
       email: string;
       avatar_url: string;

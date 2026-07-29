@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
- * Serverless Replay Leaderboard Endpoint
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -26,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const session = await getSessionFromReq(req);
     const dbRes = await query<{
       id: string;
-      user_id: number | null;
+      user_id: string | null;
       score: number;
       accuracy: number;
       max_combo: number;
@@ -81,6 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       catalogSetId: row.beatmap_set_id,
       catalogMapId: row.beatmap_difficulty_id,
       beatmapHash: row.beatmap_hash,
+      userId: row.user_id,
       username: row.username || 'Guest Player',
       avatarUrl: row.avatar_url,
       beatmapTitle: row.beatmap_title || 'Unknown Title',

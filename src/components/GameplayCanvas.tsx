@@ -40,7 +40,6 @@ export interface ColumnStyle {
   width: number;
   color: string;
 }
-
 export function hexToRgba(hex: string, alpha: number): string {
   if (!hex) return `rgba(255,255,255,${alpha})`;
   const cleanHex = hex.replace('#', '');
@@ -249,7 +248,7 @@ interface GameplayCanvasProps {
   beatmap: Beatmap;
   settings: GameSettings;
   updateSettings?: (s: Partial<GameSettings>) => void;
-  onFinish: (score: ScoreState, replay?: ReplayFrame[]) => void;
+  onFinish: (score: ScoreState, replay?: ReplayFrame[], hitErrors?: number[]) => void;
   onBack: () => void;
   replayRecord?: PlayHistoryRecord | null;
 }
@@ -405,7 +404,7 @@ export default function GameplayCanvas({
     // If they failed or are at 0 HP, submit as finished fail record so they see performance telemetry and replay
     if (scoreStateRef.current.failed) {
       if (isMountedRef.current) {
-        onFinish(scoreStateRef.current, replayFramesRef.current);
+        onFinish(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
       }
     } else {
       onBack();
@@ -554,6 +553,7 @@ export default function GameplayCanvas({
   const [uiCombo, setUiCombo] = useState<number>(0);
   const [uiHp, setUiHp] = useState<number>(100);
   const [uiJudgement, setUiJudgement] = useState<{ text: string; color: string; time: number } | null>(null);
+  const [comboBurst, setComboBurst] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [showCountdown, setShowCountdown] = useState<number>(0);
   const [unpauseCountdown, setUnpauseCountdown] = useState<number>(0);
@@ -569,6 +569,10 @@ export default function GameplayCanvas({
   const lastVideoSeekTimeRef = useRef<number>(0);
   const wasPlayingRef = useRef<boolean>(false);
   const timeLabelRef = useRef<HTMLSpanElement>(null);
+  const breakLabelRef = useRef<HTMLSpanElement>(null);
+  const fpsLabelRef = useRef<HTMLSpanElement>(null);
+  const fpsFramesRef = useRef<number>(0);
+  const fpsLastSampleRef = useRef<number>(0);
   const isReplayMode = !!replayRecord;
   const isAutoplay = !isReplayMode && (settings.selectedMods || []).includes('AT');
   const finishTimeoutRef = useRef<any>(null);
@@ -930,6 +934,7 @@ export default function GameplayCanvas({
       const success = await mainAudio.loadTrack(resolved.audioUrl || '', (p) => {
         if (active) setLoadingAudioProgress(p);
       });
+      await mainAudio.loadBeatmapHitsounds(beatmap.hitSoundUrls || {});
 
       if (!active) return;
 
@@ -1081,7 +1086,6 @@ export default function GameplayCanvas({
         hasKeyPressedOnceRef.current[colIndex] = true;
       }
       
-      mainAudio.playHitsound();
       triggerHitEvent(colIndex);
 
       if (!replayData) {
@@ -1320,6 +1324,7 @@ export default function GameplayCanvas({
       note.hitTime = playTime;
       
       applyJudgement(resolvedJudgement, colIndex);
+      mainAudio.playBeatmapHitsound(note.hitSound, note.hitSample?.filename);
 
       // Calculate and store Hit Error details for timing feedback meter
       const hitError = playTime - note.time;
@@ -1394,10 +1399,12 @@ export default function GameplayCanvas({
       // Beautiful hold completion!
       applyJudgement(marvelousJudg, colIndex); // counts as Marvelous completion!
       recordHitErrorSample(endDiff);
+      mainAudio.playBeatmapHitsound(holdNote.hitSound, holdNote.hitSample?.filename);
     } else if (absEndDiff <= missWindow) {
       // Sluggish release
       applyJudgement(goodJudg, colIndex); // counts as Good
       recordHitErrorSample(endDiff);
+      mainAudio.playBeatmapHitsound(holdNote.hitSound, holdNote.hitSample?.filename);
     } else {
       // Released way too early or late
       holdNote.isHoldFailed = true;
@@ -1426,6 +1433,15 @@ export default function GameplayCanvas({
       state.combo++;
       if (state.combo > state.maxCombo) {
         state.maxCombo = state.combo;
+      }
+      if (state.combo >= 50 && state.combo % 50 === 0 && !settingsRef.current.disableParticles) {
+        const burstCombo = state.combo;
+        setComboBurst(burstCombo);
+        window.setTimeout(() => {
+          if (isMountedRef.current) {
+            setComboBurst(current => current === burstCombo ? null : current);
+          }
+        }, 900);
       }
       
       if (judg.type === 'marvelous') state.marvelousCount++;
@@ -1634,6 +1650,13 @@ export default function GameplayCanvas({
         audioTimeRef.current = songTime;
       }
 
+      if (breakLabelRef.current) {
+        const inBreak = (beatmap.breaks || []).some(
+          section => songTime >= section.startTime && songTime < section.endTime
+        );
+        breakLabelRef.current.style.opacity = inBreak ? '1' : '0';
+      }
+
       // Update progress bar
       if (progressBarRef.current) {
         const totalDurationMs = beatmap.duration * 1000;
@@ -1653,6 +1676,22 @@ export default function GameplayCanvas({
       if (timeLabelRef.current && !isScrubbingRef.current) {
         const totalMs = beatmap.duration * 1000;
         timeLabelRef.current.innerText = `${formatMsToMinSec(songTime)} / ${formatMsToMinSec(totalMs)}`;
+      }
+
+      // FPS readout (updated twice per second to avoid layout churn)
+      if (fpsLabelRef.current) {
+        const fpsNow = performance.now();
+        if (fpsLastSampleRef.current === 0) {
+          fpsLastSampleRef.current = fpsNow;
+          fpsFramesRef.current = 0;
+        }
+        fpsFramesRef.current++;
+        const elapsed = fpsNow - fpsLastSampleRef.current;
+        if (elapsed >= 500) {
+          fpsLabelRef.current.innerText = `${Math.round((fpsFramesRef.current * 1000) / elapsed)} FPS`;
+          fpsFramesRef.current = 0;
+          fpsLastSampleRef.current = fpsNow;
+        }
       }
 
       // Replay simulation playback
@@ -1675,7 +1714,6 @@ export default function GameplayCanvas({
                   if (hasKeyPressedOnceRef.current) {
                     hasKeyPressedOnceRef.current[col] = true;
                   }
-                  mainAudio.playHitsound();
                   triggerHitEvent(col);
                 } else if (wasPressed && !isCurrentlyPressed) {
                   keysPressedRef.current[col] = false;
@@ -1722,7 +1760,7 @@ export default function GameplayCanvas({
                   color: '#3b82f6'
                 });
 
-                mainAudio.playHitsound();
+                mainAudio.playBeatmapHitsound(n.hitSound, n.hitSample?.filename);
                 laneGlowRef.current[n.column] = 1.0;
                 spawnParticles(n.column, marvelousJudg.color);
                 if (!settingsRef.current.disableLaneShake) {
@@ -1903,7 +1941,7 @@ export default function GameplayCanvas({
         }
         finishTimeoutRef.current = setTimeout(() => {
           if (isMountedRef.current) {
-            onFinish(scoreStateRef.current, replayFramesRef.current);
+            onFinish(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
           }
         }, 1200);
       }
@@ -3026,6 +3064,14 @@ export default function GameplayCanvas({
           </div>
         )}
 
+        {/* FPS counter overlay (direct DOM updates from the render loop) */}
+        {(propSettings.showFpsCounter ?? settings.showFpsCounter) && (
+          <span
+            ref={fpsLabelRef}
+            className="absolute top-2 right-3 z-40 font-mono text-[11px] font-bold text-emerald-300/90 bg-black/50 px-2 py-0.5 rounded pointer-events-none select-none"
+          />
+        )}
+
         {/* SONG TIMING PROGRESS BAR OR REPLAY SCRUBBER */}
         {!isPrePlay && (
           <div className={`absolute left-0 right-0 z-35 ${
@@ -3141,6 +3187,7 @@ export default function GameplayCanvas({
                               <option value={0.5}>0.5x</option>
                               <option value={0.75}>0.75x</option>
                               <option value={1}>1.0x</option>
+                              <option value={1.25}>1.25x</option>
                               <option value={1.5}>1.5x</option>
                               <option value={2}>2.0x</option>
                             </select>
@@ -3280,6 +3327,14 @@ export default function GameplayCanvas({
               <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
             )}
 
+            <span
+              ref={breakLabelRef}
+              className="absolute top-1/3 left-1/2 -translate-x-1/2 z-20 rounded-full border border-cyan-300/30 bg-slate-950/70 px-5 py-2 font-mono text-xs font-black uppercase tracking-[0.3em] text-cyan-200 shadow-lg transition-opacity duration-300 pointer-events-none"
+              style={{ opacity: 0 }}
+            >
+              Break
+            </span>
+
             {/* DYNAMIC HIGH-PERFORMANCE DOM COMBO & JUDGEMENT POPUPS */}
             <div 
               style={{ 
@@ -3289,6 +3344,11 @@ export default function GameplayCanvas({
               className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center select-none z-10 font-sans transition-transform duration-150"
             >
               {/* Combo Visualizer */}
+              {comboBurst !== null && (
+                <div key={`burst-${comboBurst}`} className="absolute top-1/4 rounded-full border-2 border-amber-300/70 bg-amber-400/20 px-8 py-3 text-2xl font-black uppercase tracking-[0.35em] text-amber-200 shadow-[0_0_35px_rgba(251,191,36,0.65)] animate-combo-pop">
+                  {comboBurst}x
+                </div>
+              )}
               {uiCombo > 4 && (
                 <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">
                   <span className="text-6xl font-[900] tracking-tighter text-slate-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">

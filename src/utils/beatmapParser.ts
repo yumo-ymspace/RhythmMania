@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Beatmap, HitObject, NoteType, TimingControlPoint } from '../types';
+import { Beatmap, HitObject, HitSample, NoteType, TimingControlPoint } from '../types';
 import { MAX_BEATMAP_NOTES, MAX_BEATMAP_TIMING_POINTS, MAX_OSU_TEXT_BYTES } from './securityLimits';
 
 export interface ParsedMediaPaths {
@@ -81,6 +81,7 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let overallDifficulty = 8;
   let hpDrainRate = 8;
   let parsedMode: number | undefined = undefined;
+  let previewTime: number | undefined = undefined;
   let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
   
   const rawNotes: Array<{
@@ -91,6 +92,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     extra: string;
     slides: number;
     pixelLength: number;
+    hitSound: number;
+    hitSample?: HitSample;
   }> = [];
 
   let inHitObjects = false;
@@ -98,6 +101,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   const tempoTimingPoints: Array<{ time: number; beatLength: number }> = [];
   const allTimingPoints: Array<{ time: number; beatLength: number }> = [];
   let inTimingPoints = false;
+  let inEvents = false;
+  const breaks: Array<{ startTime: number; endTime: number }> = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -106,15 +111,16 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     // Direct section markers - robust case-insensitive check ignoring inner/outer spacing
     if (line.startsWith('[') && line.endsWith(']')) {
       const headerName = line.substring(1, line.length - 1).trim().toLowerCase().replace(/\s+/g, '');
-      if (headerName === 'general') { inHitObjects = false; inTimingPoints = false; continue; }
-      if (headerName === 'metadata') { inHitObjects = false; inTimingPoints = false; continue; }
-      if (headerName === 'difficulty') { inHitObjects = false; inTimingPoints = false; continue; }
-      if (headerName === 'timingpoints') { inHitObjects = false; inTimingPoints = true; continue; }
-      if (headerName === 'hitobjects') { inHitObjects = true; inTimingPoints = false; continue; }
+      if (headerName === 'general') { inHitObjects = false; inTimingPoints = false; inEvents = false; continue; }
+      if (headerName === 'metadata') { inHitObjects = false; inTimingPoints = false; inEvents = false; continue; }
+      if (headerName === 'difficulty') { inHitObjects = false; inTimingPoints = false; inEvents = false; continue; }
+      if (headerName === 'events') { inHitObjects = false; inTimingPoints = false; inEvents = true; continue; }
+      if (headerName === 'timingpoints') { inHitObjects = false; inTimingPoints = true; inEvents = false; continue; }
+      if (headerName === 'hitobjects') { inHitObjects = true; inTimingPoints = false; inEvents = false; continue; }
       continue;
     }
 
-    if (!inHitObjects && !inTimingPoints) {
+    if (!inHitObjects && !inTimingPoints && !inEvents) {
       const colonIndex = line.indexOf(':');
       if (colonIndex !== -1) {
         const key = line.substring(0, colonIndex).trim().toLowerCase();
@@ -149,6 +155,19 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
           case 'slidermultiplier':
             sliderMultiplier = parseFloat(value) || 1.4;
             break;
+          case 'previewtime':
+            const pt = parseFloat(value);
+            if (!isNaN(pt)) previewTime = pt;
+            break;
+        }
+      }
+    } else if (inEvents) {
+      const eventParts = line.split(',');
+      if (eventParts[0]?.trim() === '2' && eventParts.length >= 3) {
+        const startTime = Number(eventParts[1]);
+        const endTime = Number(eventParts[2]);
+        if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
+          breaks.push({ startTime, endTime });
         }
       }
     } else if (inTimingPoints) {
@@ -202,7 +221,21 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
         const y = parseInt(parts[1], 10);
         const time = parseInt(parts[2], 10);
         const typeBit = parseInt(parts[3], 10);
+        const hitSound = parseInt(parts[4], 10);
         const extra = parts[5] || '';
+        const rawSampleParts = extra.split(':');
+        const sampleOffset = (typeBit & 128) !== 0 ? 1 : 0;
+        const sampleParts = rawSampleParts.slice(sampleOffset);
+        const sampleFilename = sampleParts.length >= 5 ? sampleParts[4]?.trim() : undefined;
+        const hitSample: HitSample | undefined = sampleParts.length >= 4 && (
+          sampleParts.slice(0, 4).some(value => value.trim() !== '0') || Boolean(sampleFilename)
+        ) ? {
+          normalSet: parseInt(sampleParts[0], 10) || 0,
+          additionSet: parseInt(sampleParts[1], 10) || 0,
+          index: parseInt(sampleParts[2], 10) || 0,
+          volume: parseInt(sampleParts[3], 10) || 0,
+          filename: sampleFilename || undefined,
+        } : undefined;
         // Slider slides are at parts[6], pixelLength at parts[7]
         const slides = parts[6] ? parseInt(parts[6], 10) : 1;
         const pixelLength = parts[7] ? parseFloat(parts[7]) : 0;
@@ -214,7 +247,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             typeBit,
             extra,
             slides: isNaN(slides) ? 1 : slides,
-            pixelLength: isNaN(pixelLength) ? 0 : pixelLength
+            pixelLength: isNaN(pixelLength) ? 0 : pixelLength,
+            hitSound: isNaN(hitSound) ? 0 : hitSound,
+            hitSample,
           });
           if (rawNotes.length > MAX_BEATMAP_NOTES) {
             throw new Error(`Security Exception: Beatmap notes exceed limit (${MAX_BEATMAP_NOTES})`);
@@ -387,6 +422,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       sliderPoints,
       sliderLength: rn.pixelLength,
       slidesCount: rn.slides,
+      hitSound: rn.hitSound,
+      hitSample: rn.hitSample,
     });
   }
 
@@ -421,10 +458,12 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     hpDrainRate,
     overallDifficulty,
     videoStartTime: media.videoStartTime,
+    previewTime,
     mode,
     timingPoints: parsedTimingPoints,
     sliderMultiplier,
     baseBeatLength,
+    breaks: breaks.sort((a, b) => a.startTime - b.startTime),
   };
 }
 

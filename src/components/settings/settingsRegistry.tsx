@@ -120,6 +120,13 @@ export const ROWS: RowDef[] = [
     defaultValue: DEFAULT_SETTINGS.progressBarTop,
     keywords: ['progress', 'bar', 'song'],
   },
+  {
+    id: 'enableSongPreview', section: 'general', label: 'Song preview audio',
+    description: 'Play a preview of the song when selecting it on the Song Select screen.',
+    control: { kind: 'toggle' },
+    defaultValue: DEFAULT_SETTINGS.enableSongPreview,
+    keywords: ['preview', 'song', 'select', 'music', 'listen'],
+  },
 
   // ── GRAPHICS ──────────────────────────────────────────────────────────
   {
@@ -133,6 +140,13 @@ export const ROWS: RowDef[] = [
     description: 'How much to dim the background while playing.',
     control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
     defaultValue: DEFAULT_SETTINGS.backgroundDim,
+  },
+  {
+    id: 'menuBackgroundDim', section: 'graphics', label: 'Menu background dim',
+    description: 'How much to darken the background picture on the Song Select and Replay Select screens.',
+    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
+    defaultValue: DEFAULT_SETTINGS.menuBackgroundDim,
+    keywords: ['menu', 'background', 'song', 'select', 'replay', 'artwork', 'dim', 'darken', 'brightness', 'opacity'],
   },
   {
     id: 'disableVideo', section: 'graphics', label: 'Disable background video',
@@ -159,6 +173,13 @@ export const ROWS: RowDef[] = [
     control: { kind: 'toggle' },
     defaultValue: DEFAULT_SETTINGS.disableLaneShake,
     keywords: ['shake', 'vibration', 'marvelous', 'lane', 'screen'],
+  },
+  {
+    id: 'showFpsCounter', section: 'graphics', label: 'Show FPS counter',
+    description: 'Display a small frames-per-second readout in the corner during gameplay.',
+    control: { kind: 'toggle' },
+    defaultValue: DEFAULT_SETTINGS.showFpsCounter,
+    keywords: ['fps', 'frames', 'performance', 'counter'],
   },
   {
     id: 'renderEngine', section: 'graphics', label: 'Rendering engine',

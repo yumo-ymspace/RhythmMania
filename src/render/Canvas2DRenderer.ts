@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import { IPlayfieldRenderer, PlayfieldFrame, InitOpts, VisibleNote } from './types';
@@ -201,8 +208,11 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         const xPos = columns[n.column].x;
         const colW = columns[n.column].width;
 
+// Anchor the body start to the receptor only while the LN is actively engaged
+        // (head hit & held). A missed head must not ground the body — the LN keeps its
+        // fixed length and scrolls off naturally; the release stays salvageable.
         let visualStartY = n.y;
-        if ((n.isHit || n.isMissed) && !n.isReleased && !n.isHoldFailed) {
+        if (n.isHit && !n.isMissed && !n.isReleased && !n.isHoldFailed) {
           visualStartY = receptorY;
         }
 

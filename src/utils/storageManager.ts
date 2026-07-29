@@ -23,6 +23,7 @@ export interface SavedBeatmap extends Beatmap {
   originalContent?: string;
   isServerMap?: boolean;
   oszUrl?: string;
+  importedAt?: number; // epoch ms when first saved locally; used by "Date Added" sort
 }
 
 export interface PackageRecord {
@@ -147,9 +148,10 @@ class StorageManager {
 
   public async saveBeatmap(beatmap: SavedBeatmap): Promise<void> {
     const database = await this.getDB();
+    const record: SavedBeatmap = { ...beatmap, importedAt: beatmap.importedAt ?? Date.now() };
     return new Promise<void>((resolve, reject) => {
       const tx = database.transaction('beatmaps', 'readwrite');
-      tx.objectStore('beatmaps').put(beatmap);
+      tx.objectStore('beatmaps').put(record);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

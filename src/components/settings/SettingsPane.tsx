@@ -96,10 +96,13 @@ export default function SettingsPane({
                 />
               );
             } else if (row.control.kind === 'slider') {
+              const sliderVal = currentValue === undefined || currentValue === null || Number.isNaN(Number(currentValue))
+                ? Number(row.defaultValue ?? 0)
+                : Number(currentValue);
               controlNode = (
                 <SettingsSlider
                   id={`setting-${row.id}`}
-                  value={Number(currentValue)}
+                  value={sliderVal}
                   min={row.control.min}
                   max={row.control.max}
                   step={row.control.step}

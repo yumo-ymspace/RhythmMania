@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
- * Serverless Replay Fetch Endpoint
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -23,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const dbRes = await query<{
       id: string;
-      user_id: number | null;
+      user_id: string | null;
       beatmap_set_id: string | null;
       beatmap_difficulty_id: string | null;
       beatmap_hash: string;

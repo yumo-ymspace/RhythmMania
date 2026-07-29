@@ -5,6 +5,9 @@
  * This source code is licensed under the PolyForm Perimeter License 1.0.1.
  * You may modify and use this file for non-competing purposes, provided 
  * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import { Beatmap, GameSettings, PlayHistoryRecord, ReplayFrame, ReplaySource, ScoreState, UploadEligibility, UploadStatus } from '../types';
@@ -111,7 +114,8 @@ export function createPlayHistoryRecord(params: {
 
   let gradeChar = 'D';
   const acc = scoreState.accuracy;
-  if (acc >= 100) gradeChar = 'SS';
+  if (scoreState.failed) gradeChar = 'F';
+  else if (acc >= 100) gradeChar = 'SS';
   else if (acc >= 95) gradeChar = 'S';
   else if (acc >= 90) gradeChar = 'A';
   else if (acc >= 80) gradeChar = 'B';

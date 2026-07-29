@@ -30,6 +30,7 @@ import { TempMemoryCache } from '../utils/tempMemoryCache';
 import { unpackBeatmap } from '../utils/unpackHelper';
 import { computeBeatmapHash } from '../utils/replayManager';
 import { LeaderboardReplayItem, fetchLeaderboardReplays, fetchReplayDetail } from '../utils/replayClient';
+import { previewPlayer } from '../utils/previewPlayer';
 import metadata from '../../metadata.json';
 
 interface SongSelectProps {
@@ -47,6 +48,10 @@ interface SongSelectProps {
   onOpenOnlineCatalog?: () => void;
   onWatchReplay?: (record: PlayHistoryRecord, beatmap?: Beatmap) => Promise<{ success: boolean; error?: string }> | void;
   onAddHistoryRecord?: (record: PlayHistoryRecord) => void;
+  playHistory?: PlayHistoryRecord[];
+  // When false (fresh app load), Song Select will not pre-select any map.
+  // When true (returning from gameplay/replay), it resumes the last selected map.
+  shouldAutoSelectOnMount?: boolean;
 }
 
 export default function SongSelect({
@@ -63,7 +68,9 @@ export default function SongSelect({
   onBack,
   onOpenOnlineCatalog,
   onWatchReplay,
-  onAddHistoryRecord
+  onAddHistoryRecord,
+  playHistory = [],
+  shouldAutoSelectOnMount = false,
 }: SongSelectProps) {
   // Search & Basic UI State
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -125,11 +132,45 @@ export default function SongSelect({
   const [minStar, setMinStar] = useState<number>(0.0);
   const [maxStar, setMaxStar] = useState<number>(10.0);
   const [sortBy, setSortBy] = useState<string>('Title');
-  const [groupBy, setGroupBy] = useState<string>('None');
   const [collectionFilter, setCollectionFilter] = useState<string>('Downloaded');
+  const [openFilterMenu, setOpenFilterMenu] = useState<'sort' | 'star' | null>(null);
   const [selectedDetailTab, setSelectedDetailTab] = useState<'details' | 'ranking'>('details');
   const [localScores, setLocalScores] = useState<any[]>([]);
   const [showModsModal, setShowModsModal] = useState<boolean>(false);
+
+  // Favorites: stable song-group keys persisted to localStorage
+  const [favoriteSongs, setFavoriteSongs] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('rhythm_mania_v1_favorite_songs');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= 300)
+              .slice(0, 5000);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load favorite songs:', e);
+      }
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('rhythm_mania_v1_favorite_songs', JSON.stringify(favoriteSongs));
+    } catch (e) {
+      console.warn('Failed to save favorite songs:', e);
+    }
+  }, [favoriteSongs]);
+
+  const toggleFavorite = (songKey: string) => {
+    setFavoriteSongs(prev =>
+      prev.includes(songKey) ? prev.filter(k => k !== songKey) : [...prev, songKey]
+    );
+  };
 
   // Handle ESC key to close mods menu
   useEffect(() => {
@@ -287,7 +328,7 @@ export default function SongSelect({
     }
 
     return resolvedCustomMaps;
-  }, [customMaps, showServerPackages, serverManifest]);
+  }, [customMaps, showServerPackages, serverManifest, unpackTrigger]);
 
 
 
@@ -297,6 +338,18 @@ export default function SongSelect({
       localStorage.setItem('rhythm_mania_v1_last_selected_map_id', selectedCustomMapId);
     }
   }, [selectedCustomMapId]);
+
+  const getArtistTitleKey = (map: any) => {
+    const mapArtist = map.artist || 'Unknown';
+    const mapTitle = map.title || 'Untitled';
+    return `${mapArtist.toLowerCase().trim()} - ${mapTitle.toLowerCase().trim()}`;
+  };
+
+  const getMapSongKey = (map: any) => {
+    const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
+    if (mapPkgId) return `server_pkg_${mapPkgId}`;
+    return getArtistTitleKey(map);
+  };
 
   // Filter and prepare display beatmaps
   const filteredCustomMaps = React.useMemo(() => {
@@ -318,8 +371,8 @@ export default function SongSelect({
       // Filter by Collection / Source type
       if (collectionFilter === 'Downloaded') {
         if ((map as any).isServerPackage) return false;
-      } else if (collectionFilter === 'Cloud/Virtual') {
-        if (!(map as any).isServerPackage) return false;
+      } else if (collectionFilter === 'Favorites') {
+        if (!favoriteSongs.includes(getMapSongKey(map))) return false;
       }
 
       return true;
@@ -328,21 +381,14 @@ export default function SongSelect({
       if (sortBy === 'Artist') return a.artist.localeCompare(b.artist);
       if (sortBy === 'Difficulty') return getStarRating(b) - getStarRating(a);
       if (sortBy === 'BPM') return (b.bpm || 0) - (a.bpm || 0);
+      if (sortBy === 'Length') return (b.duration || 0) - (a.duration || 0);
+      if (sortBy === 'Date Added') {
+        const delta = ((b as any).importedAt || 0) - ((a as any).importedAt || 0);
+        return delta !== 0 ? delta : a.title.localeCompare(b.title);
+      }
       return 0;
     });
-  }, [mergedCustomMaps, searchTerm, minStar, maxStar, collectionFilter, sortBy, filterMode]);
-
-  const getArtistTitleKey = (map: any) => {
-    const mapArtist = map.artist || 'Unknown';
-    const mapTitle = map.title || 'Untitled';
-    return `${mapArtist.toLowerCase().trim()} - ${mapTitle.toLowerCase().trim()}`;
-  };
-
-  const getMapSongKey = (map: any) => {
-    const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
-    if (mapPkgId) return `server_pkg_${mapPkgId}`;
-    return getArtistTitleKey(map);
-  };
+  }, [mergedCustomMaps, searchTerm, minStar, maxStar, collectionFilter, sortBy, filterMode, favoriteSongs]);
 
   const persistLastDifficultyForMap = (map: any) => {
     if (!map?.id) return;
@@ -376,8 +422,12 @@ export default function SongSelect({
     }
   }, [selectedCustomMapId, mergedCustomMaps]);
 
-  // Load last selected map ID on mount/update if none is currently selected
+  // Load last selected map ID on mount/update if none is currently selected.
+  // Suppressed on fresh app loads (shouldAutoSelectOnMount === false) so the
+  // user starts with a clean, unselected Song Select; only returns from a
+  // finished/quit gameplay session opt into auto-resuming the last played map.
   useEffect(() => {
+    if (!shouldAutoSelectOnMount) return;
     if (!selectedCustomMapId && filteredCustomMaps.length > 0) {
       const savedLastId = localStorage.getItem('rhythm_mania_v1_last_selected_map_id');
       if (savedLastId) {
@@ -390,13 +440,13 @@ export default function SongSelect({
           }
         }
       }
-      
+
       const defaultMap = filteredCustomMaps[0];
       if (defaultMap) {
         handleSelectCustomMap(defaultMap);
       }
     }
-  }, [filteredCustomMaps, selectedCustomMapId]);
+  }, [filteredCustomMaps, selectedCustomMapId, shouldAutoSelectOnMount]);
 
   // Group maps by normalized artist & title
   const songGroups = React.useMemo(() => {
@@ -785,6 +835,33 @@ export default function SongSelect({
     }
   };
 
+  // Song preview: play audio for the currently selected local map once its
+  // media has been unpacked (blob URL available). Skips virtual cloud packages.
+  useEffect(() => {
+    if (!settings.enableSongPreview || !selectedCustomMapId) {
+      previewPlayer.stop();
+      return;
+    }
+    const map = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
+    if (!map?.audioUrl || !map.audioUrl.startsWith('blob:')) {
+      previewPlayer.stop();
+      return;
+    }
+    const previewMs = (map.previewTime != null && map.previewTime >= 0)
+      ? map.previewTime
+      : (map.duration || 180) * 1000 * 0.4;
+    previewPlayer.play(map.audioUrl, previewMs, settings.musicVolume, getMapSongKey(map));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCustomMapId, unpackTrigger, mergedCustomMaps, settings.enableSongPreview]);
+
+  // Keep preview volume in sync with the music volume setting
+  useEffect(() => {
+    previewPlayer.setVolume(settings.musicVolume);
+  }, [settings.musicVolume]);
+
+  // Stop preview when leaving Song Select
+  useEffect(() => () => previewPlayer.stop(), []);
+
   const handleStartPlay = async (mapOverride?: Beatmap) => {
     const activeMap = mapOverride || selectedCustomMap;
     if (activeMap) {
@@ -864,24 +941,12 @@ export default function SongSelect({
           const blob = new Blob(chunks, { type: 'application/octet-stream' });
           const packageId = `pkg_${serverMapId}`;
 
-          // Unzip and delete all .wav files
+          // Keep bundled hitsound samples; unpackBeatmap applies the package
+          // security limits when it resolves audio assets.
           const zip = await JSZip.loadAsync(blob);
           validateZipLimits(zip);
-          const zipKeys = Object.keys(zip.files);
-          let wavsDeletedCount = 0;
-          for (const key of zipKeys) {
-            if (key.toLowerCase().endsWith('.wav')) {
-              zip.remove(key);
-              wavsDeletedCount++;
-            }
-          }
-          if (wavsDeletedCount > 0) {
-            console.log(`Removed ${wavsDeletedCount} .wav files from downloaded map: ${serverMapTitle}`);
-          }
 
-          // Compile clean zip without wavs
-          const cleanedBlob = await zip.generateAsync({ type: 'blob' });
-          await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, cleanedBlob);
+          await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
           await new Promise(resolve => setTimeout(resolve, 15));
 
           const resolver = new RobustZipResolver(zip);
@@ -1063,18 +1128,7 @@ export default function SongSelect({
         const zip = await JSZip.loadAsync(file);
         validateZipLimits(zip);
         
-        // Remove all .wav files from the uploaded zip
         const zipKeys = Object.keys(zip.files);
-        let wavsDeletedCount = 0;
-        for (const key of zipKeys) {
-          if (key.toLowerCase().endsWith('.wav')) {
-            zip.remove(key);
-            wavsDeletedCount++;
-          }
-        }
-        if (wavsDeletedCount > 0) {
-          console.log(`Removed ${wavsDeletedCount} .wav files from uploaded local map: ${file.name}`);
-        }
 
         const fileNames = Object.keys(zip.files);
         const beatmapFiles: { name: string; content: string }[] = [];
@@ -1091,12 +1145,9 @@ export default function SongSelect({
           throw new Error('Empty package structure. No beatmap files discovered.');
         }
 
-        // Generate clean zip package without wavs
-        const cleanedBlob = await zip.generateAsync({ type: 'blob' });
-
         // Save binary bundle to local storage
         const packageId = `pkg_${Date.now()}`;
-        await storageManager.savePackage(packageId, file.name, cleanedBlob);
+        await storageManager.savePackage(packageId, file.name, file);
 
         let successCount = 0;
         let lastId = '';
@@ -2113,9 +2164,20 @@ export default function SongSelect({
                                       </div>
                                     )}
 
-                                    <span className="text-xs font-bold text-white truncate font-sans">
-                                      {rep.username}
-                                    </span>
+                                    {rep.userId ? (
+                                      <a
+                                        href={`/profile/${rep.userId}`}
+                                        className="text-xs font-bold text-white truncate font-sans hover:text-pink-300 transition-colors"
+                                        title={`View ${rep.username}'s profile`}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {rep.username}
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs font-bold text-white truncate font-sans">
+                                        {rep.username}
+                                      </span>
+                                    )}
                                   </div>
 
                                   <div className="flex items-center gap-1.5 shrink-0">
@@ -2155,19 +2217,29 @@ export default function SongSelect({
                                 {/* Bottom Row: Actions (Download & Watch Replay) */}
                                 <div className="flex items-center gap-2 pt-1">
                                   {rep.isOwn ? (
-                                    <button
-                                      onClick={() => handleDownloadOnlineReplay(rep.id)}
-                                      disabled={downloadingReplayId === rep.id}
-                                      className="flex-1 py-1 px-2 bg-white/5 hover:bg-white/10 active:scale-95 text-slate-300 hover:text-white rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
-                                      title="Download your replay to Local History"
-                                    >
-                                      {downloadingReplayId === rep.id ? (
-                                        <Loader className="h-3 w-3 animate-spin text-pink-400" />
-                                      ) : (
-                                        <FileText className="h-3 w-3 text-cyan-400" />
-                                      )}
-                                      <span>Download</span>
-                                    </button>
+                                    (playHistory.some((s) => s.id === rep.id) || localScores.some((s) => s.id === rep.id)) ? (
+                                      <span
+                                        className="flex-1 py-1 px-2 bg-transparent text-slate-600 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1 opacity-40 cursor-default select-none"
+                                        title="Already saved locally — delete it from Replay Select to download again"
+                                      >
+                                        <FileText className="h-3 w-3" />
+                                        <span>Saved Locally</span>
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleDownloadOnlineReplay(rep.id)}
+                                        disabled={downloadingReplayId === rep.id}
+                                        className="flex-1 py-1 px-2 bg-white/5 hover:bg-white/10 active:scale-95 text-slate-300 hover:text-white rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
+                                        title="Download your replay to Local History"
+                                      >
+                                        {downloadingReplayId === rep.id ? (
+                                          <Loader className="h-3 w-3 animate-spin text-pink-400" />
+                                        ) : (
+                                          <FileText className="h-3 w-3 text-cyan-400" />
+                                        )}
+                                        <span>Download</span>
+                                      </button>
+                                    )
                                   ) : (
                                     <span className="flex-1 py-1 px-2 text-slate-500 rounded-lg text-[10px] font-mono font-bold flex items-center justify-center gap-1">
                                       <span>Watch-only</span>
@@ -2315,6 +2387,116 @@ export default function SongSelect({
             </span>
           </div>
 
+          {/* FILTER / SORT TOOLBAR */}
+          <div className="px-4 lg:px-6 flex-shrink-0 flex flex-wrap items-center gap-1.5 relative z-20">
+            {/* Collection chips */}
+            <div className="flex items-center gap-0.5 bg-[#0f0e15] border border-white/10 rounded-lg p-0.5">
+              {([
+                { id: 'Downloaded', label: 'Downloaded' },
+                { id: 'Favorites', label: 'Favorites' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => setCollectionFilter(opt.id)}
+                  className={`px-2 py-1 rounded-md text-[9px] font-mono font-bold uppercase tracking-wider transition-all ${
+                    collectionFilter === opt.id
+                      ? 'bg-skin-accent/20 text-skin-accent border border-skin-accent/40'
+                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setOpenFilterMenu(openFilterMenu === 'sort' ? null : 'sort')}
+                className="flex items-center gap-1 px-2 py-1.5 bg-[#0f0e15] border border-white/10 rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 hover:border-white/20 transition-all"
+              >
+                Sort: <span className="text-white">{sortBy}</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {openFilterMenu === 'sort' && (
+                <>
+                  <div className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenFilterMenu(null)} />
+                  <div className="absolute left-0 top-full mt-1 z-40 bg-[#12121a] border border-white/10 rounded-lg shadow-2xl py-1 min-w-[140px]">
+                    {['Title', 'Artist', 'Difficulty', 'BPM', 'Length', 'Date Added'].map(opt => (
+                      <button
+                        key={opt}
+                        onClick={() => { setSortBy(opt); setOpenFilterMenu(null); }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                          sortBy === opt ? 'text-skin-accent bg-skin-accent/10' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {opt}
+                        {sortBy === opt && <Check className="h-3 w-3" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Star range popover */}
+            <div className="relative">
+              <button
+                onClick={() => setOpenFilterMenu(openFilterMenu === 'star' ? null : 'star')}
+                className={`flex items-center gap-1 px-2 py-1.5 bg-[#0f0e15] border rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider transition-all ${
+                  minStar > 0 || maxStar < 10
+                    ? 'border-amber-500/40 text-amber-300'
+                    : 'border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20'
+                }`}
+              >
+                <Star className="h-3 w-3" />
+                {minStar.toFixed(1)}–{maxStar.toFixed(1)}
+              </button>
+              {openFilterMenu === 'star' && (
+                <>
+                  <div className="fixed inset-0 z-30 cursor-default" onClick={() => setOpenFilterMenu(null)} />
+                  <div className="absolute left-0 top-full mt-1 z-40 bg-[#12121a] border border-white/10 rounded-lg shadow-2xl p-3 w-56 flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between text-[9px] font-mono text-slate-400 uppercase tracking-wider">
+                        <span>Min stars</span><span className="text-white">{minStar.toFixed(1)}</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={10} step={0.1} value={minStar}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          setMinStar(v);
+                          if (v > maxStar) setMaxStar(v);
+                        }}
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between text-[9px] font-mono text-slate-400 uppercase tracking-wider">
+                        <span>Max stars</span><span className="text-white">{maxStar.toFixed(1)}</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={10} step={0.1} value={maxStar}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          setMaxStar(v);
+                          if (v < minStar) setMinStar(v);
+                        }}
+                        className="w-full accent-amber-400"
+                      />
+                    </div>
+                    <button
+                      onClick={() => { setMinStar(0); setMaxStar(10); }}
+                      className="self-end text-[9px] font-mono uppercase tracking-wider text-slate-500 hover:text-white transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+          </div>
+
           {/* HIGH-DENSITY SCROLL BEATMAP GROUP LISTING CARD STACK */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 flex flex-col gap-1 relative z-10 min-h-0 pb-[72px]">
             {songGroups.length > 0 ? (
@@ -2351,8 +2533,19 @@ export default function SongSelect({
                           </span>
                         </div>
 
-                        {/* RIGHT SIDE OF ROW: KEY COUNT */}
+                        {/* RIGHT SIDE OF ROW: FAVORITE TOGGLE + KEY COUNT */}
                         <div className="flex items-center gap-2.5 shrink-0 select-none">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleFavorite(group.songKey); }}
+                            title={favoriteSongs.includes(group.songKey) ? 'Remove from favorites' : 'Add to favorites'}
+                            className="p-1 rounded-md hover:bg-white/5 transition-colors"
+                          >
+                            <Heart className={`h-3.5 w-3.5 transition-colors ${
+                              favoriteSongs.includes(group.songKey)
+                                ? 'fill-rose-500 text-rose-500'
+                                : 'text-slate-600 group-hover:text-slate-400'
+                            }`} />
+                          </button>
                           {group.maps?.length > 0 && (
                             <span className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[10px] font-mono font-black text-slate-300">
                               {Array.from(new Set(group.maps.map(m => m.keyCount).filter(Boolean)))

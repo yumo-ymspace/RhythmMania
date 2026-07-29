@@ -1,6 +1,13 @@
 /*
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
 import { HitObject } from '../types';
@@ -27,14 +34,17 @@ export function getVisibleNotes(
   const noteOpacityVal = settings.noteOpacity ?? 1.0;
 
   notes.forEach((n) => {
-    // 1. Hold body stays visible after a head miss so the player can still catch middle/tail
+// 1. Hold body stays visible after a head miss so the player can still catch middle/tail
     const isHoldBodyActive = n.type === 'hold' && !!n.endTime && !n.isReleased && !n.isHoldFailed;
-    // Ground body to receptor while engaged or after head miss (salvageable LNs stay anchored).
+    // Ground body to receptor only while actively engaged (held). A missed head does NOT
+    // ground the body — the LN keeps its fixed length and scrolls off the bottom; only
+    // the head judgement is invalidated, the tail/release remains salvageable.
     const isHoldBodyGrounded =
       n.type === 'hold' &&
       !n.isReleased &&
       !n.isHoldFailed &&
-      (!!n.isHit || !!n.isMissed);
+      !!n.isHit &&
+      !n.isMissed;
     
     // 2. Note head/head receptor visibilities (head hides after miss; end stays until release/fail)
     const shouldDrawHead = (n.type === 'normal' && !n.isHit && !n.isMissed) || (n.type === 'hold' && !n.isHit && !n.isMissed && !n.isHoldFailed);

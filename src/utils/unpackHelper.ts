@@ -54,6 +54,7 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
     !force &&
     !!cached?.audioUrl &&
     !!cached?.bgUrl &&
+    map.hitSoundUrls !== undefined &&
     (!wantsVideo || !!cached?.videoUrl);
 
   if (cacheComplete) {
@@ -76,10 +77,15 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
   const audioFilename = mapWithPkg.audioFilename || '';
   const videoFilename = mapWithPkg.videoFilename || '';
   const bgFilename = mapWithPkg.bgFilename || '';
+  const hitSoundFilenames = new Set<string>(['normal-hitnormal', 'normal-hitwhistle', 'normal-hitfinish', 'normal-hitclap']);
+  for (const note of map.notes || []) {
+    if (note.hitSample?.filename) hitSoundFilenames.add(note.hitSample.filename.replace(/\.[^/.]+$/, ''));
+  }
 
   let parsedAudioUrl = (!force && cached?.audioUrl) || '';
   let parsedVideoUrl = (!force && cached?.videoUrl) || '';
   let parsedBgUrl = (!force && cached?.bgUrl) || '';
+  const parsedHitSoundUrls: Record<string, string> = {};
 
   if (audioFilename && !parsedAudioUrl) {
     const file = resolver.findFile(audioFilename);
@@ -120,6 +126,14 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
       }
     }
   }
+  for (const sampleName of hitSoundFilenames) {
+    const file = resolver.findFile(sampleName) ||
+      resolver.findFile(`${sampleName}.wav`) ||
+      resolver.findFile(`${sampleName}.ogg`);
+    if (file) {
+      parsedHitSoundUrls[sampleName] = await registerZipFile(file, file.name);
+    }
+  }
   if (!parsedBgUrl) {
     const fallbackObj =
       (await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])) ||
@@ -138,6 +152,12 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
   if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
   if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
   if (parsedBgUrl) map.bgUrl = parsedBgUrl;
+  if (map.hitSoundUrls) {
+    for (const url of Object.values(map.hitSoundUrls)) {
+      if (url?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(url);
+    }
+  }
+  map.hitSoundUrls = parsedHitSoundUrls;
 
   TempMemoryCache.remove(mapWithPkg.packageId);
 }

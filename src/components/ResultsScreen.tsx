@@ -11,15 +11,18 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { RotateCcw, ChevronLeft, Play, Calendar, Trophy, Percent, Flame, Video, ArrowLeft, Trash2 } from 'lucide-react';
+import { RotateCcw, ChevronLeft, Play, Calendar, Trophy, Percent, Flame, Video, ArrowLeft, Trash2, Download } from 'lucide-react';
 import { Beatmap, ScoreState, PlayHistoryRecord } from '../types';
 import { sanitizeCssUrl } from '../utils/securityLimits';
+import { downloadReplayExport } from '../utils/replayTransfer';
+import HitErrorGraph from './HitErrorGraph';
 
 interface ResultsScreenProps {
   scoreState: ScoreState;
   beatmap: Beatmap;
   playHistory?: PlayHistoryRecord[];
   currentMods?: string[];
+  hitErrors?: number[] | null;
   onRetry: () => void;
   onWatchReplay?: (record: PlayHistoryRecord) => void;
   onBack: () => void;
@@ -32,6 +35,7 @@ export default function ResultsScreen({
   beatmap,
   playHistory = [],
   currentMods,
+  hitErrors,
   onRetry,
   onWatchReplay,
   onBack,
@@ -59,10 +63,20 @@ export default function ResultsScreen({
 
   // 1. Gather play runs for this beatmap
   const mapRecords = useMemo(() => {
+    const baseId = beatmap.id.includes('_converted_')
+      ? beatmap.id.split('_converted_')[0]
+      : beatmap.id;
     return playHistory
-      .filter(r => r.beatmapId === beatmap.id && !r.isFailed)
+      .filter(r =>
+        !r.isFailed && (
+          r.beatmapId === beatmap.id ||
+          (baseId && r.beatmapId === baseId) ||
+          (beatmap.catalogMapId && r.catalogMapId === beatmap.catalogMapId) ||
+          (beatmap.beatmapHash && r.beatmapHash === beatmap.beatmapHash)
+        )
+      )
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [playHistory, beatmap.id]);
+  }, [playHistory, beatmap.id, beatmap.catalogMapId, beatmap.beatmapHash]);
 
   // 2. Local selection state for inspecting runs
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
@@ -396,6 +410,12 @@ export default function ResultsScreen({
 
         </div>
 
+        {/* Session-only hit error distribution for the run just played (or watched replay);
+            hidden while inspecting an older run from the selector. */}
+        {hitErrors && hitErrors.length >= 2 && (!activeRecord || activeRecord.id === scoreState.recordId) && (
+          <HitErrorGraph errors={hitErrors} unstableRate={activeScoreState.unstableRate} />
+        )}
+
         {/* 4. Sleek control buttons arranged neatly underneath the horizontal bar */}
         <div className="flex flex-row items-center justify-center gap-4 mt-8 w-full max-w-3xl px-4">
           
@@ -416,6 +436,17 @@ export default function ResultsScreen({
             >
               <Video className="h-4 w-4" />
               <span className="whitespace-nowrap">Watch Replay</span>
+            </button>
+          )}
+
+          {activeRecord && (
+            <button
+              id="results-export-btn"
+              title="Export this run as a replay file"
+              onClick={() => downloadReplayExport([activeRecord], `${activeRecord.beatmapArtist} - ${activeRecord.beatmapTitle}`)}
+              className="py-3.5 px-4 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-slate-300 rounded-2xl flex items-center justify-center active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+            >
+              <Download className="h-4 w-4" />
             </button>
           )}
 

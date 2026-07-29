@@ -17,6 +17,7 @@ export class AudioEngine {
   private musicSource: AudioBufferSourceNode | null = null;
   private musicBuffer: AudioBuffer | null = null;
   private hitsoundBuffer: AudioBuffer | null = null;
+  private beatmapHitsoundBuffers = new Map<string, AudioBuffer>();
   
   // Volume controls
   private masterGain: GainNode | null = null;
@@ -172,6 +173,45 @@ export class AudioEngine {
       osc.start(t0);
       osc.stop(t0 + 0.06);
     }
+
+  }
+
+  public async loadBeatmapHitsounds(urls: Record<string, string>): Promise<void> {
+    this.init();
+    if (!this.ctx) return;
+    this.beatmapHitsoundBuffers.clear();
+    const entries = Object.entries(urls);
+    await Promise.all(entries.map(async ([key, url]) => {
+      try {
+        const response = await fetch(url, { referrerPolicy: 'no-referrer' });
+        if (!response.ok) return;
+        const buffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
+        this.beatmapHitsoundBuffers.set(key, buffer);
+      } catch (error) {
+        console.warn('Could not decode beatmap hitsound:', key, error instanceof Error ? error.message : String(error));
+      }
+    }));
+  }
+
+  public playBeatmapHitsound(hitSound = 0, customFilename?: string): void {
+    const sampleKey = (customFilename || '').replace(/\.[^/.]+$/, '') || (
+      hitSound & 8 ? 'normal-hitclap' :
+      hitSound & 4 ? 'normal-hitfinish' :
+      hitSound & 2 ? 'normal-hitwhistle' :
+      'normal-hitnormal'
+    );
+    const buffer = this.beatmapHitsoundBuffers.get(sampleKey);
+    if (!buffer) {
+      this.playHitsound();
+      return;
+    }
+    this.init();
+    if (!this.ctx || !this.sfxGain) return;
+    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.sfxGain);
+    source.start(this.ctx.currentTime + 0.003);
   }
 
   /**
