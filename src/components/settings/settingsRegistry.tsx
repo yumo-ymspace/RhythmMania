@@ -183,13 +183,34 @@ export const ROWS: RowDef[] = [
   },
   {
     id: 'renderEngine', section: 'graphics', label: 'Rendering engine',
-    description: 'Choose the gameplay rendering engine. PixiJS v8 offers high-performance WebGL rendering.',
+    description: 'Choose the gameplay rendering engine. PixiJS v8 offers high-performance WebGL rendering; Babylon.js 3D is a PJ Sekai-style converging runway.',
     control: { kind: 'select', options: [
       { value: 'canvas', label: 'Canvas 2D' },
       { value: 'pixi',  label: 'PixiJS v8' },
+      { value: 'babylon', label: 'Babylon.js 3D' },
     ]},
     defaultValue: DEFAULT_SETTINGS.renderEngine || 'canvas',
-    keywords: ['renderer', 'engine', 'pixi', 'canvas', 'graphics', 'webgl'],
+    keywords: ['renderer', 'engine', 'pixi', 'canvas', 'babylon', 'graphics', 'webgl', '3d'],
+  },
+  {
+    id: 'babylonFloor', section: 'graphics', label: 'Runway floor',
+    description: 'Show the dark matte runway floor beneath the lanes.',
+    control: { kind: 'toggle' },
+    defaultValue: DEFAULT_SETTINGS.babylonFloor,
+    showWhen: (s) => s.renderEngine === 'babylon',
+    keywords: ['babylon', 'floor', 'runway', 'matte', '3d'],
+  },
+  {
+    id: 'babylonQuality', section: 'graphics', label: 'Babylon quality',
+    description: 'Bloom + particle quality preset. Low = no bloom, fewer particles; High = full bloom + particles.',
+    control: { kind: 'select', options: [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+    ]},
+    defaultValue: DEFAULT_SETTINGS.babylonQuality,
+    showWhen: (s) => s.renderEngine === 'babylon',
+    keywords: ['babylon', 'quality', 'bloom', 'performance', '3d'],
   },
 
   // ── GAMEPLAY ──────────────────────────────────────────────────────────
@@ -201,12 +222,13 @@ export const ROWS: RowDef[] = [
   },
   {
     id: 'upsurfaceNoteMode', section: 'gameplay', label: 'Scroll direction',
-    description: 'If on, notes move up from below instead of falling from above.',
+    description: 'If on, notes move up from below instead of falling from above. Disabled when Babylon.js 3D is the active renderer.',
     control: { kind: 'select', options: [
       { value: 'false', label: 'Down (default)' },
       { value: 'true',  label: 'Up' },
     ]},
     defaultValue: DEFAULT_SETTINGS.upsurfaceNoteMode,
+    showWhen: (s) => s.renderEngine !== 'babylon',
   },
   {
     id: 'visualOffset', section: 'gameplay', label: 'Visual offset',

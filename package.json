@@ -1,7 +1,7 @@
 {
   "name": "rhythm-mania",
   "private": true,
-  "version": "0.8.1",
+  "version": "0.8.2",
   "type": "module",
   "license": "Proprietary",
   "scripts": {
@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@babylonjs/core": "^9.18.2",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",

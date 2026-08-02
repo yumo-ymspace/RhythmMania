@@ -218,14 +218,36 @@ export interface GameSettings {
   selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
   bindPause?: string; // gameplay pause/resume keybind
   bindRetry?: string; // gameplay quick retry keybind
-  renderEngine?: 'canvas' | 'pixi';
+  renderEngine?: 'canvas' | 'pixi' | 'babylon';
+  babylonFloor?: boolean;
+  babylonQuality?: 'low' | 'medium' | 'high';
   enableMapSV?: boolean;
   disableLaneShake?: boolean;
   enableSongPreview?: boolean; // play an audio preview of the selected map on Song Select
   showFpsCounter?: boolean; // render a small FPS readout during gameplay
 }
 
-export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history' | 'profile';
+export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history' | 'profile' | 'editprofile';
+
+export interface ProfileSocialLinks {
+  youtube?: string;
+  twitter?: string;
+  discord?: string;
+  website?: string;
+}
+
+export type ProfileActivityStatus = 'playing' | 'practicing' | 'mapping' | 'away' | 'offline' | 'custom';
+
+export interface ProfileEditData {
+  displayName: string;
+  handle: string;
+  bio: string;
+  socialLinks: ProfileSocialLinks;
+  activityStatus: ProfileActivityStatus;
+  activityMessage: string;
+  avatarSource: 'preset' | 'uploaded' | 'google' | null;
+  avatarPresetId?: string;
+}
 
 declare global {
   const __APP_VERSION__: string;

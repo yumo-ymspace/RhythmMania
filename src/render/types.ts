@@ -78,7 +78,11 @@ export interface PlayfieldVisualSettings {
   selectedMods?: string[];
   backgroundDim?: number;
   disableParticles?: boolean;
+  disableLaneShake?: boolean;
   enableMapSV?: boolean;
+  babylonFloor?: boolean;
+  babylonQuality?: 'low' | 'medium' | 'high';
+  playfieldWidthPercent?: number;
 }
 
 export interface PlayfieldFrame {

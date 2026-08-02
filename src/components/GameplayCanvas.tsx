@@ -30,7 +30,6 @@ import metadata from '../../metadata.json';
 // HIGH PERFORMANCE INTEGRATED RENDERER IMPORTS
 import { IPlayfieldRenderer, ColumnLayout } from '../render/types';
 import { Canvas2DRenderer } from '../render/Canvas2DRenderer';
-import { PixiPlayfieldRenderer } from '../render/pixi/PixiPlayfieldRenderer';
 import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
 import { getVisibleNotes } from '../render/noteVisibility';
 import { createScrollModel, ScrollModel } from '../render/scrollVelocity';
@@ -201,22 +200,18 @@ export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: st
     if (keyCount === 5) {
       if (i === 1 || i === 3) color = colors.white;
       else if (i === 0 || i === 4) color = colors.blue;
-      else if (i === 2) { 
-        width = baseWidth * 1.35; // Wider spacebar column
-        color = colors.accent; 
+      else if (i === 2) {
+        color = colors.accent;
       }
     } else if (keyCount === 7) {
       if (i === 0 || i === 2 || i === 4 || i === 6) color = colors.blue;
       else if (i === 1 || i === 5) color = colors.white;
       else if (i === 3) {
-        width = baseWidth * 1.35; // Wider center spacebar
         color = colors.accent;
       }
     } else if (keyCount === 8) {
-      // 8K typical layout: 7 standard keys + 1 thumb key on left/right side
       if (i === 0) {
-        width = baseWidth * 1.4;
-        color = colors.cyan; // Special side-lane
+        color = colors.cyan;
       } else if (i === 1 || i === 3 || i === 5 || i === 7) {
         color = colors.blue;
       } else {
@@ -226,7 +221,6 @@ export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: st
       if (i === 0 || i === 2 || i === 3 || i === 5) color = colors.blue;
       else color = colors.white;
     } else {
-      // Standard 4K, 2K, 3K symmetric / alternating
       if (i === 0 || i === keyCount - 1) color = colors.blue;
       else color = colors.white;
     }
@@ -359,6 +353,7 @@ export default function GameplayCanvas({
   const replayMods = replayRecord?.mods || [];
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hitErrorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const syncControllerRef = useRef<VideoSyncController | null>(null);
@@ -620,6 +615,7 @@ export default function GameplayCanvas({
   const [loadingAudioProgress, setLoadingAudioProgress] = useState<number>(0);
   const [isAudioLoaded, setIsAudioLoaded] = useState<boolean>(false);
   const [isReadyToTransition, setIsReadyToTransition] = useState<boolean>(false);
+  const [rendererLoading, setRendererLoading] = useState<boolean>(false);
 
   // Custom pre-play stage states
   const [isPrePlay, setIsPrePlay] = useState<boolean>(true);
@@ -662,12 +658,25 @@ export default function GameplayCanvas({
         activeRendererRef.current = null;
       }
 
-      const isPixi = settings.renderEngine === 'pixi';
-      const canvas = isPixi ? pixiCanvasRef.current : canvasRef.current;
+      const engine = settings.renderEngine || 'canvas';
+      const isWebGL = engine === 'pixi' || engine === 'babylon';
+      const canvas = isWebGL ? pixiCanvasRef.current : canvasRef.current;
       if (!canvas) return;
 
       try {
-        const renderer = isPixi ? new PixiPlayfieldRenderer() : new Canvas2DRenderer();
+        let renderer: IPlayfieldRenderer;
+        if (engine === 'pixi') {
+          setRendererLoading(true);
+          const { PixiPlayfieldRenderer } = await import('../render/pixi/PixiPlayfieldRenderer');
+          renderer = new PixiPlayfieldRenderer();
+        } else if (engine === 'babylon') {
+          setRendererLoading(true);
+          const { BabylonPlayfieldRenderer } = await import('../render/babylon/BabylonPlayfieldRenderer');
+          renderer = new BabylonPlayfieldRenderer();
+        } else {
+          renderer = new Canvas2DRenderer();
+        }
+        setRendererLoading(false);
         const keyCount = beatmap.keyCount;
         await renderer.init(canvas, { settings, keyCount });
         
@@ -686,9 +695,10 @@ export default function GameplayCanvas({
         renderer.resize(width, height, dpr);
       } catch (err) {
         console.error('Failed to initialize playfield renderer:', err);
+        setRendererLoading(false);
         // Fallback to canvas
-        if (settings.renderEngine === 'pixi' && updateSettingsRef.current) {
-          console.warn('PixiJS initialization failed. Falling back to 2D Canvas engine...');
+        if ((engine === 'pixi' || engine === 'babylon') && updateSettingsRef.current) {
+          console.warn('WebGL renderer initialization failed. Falling back to 2D Canvas engine...');
           updateSettingsRef.current({ renderEngine: 'canvas' });
         }
       }
@@ -1208,7 +1218,11 @@ export default function GameplayCanvas({
     let handleTouchCancel: ((e: TouchEvent) => void) | null = null;
 
     if (touchTarget) {
-      touchAdapter = new TouchInputAdapter(virtualKeyDown, virtualKeyUp);
+      touchAdapter = new TouchInputAdapter(
+        virtualKeyDown,
+        virtualKeyUp,
+        settings.renderEngine === 'babylon'
+      );
 
       handleTouchStart = (e: TouchEvent) => {
         if (replayData || isAutoplay) return;
@@ -1534,23 +1548,16 @@ export default function GameplayCanvas({
   // Sparkles particle engine
   const spawnParticles = (colIndex: number, color: string) => {
     if (settings.disableParticles) return;
-    const canvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
+    const canvas = (settings.renderEngine === 'pixi' || settings.renderEngine === 'babylon') ? pixiCanvasRef.current : canvasRef.current;
     if (!canvas) return;
     
     const keyCount = beatmap.keyCount;
-    let totalWeight = 0;
-    for (let i = 0; i < keyCount; i++) {
-       let weight = 1.0;
-       if (keyCount === 5 && i === 2) weight = 1.35;
-       else if (keyCount === 7 && i === 3) weight = 1.35;
-       else if (keyCount === 8 && i === 0) weight = 1.4;
-       totalWeight += weight;
-    }
+     const totalWeight = keyCount;
     const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
     const logicalWidth = canvas.width / dpr;
     const logicalHeight = canvas.height / dpr;
     const baseWidth = logicalWidth / totalWeight;
-    const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
+     const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
     
     let spawnX = 0;
     for (let i = 0; i < colIndex; i++) {
@@ -1580,7 +1587,7 @@ export default function GameplayCanvas({
   // Main rendering loop (RequestAnimationFrame)
   useEffect(() => {
     let requestId: number;
-    const canvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
+    const canvas = (settings.renderEngine === 'pixi' || settings.renderEngine === 'babylon') ? pixiCanvasRef.current : canvasRef.current;
     if (!canvas) return;
 
     // Handle high-dpi monitors for pristine retina canvas crispness with performance caps
@@ -1620,7 +1627,7 @@ export default function GameplayCanvas({
 
     // Canvas Draw Thread
     const render = () => {
-      const activeCanvas = settings.renderEngine === 'pixi' ? pixiCanvasRef.current : canvasRef.current;
+      const activeCanvas = (settings.renderEngine === 'pixi' || settings.renderEngine === 'babylon') ? pixiCanvasRef.current : canvasRef.current;
       if (!activeCanvas) return;
 
       const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
@@ -1923,6 +1930,89 @@ export default function GameplayCanvas({
         if (screenShakeRef.current > 0) {
           screenShakeRef.current *= 0.9;
           if (screenShakeRef.current < 0.1) screenShakeRef.current = 0;
+        }
+
+        if (currentSettings.renderEngine === 'babylon') {
+          const heCanvas = hitErrorCanvasRef.current;
+          if (heCanvas) {
+            const ctx2d = heCanvas.getContext('2d');
+            if (ctx2d) {
+              const w = heCanvas.width;
+              const h = heCanvas.height;
+              ctx2d.clearRect(0, 0, w, h);
+
+              const centerX = w / 2;
+              const maxMs = 150;
+              const scale = (w / 2) / maxMs;
+
+               ctx2d.fillStyle = 'rgba(15, 23, 42, 0.75)';
+               ctx2d.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+               ctx2d.lineWidth = 1;
+               ctx2d.beginPath();
+               ctx2d.roundRect(0, 0, w, h, 4);
+               ctx2d.fill();
+               ctx2d.stroke();
+
+               const regions = [
+                 { ms: 135, color: 'rgba(236, 154, 41, 0.35)' },
+                 { ms: 75, color: 'rgba(34, 197, 94, 0.5)' },
+                 { ms: 40, color: 'rgba(59, 130, 246, 0.7)' },
+               ];
+               for (const region of regions) {
+                 const leftX = centerX - (region.ms / maxMs) * (w / 2);
+                 const rightX = centerX + (region.ms / maxMs) * (w / 2);
+                 ctx2d.fillStyle = region.color;
+                 ctx2d.fillRect(leftX, 0, rightX - leftX, h);
+               }
+
+              ctx2d.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+              ctx2d.lineWidth = 2;
+              ctx2d.beginPath();
+              ctx2d.moveTo(centerX, 0);
+              ctx2d.lineTo(centerX, h);
+              ctx2d.stroke();
+
+               hitErrorTicksRef.current.forEach((tick) => {
+                 const age = Date.now() - tick.timestamp;
+                 ctx2d.globalAlpha = Math.max(0, 1 - age / 2000);
+                 const tickX = centerX + (Math.max(-maxMs, Math.min(maxMs, tick.error)) / maxMs) * (w / 2);
+                 ctx2d.strokeStyle = tick.color;
+                 ctx2d.lineWidth = 1.5;
+                 ctx2d.beginPath();
+                 ctx2d.moveTo(tickX, -2);
+                 ctx2d.lineTo(tickX, h + 2);
+                 ctx2d.stroke();
+                 ctx2d.globalAlpha = 1;
+               });
+
+               if (hitErrorAvgMs !== null) {
+                 const avgX = centerX + hitErrorAvgMs * scale;
+                 const clampedX = Math.max(4, Math.min(w - 4, avgX));
+                 ctx2d.fillStyle = '#ffffff';
+                 ctx2d.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+                 ctx2d.lineWidth = 1;
+                 ctx2d.beginPath();
+                 ctx2d.moveTo(clampedX, -1);
+                 ctx2d.lineTo(clampedX - 4, -7);
+                 ctx2d.lineTo(clampedX + 4, -7);
+                 ctx2d.closePath();
+                 ctx2d.fill();
+                 ctx2d.stroke();
+                 ctx2d.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                 ctx2d.lineWidth = 1;
+                 ctx2d.beginPath();
+                 ctx2d.moveTo(clampedX, -1);
+                 ctx2d.lineTo(clampedX, h + 1);
+                 ctx2d.stroke();
+               }
+
+              ctx2d.beginPath();
+              ctx2d.rect(0, 0, w, h);
+              ctx2d.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+              ctx2d.lineWidth = 1;
+              ctx2d.stroke();
+            }
+          }
         }
       }
 
@@ -2463,6 +2553,14 @@ export default function GameplayCanvas({
                 {loadingAudioProgress === 100 ? 'COMPLETE' : `${loadingAudioProgress}%`}
               </span>
             </div>
+            {(settings.renderEngine === 'pixi' || settings.renderEngine === 'babylon') && (
+              <div className="flex justify-between items-center">
+                <span>🎮 Loading {settings.renderEngine === 'babylon' ? 'Babylon.js 3D' : 'PixiJS v8'} renderer</span>
+                <span className={`${rendererLoading ? 'text-skin-accent' : 'text-emerald-400'} font-bold ${rendererLoading ? 'animate-pulse' : ''}`}>
+                  {rendererLoading ? 'LOADING' : 'READY'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Real Audio Buffer Progress Bar */}
@@ -2592,12 +2690,22 @@ export default function GameplayCanvas({
                   e.stopPropagation();
                   handleStartGameplay();
                 }}
-                className={`flex items-center justify-center gap-4 px-12 py-5 hover:bg-slate-750 text-white rounded-xl border border-white/10 transition-all active:scale-95 cursor-pointer shadow-xl hover:shadow-[0_0_30px_rgba(255,255,255,0.07)] ${replayData ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-800'}`}
+                disabled={rendererLoading}
+                className={`flex items-center justify-center gap-4 px-12 py-5 hover:bg-slate-750 text-white rounded-xl border border-white/10 transition-all active:scale-95 cursor-pointer shadow-xl hover:shadow-[0_0_30px_rgba(255,255,255,0.07)] ${replayData ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-slate-800'} ${rendererLoading ? 'opacity-60 cursor-wait' : ''}`}
               >
-                <Play className="h-6 w-6 fill-current text-white" />
-                <span className="font-sans font-black text-lg tracking-wider uppercase">
-                  {replayData ? "Watch" : "Start"}
-                </span>
+                {rendererLoading ? (
+                  <>
+                    <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span className="font-sans font-black text-lg tracking-wider uppercase">Loading</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-6 w-6 fill-current text-white" />
+                    <span className="font-sans font-black text-lg tracking-wider uppercase">
+                      {replayData ? "Watch" : "Start"}
+                    </span>
+                  </>
+                )}
               </button>
 
               {/* Beatmap metadata button */}
@@ -2788,12 +2896,19 @@ export default function GameplayCanvas({
                     <div className="pt-2 flex justify-between items-center border-t border-white/5">
                       <span className="text-slate-400">Scroll Direction</span>
                       <button
-                        onClick={() => updateSettings?.({ upsurfaceNoteMode: !settings.upsurfaceNoteMode })}
+                        onClick={() => {
+                          if (settings.renderEngine === 'babylon') return;
+                          updateSettings?.({ upsurfaceNoteMode: !settings.upsurfaceNoteMode });
+                        }}
+                        disabled={settings.renderEngine === 'babylon'}
                         className={`px-3 py-1 text-[10px] font-bold font-mono tracking-wider rounded uppercase border transition cursor-pointer ${
-                          settings.upsurfaceNoteMode 
-                            ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.3)]' 
-                            : 'bg-slate-900 text-slate-400 border-white/5 hover:text-white animate-pulse'
+                          settings.renderEngine === 'babylon'
+                            ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed'
+                            : settings.upsurfaceNoteMode
+                              ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.3)]'
+                              : 'bg-slate-900 text-slate-400 border-white/5 hover:text-white animate-pulse'
                         }`}
+                        title={settings.renderEngine === 'babylon' ? 'Scroll direction is locked while using Babylon.js 3D' : undefined}
                       >
                         {settings.upsurfaceNoteMode ? 'Upward Scroll' : 'Downward Scroll'}
                       </button>
@@ -3321,10 +3436,20 @@ export default function GameplayCanvas({
 
             {/* PIANO TILES ACTIVE TOUCH ZONE BOUNDARY INDICATOR (Invisible / Logical Only) */}
 
-            {settings.renderEngine === 'pixi' ? (
+            {(settings.renderEngine === 'pixi' || settings.renderEngine === 'babylon') ? (
               <canvas ref={pixiCanvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
             ) : (
               <canvas ref={canvasRef} className="block w-full h-full cursor-none game-canvas-element touch-none select-none" />
+            )}
+
+            {settings.renderEngine === 'babylon' && (
+              <canvas
+                ref={hitErrorCanvasRef}
+                className="absolute left-1/2 z-30 pointer-events-none"
+                style={{ bottom: '8px', transform: 'translateX(-50%)', width: '280px', height: '24px' }}
+                width={280}
+                height={24}
+              />
             )}
 
             <span

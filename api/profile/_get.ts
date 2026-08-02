@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleCors, sendError, sendJson } from '../_lib/response.js';
 import { getSessionFromReq, isValidUserId } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
+import { sanitizeActivityStatus, sanitizeActivityMessage } from '../_lib/profile.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
@@ -14,6 +15,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : typeof req.query.id === 'string'
         ? req.query.id
         : undefined;
+    const rawHandle = typeof req.query.handle === 'string' ? req.query.handle : undefined;
     let targetUserId: string | null = null;
 
     if (rawUserId !== undefined && rawUserId !== '') {
@@ -21,6 +23,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return sendError(res, 400, 'Invalid user id');
       }
       targetUserId = rawUserId;
+    } else if (rawHandle !== undefined && rawHandle !== '') {
+      // Resolve handle -> user id
+      const handleRes = await query<{ user_id: string }>(
+        `SELECT user_id FROM user_profiles WHERE handle = $1`,
+        [rawHandle]
+      );
+      if (handleRes.rows.length === 0) {
+        return sendError(res, 404, 'Profile not found');
+      }
+      targetUserId = handleRes.rows[0].user_id;
     } else if (session) {
       targetUserId = session.userId;
     } else {
@@ -44,6 +56,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const profileUser = userRes.rows[0];
     const isOwn = Boolean(session && session.userId === profileUser.id);
+
+    // Load editable profile (handle, bio, social links)
+    const profileRowRes = await query<{
+      display_name: string;
+      handle: string;
+      bio: string;
+      social_links: any;
+      activity_status: string | null;
+      activity_message: string | null;
+    }>(
+      `SELECT display_name, handle, bio, social_links, activity_status, activity_message
+       FROM user_profiles WHERE user_id = $1`,
+      [targetUserId]
+    );
+
+    const profileRow = profileRowRes.rows[0];
+
+    const displayName = profileRow?.display_name || profileUser.username;
+    const bio = profileRow?.bio || '';
+    const socialLinks = profileRow?.social_links || {};
+    const handle = profileRow?.handle || null;
+    const activityStatus = sanitizeActivityStatus(profileRow?.activity_status);
+    const activityMessage = sanitizeActivityMessage(profileRow?.activity_message);
 
     const [summary, keyCounts, modCounts, recent] = await Promise.all([
       query<{
@@ -112,17 +147,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ]);
 
     const totals = summary.rows[0];
+
     return sendJson(res, 200, {
       success: true,
       data: {
         user: {
           id: profileUser.id,
           username: profileUser.username,
+          displayName,
+          handle,
           email: isOwn ? (profileUser.email || null) : null,
           avatarUrl: profileUser.avatar_url || null,
           role: profileUser.role,
         },
         isOwn,
+        bio,
+        socialLinks,
+        activityStatus,
+        activityMessage,
         stats: {
           totalPlays: Number(totals?.total_plays || 0),
           totalScore: Number(totals?.total_score || 0),

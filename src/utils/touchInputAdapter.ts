@@ -15,45 +15,25 @@ const VERTICAL_TOUCH_ZONE_THRESHOLD = 0.60;
 const VERTICAL_HOLD_RELEASE_THRESHOLD = 0.35;
 
 export class TouchInputAdapter {
-  // Active touches: maps raw touch identifiers to lane columns (indices)
   private activeTouches: Map<number, number> = new Map();
   private onKeyDown: (lane: number) => void;
   private onKeyUp: (lane: number) => void;
+  private fullScreenTouch: boolean;
 
-  constructor(onKeyDown: (lane: number) => void, onKeyUp: (lane: number) => void) {
+  constructor(onKeyDown: (lane: number) => void, onKeyUp: (lane: number) => void, fullScreenTouch = false) {
     this.onKeyDown = onKeyDown;
     this.onKeyUp = onKeyUp;
+    this.fullScreenTouch = fullScreenTouch;
   }
 
   /**
    * Translates the relative physical touch coordinates to the correct weighted lane column
    */
   public getLaneIndex(relativeX: number, containerWidth: number, keyCount: number): number {
-    // Forgiving edge clamping: clamp input to bounds so slight off-edge taps register correctly in outermost lanes
     const clampedX = Math.max(0, Math.min(containerWidth - 1, relativeX));
-
-    let totalWeight = 0;
-    for (let i = 0; i < keyCount; i++) {
-      let weight = 1.0;
-      if (keyCount === 5 && i === 2) weight = 1.35;
-      else if (keyCount === 7 && i === 3) weight = 1.35;
-      else if (keyCount === 8 && i === 0) weight = 1.4;
-      totalWeight += weight;
-    }
-    const baseWidth = containerWidth / totalWeight;
-
-    let accumulatedX = 0;
-    for (let i = 0; i < keyCount; i++) {
-      let colWidth = baseWidth;
-      if (keyCount === 5 && i === 2) colWidth = baseWidth * 1.35;
-      else if (keyCount === 7 && i === 3) colWidth = baseWidth * 1.35;
-      else if (keyCount === 8 && i === 0) colWidth = baseWidth * 1.4;
-
-      if (clampedX >= accumulatedX && clampedX <= accumulatedX + colWidth) {
-        return i;
-      }
-      accumulatedX += colWidth;
-    }
+    const laneWidth = containerWidth / keyCount;
+    const index = Math.floor(clampedX / laneWidth);
+    if (index >= 0 && index < keyCount) return index;
     return -1;
   }
 
@@ -61,7 +41,6 @@ export class TouchInputAdapter {
    * Tracks start of touchscreen gestures, routing hits directly to virtual key states
    */
   public handleTouchStart(e: TouchEvent, containerRect: DOMRect, keyCount: number, upsurfaceNoteMode: boolean = false) {
-    // Avoid double triggering browser zoom or simulated mouse clicks
     e.preventDefault();
 
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -69,17 +48,15 @@ export class TouchInputAdapter {
       const relativeY = touch.clientY - containerRect.top;
       const verticalRatio = relativeY / containerRect.height;
 
-      // PIANO TILES CONSTRAINT: Only register taps in active receptor zone
-      if (upsurfaceNoteMode) {
-        // In upward scroll, receptors are at the top (top 40% of the playfield)
-        if (verticalRatio > (1 - VERTICAL_TOUCH_ZONE_THRESHOLD)) {
-          continue;
-        }
-      } else {
-        // In downward scroll, receptors are at the bottom (bottom 40% of the playfield)
-        if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
-          console.log(`Tap ignored: Outside of active bottom receptor zone (verticalRatio ${verticalRatio.toFixed(2)} < ${VERTICAL_TOUCH_ZONE_THRESHOLD}).`);
-          continue;
+      if (!this.fullScreenTouch) {
+        if (upsurfaceNoteMode) {
+          if (verticalRatio > (1 - VERTICAL_TOUCH_ZONE_THRESHOLD)) {
+            continue;
+          }
+        } else {
+          if (verticalRatio < VERTICAL_TOUCH_ZONE_THRESHOLD) {
+            continue;
+          }
         }
       }
 
@@ -109,6 +86,24 @@ export class TouchInputAdapter {
       if (previousLane !== undefined) {
         const relativeY = touch.clientY - containerRect.top;
         const verticalRatio = relativeY / containerRect.height;
+
+        if (this.fullScreenTouch) {
+          const relativeX = touch.clientX - containerRect.left;
+          const currentLane = this.getLaneIndex(relativeX, containerRect.width, keyCount);
+          if (currentLane >= 0 && currentLane < keyCount && currentLane !== previousLane) {
+            this.activeTouches.delete(touch.identifier);
+            const previousStillHasTouch = Array.from(this.activeTouches.values()).includes(previousLane);
+            if (!previousStillHasTouch) {
+              this.onKeyUp(previousLane);
+            }
+            const currentHasTouch = Array.from(this.activeTouches.values()).includes(currentLane);
+            this.activeTouches.set(touch.identifier, currentLane);
+            if (!currentHasTouch) {
+              this.onKeyDown(currentLane);
+            }
+          }
+          continue;
+        }
 
         if (upsurfaceNoteMode) {
           // Sticky holds: only release on large downward drift, not the tighter start zone

@@ -4,8 +4,14 @@
 -- Fresh installs only: CREATE TABLE IF NOT EXISTS will NOT alter an existing database.
 -- If users.id is still SERIAL/INT (profile URLs like /profile/1), run:
 --   database/migrate_user_ids_to_alnum.sql
+-- To add editable profile identity + avatar storage to an existing database, run:
+--   database/update.sql
+-- To drop the removed privacy_flags column from an existing database, run:
+--   database/drop_privacy_flags.sql
 --
 -- Public profile id is users.id (VARCHAR(16) alphanumeric). There is no separate userid column.
+-- Editable public identity (display name, handle, bio, social links) lives in
+-- user_profiles (1:1 with users); uploaded avatar blobs live in user_avatars.
 
 BEGIN;
 
@@ -85,6 +91,30 @@ CREATE TABLE IF NOT EXISTS replays (
     mods JSONB,
     replay_source VARCHAR(32) NOT NULL DEFAULT 'guest-local',
     upload_status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Editable public profile identity (1:1 with users).
+-- A row is created on first profile edit (upsert); users without a row fall back to users.username.
+-- handle is a public URL slug: 3-20 chars, lowercase a-z0-9_, must start with a letter, unique.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id        VARCHAR(16) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    display_name   VARCHAR(32) NOT NULL,
+    handle         VARCHAR(20) UNIQUE NOT NULL,
+    bio            TEXT NOT NULL DEFAULT '',
+    social_links   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    activity_status VARCHAR(16) NOT NULL DEFAULT 'offline',
+    activity_message VARCHAR(80) NOT NULL DEFAULT '',
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_profiles_handle_format_chk CHECK (handle ~ '^[a-z][a-z0-9_]{2,19}$'),
+    CONSTRAINT user_profiles_activity_status_chk CHECK (activity_status IN ('playing', 'practicing', 'mapping', 'away', 'offline', 'custom'))
+);
+
+-- Uploaded avatar image blobs. Preset avatars use a URL in users.avatar_url instead.
+CREATE TABLE IF NOT EXISTS user_avatars (
+    user_id    VARCHAR(16) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mime       VARCHAR(32) NOT NULL,
+    data       BYTEA NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

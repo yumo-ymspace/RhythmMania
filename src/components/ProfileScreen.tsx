@@ -1,67 +1,81 @@
-import { useEffect, useState } from 'react';
-import { ArrowLeft, BarChart3, Trophy, UserRound } from 'lucide-react';
-import { AuthUser } from '../utils/authClient';
-
-interface ProfileUser {
-  id: string;
-  username: string;
-  email?: string | null;
-  avatarUrl?: string | null;
-  role?: string;
-}
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArrowLeft, ExternalLink, Loader2, Pencil, Search, Trophy, UserRound } from 'lucide-react';
+import type { ProfileActivityStatus } from '../types';
+import type { AuthUser } from '../utils/authClient';
+import { searchProfiles, type ProfileSearchResult } from '../utils/profileClient';
 
 interface ProfileData {
-  user: ProfileUser;
+  user: {
+    id: string;
+    username: string;
+    displayName?: string;
+    handle?: string | null;
+    avatarUrl?: string | null;
+  };
   isOwn?: boolean;
+  bio?: string;
+  socialLinks?: { youtube?: string; twitter?: string; discord?: string; website?: string };
+  activityStatus?: ProfileActivityStatus;
+  activityMessage?: string;
   stats: {
     totalPlays: number;
-    totalScore: number;
     averageAccuracy: number;
     bestGrade: string;
-    grades: Record<string, number>;
-    keyCounts: Array<{ keyCount: number; plays: number }>;
-    mods: Array<{ mod: string; plays: number }>;
-  };
+  } | null;
   recent: Array<{
     id: string;
     title: string;
     artist: string;
     difficulty: string;
-    score: number;
     accuracy: number;
     grade: string;
     createdAt: string;
   }>;
 }
 
+const STATUS_LABELS: Record<ProfileActivityStatus, string> = {
+  playing: 'Playing',
+  practicing: 'Practicing',
+  mapping: 'Mapping',
+  away: 'Away',
+  offline: 'Offline',
+  custom: 'Custom',
+};
+
+const SOCIAL_LABELS = [
+  ['youtube', 'YouTube'],
+  ['twitter', 'Twitter/X'],
+  ['discord', 'Discord'],
+  ['website', 'Website'],
+] as const;
+
 export default function ProfileScreen({
   user,
   profileId,
   onBack,
+  onEditProfile,
+  onOpenProfile,
 }: {
   user: AuthUser | null;
   profileId: string | null;
   onBack: () => void;
+  onEditProfile?: () => void;
+  onOpenProfile: (id: string) => void;
 }) {
   const [data, setData] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(profileId));
   const [error, setError] = useState<string | null>(null);
-
-  const resolvedId = profileId ?? user?.id ?? null;
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<ProfileSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!resolvedId) {
-      setLoading(false);
-      setData(null);
-      setError(null);
-      return;
-    }
-
+    if (!profileId) return;
     let active = true;
     setLoading(true);
     setError(null);
-
-    fetch(`/api/profile/get?userId=${encodeURIComponent(String(resolvedId))}`, {
+    fetch(`/api/profile/get?userId=${encodeURIComponent(profileId)}`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     })
@@ -70,123 +84,95 @@ export default function ProfileScreen({
         if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load profile');
         return payload.data as ProfileData;
       })
-      .then(profile => {
-        if (active) setData(profile);
-      })
-      .catch(reason => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Unable to load profile');
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
+      .then(profile => { if (active) setData(profile); })
+      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Unable to load profile'); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [resolvedId]);
+  }, [profileId]);
 
-  if (!resolvedId) {
-    return (
-      <div className="h-full flex items-center justify-center bg-slate-950/80 p-6">
-        <div className="max-w-md rounded-3xl border border-white/10 bg-black/40 p-8 text-center">
-          <UserRound className="mx-auto mb-4 h-10 w-10 text-pink-400" />
-          <h1 className="text-xl font-black text-white">Sign in to view your profile</h1>
-          <p className="mt-2 text-sm text-slate-400">Online statistics are available after signing in with Google.</p>
-          <button onClick={onBack} className="mt-6 rounded-xl bg-white/10 px-5 py-2 text-xs font-black uppercase tracking-widest text-white">Back</button>
-        </div>
-      </div>
-    );
+  useEffect(() => {
+    if (profileId) return;
+    const query = search.trim();
+    if (query.length < 2) {
+      setResults([]);
+      setSearching(false);
+      setSearchError(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      setSearchError(null);
+      searchProfiles(query)
+        .then(setResults)
+        .catch(reason => setSearchError(reason instanceof Error ? reason.message : 'Search failed'))
+        .finally(() => setSearching(false));
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [profileId, search]);
+
+  if (!profileId) {
+    return <ProfileSearchScreen search={search} setSearch={setSearch} results={results} searching={searching} error={searchError} onBack={onBack} onOpenProfile={onOpenProfile} />;
   }
 
-  const displayUser = data?.user;
+  if (loading) {
+    return <PageShell onBack={onBack}><div className="flex min-h-[50vh] items-center justify-center text-cyan-200"><Loader2 className="h-6 w-6 animate-spin" /></div></PageShell>;
+  }
+
+  if (error || !data) {
+    return <PageShell onBack={onBack}><div className="mx-auto max-w-lg rounded-3xl border border-rose-300/20 bg-rose-950/20 p-8 text-center"><UserRound className="mx-auto mb-4 h-10 w-10 text-rose-300" /><h1 className="text-2xl font-black text-white">Profile unavailable</h1><p className="mt-2 text-sm text-rose-100/70">{error || 'This player profile could not be found.'}</p></div></PageShell>;
+  }
+
+  const displayName = data.user.displayName || data.user.username;
+  const socials = data.socialLinks || {};
+  const status = data.activityStatus || 'offline';
+  const statusText = status === 'custom' && data.activityMessage ? data.activityMessage : STATUS_LABELS[status];
 
   return (
-    <div className="h-full overflow-y-auto bg-slate-950/85 p-4 text-white md:p-8">
+    <PageShell onBack={onBack}>
       <div className="mx-auto max-w-5xl">
-        <button onClick={onBack} className="mb-6 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </button>
-        <header className="mb-8 flex items-center gap-4">
-          {displayUser?.avatarUrl ? (
-            <img src={displayUser.avatarUrl} alt="" className="h-16 w-16 rounded-full border-2 border-pink-400/60" />
-          ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-pink-500/20 text-2xl font-black text-pink-300">
-              {(displayUser?.username || '?')[0]?.toUpperCase()}
-            </div>
-          )}
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.3em] text-pink-400">Player profile</p>
-            <h1 className="text-3xl font-black">{displayUser?.username || (loading ? 'Loading...' : 'Unknown')}</h1>
-            {displayUser && (
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-slate-500">ID {displayUser.id}</p>
-            )}
-          </div>
-        </header>
-
-        {loading && <p className="text-sm text-slate-400">Loading statistics...</p>}
-        {error && <p className="rounded-xl border border-red-500/30 bg-red-950/30 p-4 text-sm text-red-200">{error}</p>}
-        {data && (
-          <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {[
-                ['Plays', data.stats.totalPlays.toLocaleString()],
-                ['Average accuracy', `${data.stats.averageAccuracy.toFixed(2)}%`],
-                ['Best grade', data.stats.bestGrade],
-                ['Total score', data.stats.totalScore.toLocaleString()],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-[10px] font-mono uppercase tracking-widest text-slate-500">{label}</p>
-                  <p className="mt-2 text-xl font-black text-cyan-200">{value}</p>
+        <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#12121b]/95 shadow-2xl shadow-black/30">
+          <div className="h-2 bg-gradient-to-r from-cyan-300 via-fuchsia-400 to-amber-300" />
+          <header className="relative px-5 pb-7 pt-7 sm:px-9 sm:pt-9">
+            <div className="pointer-events-none absolute right-8 top-5 font-mono text-[9px] uppercase tracking-[0.45em] text-white/20">PLAYER // {data.user.id}</div>
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
+              <Avatar url={data.user.avatarUrl} name={displayName} size="large" />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300">RhythmMania player</p>
+                <h1 className="mt-2 truncate text-4xl font-black tracking-tight text-white sm:text-5xl">{displayName}</h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  {data.user.handle && <span className="font-mono text-fuchsia-200">@{data.user.handle}</span>}
+                  <span className="inline-flex items-center gap-1.5 text-slate-400"><span className={`h-2 w-2 rounded-full ${status === 'offline' ? 'bg-slate-500' : 'bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,.7)]'}`} />{statusText}</span>
                 </div>
-              ))}
-            </div>
-            <div className="mt-6 grid gap-6 md:grid-cols-2">
-              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h2 className="flex items-center gap-2 font-black uppercase tracking-widest"><Trophy className="h-4 w-4 text-amber-300" /> Grades</h2>
-                <div className="mt-4 flex gap-3">
-                  {Object.entries(data.stats.grades).map(([grade, count]) => (
-                    <div key={grade} className="flex-1 rounded-xl bg-black/20 p-3 text-center">
-                      <p className="text-lg font-black text-amber-200">{grade}</p>
-                      <p className="text-xs text-slate-400">{count} runs</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                <h2 className="flex items-center gap-2 font-black uppercase tracking-widest"><BarChart3 className="h-4 w-4 text-cyan-300" /> Play breakdown</h2>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {data.stats.keyCounts.map(item => (
-                    <span key={item.keyCount} className="rounded-lg bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200">
-                      {item.keyCount || '?'}K · {item.plays}
-                    </span>
-                  ))}
-                  {data.stats.mods.map(item => (
-                    <span key={item.mod} className="rounded-lg bg-purple-400/10 px-3 py-2 text-xs font-bold text-purple-200">
-                      {item.mod} · {item.plays}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            </div>
-            <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
-              <h2 className="font-black uppercase tracking-widest">Recent online plays</h2>
-              <div className="mt-3 divide-y divide-white/10">
-                {data.recent.map(run => (
-                  <div key={run.id} className="flex items-center justify-between gap-4 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold">{run.artist} - {run.title}</p>
-                      <p className="text-xs text-slate-500">{run.difficulty}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono text-sm font-bold text-cyan-200">{run.accuracy.toFixed(2)}% · {run.grade}</p>
-                      <p className="text-[10px] text-slate-500">{new Date(run.createdAt).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                ))}
               </div>
-              {data.recent.length === 0 && <p className="py-4 text-sm text-slate-500">No uploaded plays yet.</p>}
-            </section>
-          </>
-        )}
+              {data.isOwn && onEditProfile && <button onClick={onEditProfile} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-xs font-black uppercase tracking-widest text-white transition hover:border-cyan-300/40 hover:bg-cyan-300/10"><Pencil className="h-4 w-4" /> Edit</button>}
+            </div>
+            {data.bio && <p className="mt-7 max-w-2xl whitespace-pre-wrap text-sm leading-6 text-slate-300">{data.bio}</p>}
+            <div className="mt-6 flex flex-wrap gap-2">
+              {SOCIAL_LABELS.map(([key, label]) => {
+                const value = socials[key];
+                if (!value) return null;
+                const href = key === 'discord' ? null : value.startsWith('http') ? value : `https://${value}`;
+                return href ? <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 px-3 text-xs font-bold text-slate-300 transition hover:border-fuchsia-300/40 hover:text-white"><ExternalLink className="h-3.5 w-3.5" />{label}</a> : <span key={key} className="inline-flex min-h-10 items-center rounded-xl border border-white/10 px-3 text-xs font-bold text-slate-300">{label}: {value}</span>;
+              })}
+            </div>
+          </header>
+
+          {data.stats && <section className="grid grid-cols-3 border-y border-white/10 bg-black/20"><Summary label="Plays" value={data.stats.totalPlays.toLocaleString()} /><Summary label="Accuracy" value={`${data.stats.averageAccuracy.toFixed(2)}%`} /><Summary label="Best grade" value={data.stats.bestGrade} accent /></section>}
+
+          <section className="px-5 py-7 sm:px-9">
+            <div className="mb-4 flex items-center gap-2"><Trophy className="h-4 w-4 text-amber-300" /><h2 className="text-xs font-black uppercase tracking-[0.25em] text-slate-300">Recent plays</h2></div>
+            {data.recent.length === 0 ? <p className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">No public plays yet.</p> : <div className="divide-y divide-white/10 rounded-2xl border border-white/10 bg-black/15">{data.recent.map(run => <div key={run.id} className="flex items-center justify-between gap-4 px-4 py-4"><div className="min-w-0"><p className="truncate text-sm font-bold text-white">{run.artist} <span className="text-slate-500">/</span> {run.title}</p><p className="mt-1 text-xs text-slate-500">{run.difficulty} · {new Date(run.createdAt).toLocaleDateString()}</p></div><div className="shrink-0 text-right"><p className="font-mono text-sm font-bold text-cyan-200">{run.accuracy.toFixed(2)}%</p><p className="mt-1 text-xs font-black text-amber-300">{run.grade}</p></div></div>)}</div>}
+          </section>
+        </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
+
+function ProfileSearchScreen({ search, setSearch, results, searching, error, onBack, onOpenProfile }: { search: string; setSearch: (value: string) => void; results: ProfileSearchResult[]; searching: boolean; error: string | null; onBack: () => void; onOpenProfile: (id: string) => void }) {
+  return <PageShell onBack={onBack}><div className="mx-auto max-w-3xl"><div className="mb-10 text-center"><p className="font-mono text-[10px] font-bold uppercase tracking-[0.4em] text-cyan-300">Player index</p><h1 className="mt-3 text-4xl font-black tracking-tight text-white">Find a player</h1><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">Search by display name, handle, or player ID. Profiles remain public to signed-out visitors.</p></div><div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" /><input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players..." className="h-14 w-full rounded-2xl border border-white/10 bg-[#12121b] pl-12 pr-12 text-base font-bold text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10" />{searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-cyan-300" />}</div>{error && <p className="mt-4 rounded-xl border border-rose-300/20 bg-rose-950/20 p-4 text-sm text-rose-200">{error}</p>}{search.length < 2 ? <p className="mt-8 text-center text-xs font-mono uppercase tracking-widest text-slate-600">Type at least two characters</p> : results.length === 0 && !searching ? <p className="mt-8 text-center text-sm text-slate-500">No matching players found.</p> : <div className="mt-5 space-y-2">{results.map(result => <button key={result.id} onClick={() => onOpenProfile(result.id)} className="flex min-h-[4.5rem] w-full items-center gap-4 rounded-2xl border border-white/10 bg-[#12121b] px-4 text-left transition hover:border-fuchsia-300/40 hover:bg-fuchsia-300/5"><Avatar url={result.avatarUrl} name={result.displayName} /><span className="min-w-0 flex-1"><span className="block truncate font-bold text-white">{result.displayName}</span><span className="mt-1 block truncate text-xs font-mono text-fuchsia-200">{result.handle ? `@${result.handle}` : result.id}</span></span><span className="hidden text-xs text-slate-500 sm:block">{result.activityStatus === 'custom' ? result.activityMessage : STATUS_LABELS[result.activityStatus]}</span></button>)}</div>}</div></PageShell>;
+}
+
+function PageShell({ children, onBack }: { children: ReactNode; onBack: () => void }) { return <div className="h-full overflow-y-auto bg-[#090910]/95 p-4 text-white md:p-8"><div className="mx-auto mb-6 max-w-5xl"><button onClick={onBack} className="inline-flex min-h-11 items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500 transition hover:text-white"><ArrowLeft className="h-4 w-4" /> Back</button></div>{children}</div>; }
+function Avatar({ url, name, size = 'small' }: { url?: string | null; name: string; size?: 'small' | 'large' }) { const classes = size === 'large' ? 'h-28 w-28 text-4xl' : 'h-12 w-12 text-lg'; return url ? <img src={url} alt="" className={`${classes} shrink-0 rounded-2xl border border-white/15 object-cover`} /> : <div className={`${classes} flex shrink-0 items-center justify-center rounded-2xl border border-fuchsia-300/20 bg-fuchsia-300/10 font-black text-fuchsia-200`}>{name[0]?.toUpperCase() || '?'}</div>; }
+function Summary({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) { return <div className="px-3 py-5 text-center sm:px-6"><p className="font-mono text-[9px] font-bold uppercase tracking-[0.25em] text-slate-500">{label}</p><p className={`mt-2 text-xl font-black tabular-nums sm:text-2xl ${accent ? 'text-amber-200' : 'text-cyan-200'}`}>{value}</p></div>; }

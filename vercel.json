@@ -3,11 +3,19 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth-router?_route=:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/api/replays/:path*",
+      "destination": "/api/replays-router?_route=:path*"
+    },
+    {
+      "source": "/api/profile/:path*",
+      "destination": "/api/profile-router?_route=:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

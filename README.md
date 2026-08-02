@@ -9,9 +9,9 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.1
+**HIGH DENSITY MATRIX** · v0.8.2
 
-RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a dual rendering engine (**HTML5 Canvas 2D** default and **PixiJS v8** WebGL option), it delivers a professional-grade experience right in your browser.
+RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a triple rendering engine (**HTML5 Canvas 2D** default, **PixiJS v8** WebGL option, and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
 ### 🕹️ Play Now : **[https://www.rhythm-mania.com/](https://www.rhythm-mania.com/)**
 
@@ -26,7 +26,7 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 
 ## Overview
 
-RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, dual Canvas2D/PixiJS v8 playfield renderers, hit error tracking, and a full suite of precision calibration tools — all without any server-side runtime.
+RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, triple Canvas2D/PixiJS v8/Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools — all without any server-side runtime.
 
 ---
 
@@ -35,19 +35,22 @@ RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre 
 ### Gameplay
 - **2K – 8K lane modes** with per-key-count default bindings and full rebind support
 - **Upward & downward scroll** direction toggle
-- **Dual playfield renderers**: Canvas2D (immediate-mode default) and PixiJS v8 (WebGL scene-graph with sprite pooling and texture atlasing)
+- **Triple playfield renderers**: Canvas2D (immediate-mode default), PixiJS v8 (WebGL scene-graph with sprite pooling and texture atlasing), and Babylon.js 3D (PJ Sekai-style converging runway with bloom post-processing)
 - **Six-tier judgement system**: Marvelous → Perfect → Great → Good → Bad → Miss, each with tuned timing windows, score weights, and HP deltas derived from `overallDifficulty`
 - **Real-time precision diagnostics**: Live hit error meter, Unstable Rate (UR) metric calculation (population standard deviation of hit timing errors × 10), and post-play timing feedback
 - **Hold notes** with early-release detection and a configurable release grace period to absorb brief key bounces
 - **Autoplay (AT) mod**: Deterministic automation mode that plays all notes and hold tails perfectly for demonstration and practice; unranked, bypasses play history saving, and suppresses high score recording
+- **Gameplay modifiers**: NF, EZ, HR, HT, DT, HD, AT, and K2–K8 key-conversion mods with score multipliers (NF/EZ ×0.5, HT ×0.3, HR/HD ×1.06, DT ×1.12); EZ↔HR and HT↔DT are mutually exclusive, EZ halves the effective OD, and HR scales it ×1.4 (capped at OD 10)
 - **Particle burst effects** on every hit; column colour-coded by standard competitive conventions (blue/white outer lanes, accent centre column)
 - **Focus Mode** — collapses the HUD during play
 - **HP drain & fail state** with a configurable drain rate sourced from beatmap metadata
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Bundled beatmap catalog**: Pre-packaged beatmaps served as static assets in `public/beatmaps/` with `manifest.json` for in-app catalog browsing and client-side downloading (no backend server process required)
+- **Bundled beatmap catalog**: Pre-packaged beatmaps served as static assets in `public/beatmaps/` with `manifest.json` for in-app catalog browsing and client-side downloading (no backend server process required); an online catalog overlay supports downloading additional maps
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
+- **Song previews** — a toggleable audio preview plays while browsing Song Select, using a lightweight HTMLAudio path kept deliberately independent of the Web Audio gameplay clock
+- **Favorites** — star songs on Song Select for quick access; persisted locally
 
 The parser supports mania maps and can convert standard-mode objects where
 the format provides enough slider information. Imports are bounded to protect
@@ -77,15 +80,18 @@ the browser:
 - **Scroll speed** multiplier
 - **Hitsound and music volume** sliders
 - **Per-mode key rebinding** matrix (2K – 8K, live keyboard intercept, persisted to `localStorage`)
-- **Background dim** and **video opacity** sliders
+- **Background dim** sliders — one for gameplay and a separate **menu background dim** for the Song Select / Replay Select artwork
 - **Video offset** fine-tune for storyboard video sync
 - **Disable video** toggle
+- **Progress bar position** toggle (top or bottom) and an optional **FPS counter** overlay
+- **Disable particles** and **disable lane shake** toggles for performance and comfort
+- **Skin section**: rectangular or circular playfield, RhythmMania/RhythmPlus rectangular styles, per-element colors, opacity sliders (notes, receptors, judgement text, lane separators), note and receptor size scaling, a custom five-colour lane palette, and a live skin preview
 
 ### Background Video Sync
-A Phase-Locked Loop controller (`VideoSyncController`) continuously monitors audio/video drift:
-- **< 60 ms drift** → let the browser run at 1.0×, do nothing
-- **60 – 900 ms drift** → adjust `playbackRate` proportionally (±0.15× max) to smoothly close the gap
-- **> 900 ms drift** → hard seek to re-align immediately
+A PI (proportional-integral) sync controller (`VideoSyncController`) continuously monitors audio/video drift:
+- **< 16 ms drift** → deadband: let the video run at the audio rate, do nothing
+- **16 – 70 ms drift** → adjust `playbackRate` with a proportional + integral correction (max ±5% of the base rate) to smoothly close the gap
+- **≥ 70 ms drift** → hard seek to re-align immediately (with a 150 ms seek cooldown to avoid thrash)
 
 ### Storage & Asset Management
 - Beatmaps and raw `.osz` ZIP packages stored in **IndexedDB** (`RhythmManiaDB` v3), with automatic one-way migration for legacy maps previously saved in `localStorage`
@@ -94,18 +100,27 @@ A Phase-Locked Loop controller (`VideoSyncController`) continuously monitors aud
 - **LRU Blob URL cache** (capacity 3) tracks object URLs for audio, video, and background assets; evicts and revokes the least-recently-used entry automatically
 - `AssetLifecycleManager` tracks every `URL.createObjectURL()` call and revokes on teardown, preventing memory leaks
 - On map deletion, the storage layer checks for orphaned ZIP packages (no remaining difficulties) and removes them
+- **Play record export/import** — download local history records as a schema-versioned JSON envelope and re-import them on another device (64 MB / 500-record caps per file; imported records are sanitised, migrated, and permanently marked local-only so they can never be uploaded)
 
 ### Touch Support
-A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with proportional lane-width mapping (the wider spacebar column in 5K/7K gets proportionally more hit area) and supports horizontal slide gestures across lanes.
+A `TouchInputAdapter` translates `TouchEvent`s to virtual key presses with equal-width lane mapping and supports horizontal slide gestures across lanes. When using the Babylon.js 3D renderer, touch input is full-screen (taps anywhere map to lanes).
 
 ---
 
-## Accounts and online replays
+## Accounts, profiles, and online replays
 
 Google sign-in uses an HTTP-only PostgreSQL-backed session cookie. Signed-in
 players can upload completed, non-failed, non-autoplay replays from supported
 catalog difficulties. Local maps, autoplay runs, failed runs, unsupported
 modes, and records without replay frames are not eligible.
+
+Signed-in players also get an editable public profile at
+`/profile/<userId>` or `/profile/<handle>`: display name, a unique lowercase
+handle (3–20 chars, starting with a letter), a bio, social links, and an
+avatar — uploaded as an image or chosen from eight presets in
+`public/avatars/`. Public profiles show the player's stored replays and
+stats and are viewable without an account; `/profile/edit` is the editing
+route for the signed-in user.
 
 The API surface is:
 
@@ -120,11 +135,22 @@ The API surface is:
 | `POST /api/replays/upload` | Upload an eligible replay |
 | `GET /api/replays/list` | List the top replays for a catalog difficulty or hash |
 | `GET /api/replays/get` | Retrieve a replay by ID |
+| `GET, PATCH /api/profile/me` | Read or update the signed-in user's profile |
+| `GET /api/profile/handle-check` | Check whether a handle is available |
+| `GET /api/profile/get` | Read a public profile by `userId` or `handle` |
+| `GET, POST /api/profile/avatar` | Fetch an avatar image / upload a base64 avatar |
+| `POST /api/profile/avatar/preset` | Select a preset avatar |
 
-Create the PostgreSQL schema with `database/schema.sql`. The backend accepts
-either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/`POSTGRES_*` connection
-variables. Google OAuth additionally uses `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET`. Set `SESSION_SECRET` in deployed environments.
+Create the PostgreSQL schema (users, sessions, beatmap_sets,
+beatmap_difficulties, replays, user_profiles, and user_avatars) with
+`database/schema.sql`. Databases created before the profile feature can add
+the profile/avatar tables with the idempotent `database/update.sql`.
+Existing databases that still carry the removed `privacy_flags` column can
+drop it with `database/drop_privacy_flags.sql`. The
+backend accepts either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/
+`POSTGRES_*` connection variables. Google OAuth additionally uses
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Set `SESSION_SECRET` in
+deployed environments.
 
 ---
 
@@ -139,6 +165,7 @@ variables. Google OAuth additionally uses `GOOGLE_CLIENT_ID` and
 | `rhythm_mania_v1_custom_maps` | Legacy map storage migrated into IndexedDB |
 | `rhythm_mania_v1_last_selected_map_id` | Last selected map |
 | `rhythm_mania_v1_last_diff_by_song` | Last selected difficulty per song |
+| `rhythm_mania_v1_favorite_songs` | Favorited songs on Song Select |
 
 Media blob URLs are tracked and revoked through `AssetLifecycleManager`.
 `storageManager` keeps a three-map least-recently-used media cache.
@@ -153,12 +180,13 @@ Media blob URLs are tracked and revoked through `AssetLifecycleManager`.
 | Language | TypeScript 5.8 (strict) |
 | Build | Vite 6 |
 | Styling | Tailwind CSS v4 (Vite plugin) |
-| Rendering | Dual Engine: HTML5 Canvas 2D (default) & PixiJS v8 (WebGL scene-graph) |
+| Rendering | Triple Engine: HTML5 Canvas 2D (default), PixiJS v8 (WebGL), Babylon.js 3D (runway) |
 | Audio | Web Audio API |
 | ZIP parsing | JSZip 3 |
 | Icons | lucide-react |
 | Animation | Motion (Framer Motion v12) |
 | Persistence | IndexedDB (beatmaps/packages) + localStorage (settings/history) |
+| Distribution | Installable PWA (`manifest.webmanifest` + service worker cache) |
 
 ---
 
@@ -170,7 +198,7 @@ and maintenance sections. Important defaults include:
 - 4K mode with `D F J K` bindings.
 - Scroll speed `21`, audio and visual offsets `0 ms`.
 - Canvas2D renderer, square playfield, RhythmMania note style.
-- Map scroll velocity enabled.
+- Map scroll velocity enabled, song previews on, FPS counter off.
 - Empty modifier selection.
 
 All 2K-8K bindings can be changed. The default bindings are:
@@ -212,6 +240,7 @@ All 2K-8K bindings can be changed. The default bindings are:
 | B | ≥ 80% |
 | C | ≥ 70% |
 | D | < 70% |
+| F | Failed run (HP depleted, independent of accuracy) |
 
 ---
 
@@ -220,26 +249,31 @@ All 2K-8K bindings can be changed. The default bindings are:
 ```text
 RhythmMania-Beta/
 ├── api/                         Vercel Functions and shared backend helpers
-├── database/schema.sql          PostgreSQL schema
+├── database/                    PostgreSQL schema, migration, and update scripts
 ├── public/
+│   ├── avatars/                 Preset profile avatars
 │   ├── backgrounds/             Menu and history artwork
 │   ├── beatmaps/                Catalog manifest and bundled .osz packages
+│   ├── icons/                   PWA and favicon icons
+│   ├── manifest.webmanifest     Installable PWA manifest
 │   └── sw.js                    Optional service worker
 ├── src/
 │   ├── App.tsx                  Screen router and application state
 │   ├── audio/AudioEngine.ts     Web Audio transport and fallback synth
 │   ├── components/              Screens, gameplay host, and settings UI
-│   ├── render/                  Shared math and Canvas2D/Pixi renderers
-│   ├── utils/                   Parsing, storage, replay, input, and media
+│   ├── render/                  Shared math and Canvas2D/Pixi/Babylon renderers
+│   ├── utils/                   Parsing, storage, replay, preview, input, and media
 │   └── types.ts                 Domain types
+├── skills/                      Auxiliary agent skill packs (reference-only)
 ├── metadata.json                Build-time application metadata
 ├── package.json                 Scripts and dependencies
-└── vite.config.ts               Vite and path alias configuration
+└── vite.config.ts               Vite, path alias, and build chunk configuration
 ```
 
 `GameplayCanvas.tsx` owns live timing, input, scoring, replay recording,
 media synchronization, and renderer hosting. Shared visual math belongs in
-`src/render/`; update both renderers when changing playfield visuals.
+`src/render/`; update the Canvas2D, Pixi, and Babylon renderers when changing
+playfield visuals.
 
 ---
 
@@ -248,7 +282,7 @@ media synchronization, and renderer hosting. Shared visual math belongs in
 There is no automated unit or end-to-end test suite wired into `package.json`.
 The normal validation commands are `npm run lint` and `npm run build`, followed
 by manual play checks for importing, 4K play, hold notes, modifiers, replay
-history, video, touch input, and both render engines.
+history, video, touch input, and all three render engines.
 
 ---
 

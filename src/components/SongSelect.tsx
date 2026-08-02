@@ -1754,11 +1754,13 @@ export default function SongSelect({
                 {/* Active Rendering Engine Badge Indicator */}
                 <div className="flex justify-center gap-2 pt-2 pb-1 select-none">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-widest border shadow-lg transition-all ${
-                    settings.renderEngine === 'pixi'
+                    settings.renderEngine === 'babylon'
+                      ? 'bg-purple-500/10 text-purple-300 border-purple-500/30 shadow-purple-500/5 animate-pulse'
+                      : settings.renderEngine === 'pixi'
                       ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-cyan-500/5 animate-pulse'
                       : 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-amber-500/5'
                   }`}>
-                    Engine: {settings.renderEngine === 'pixi' ? 'PixiJS v8 (WebGL)' : 'Canvas 2D'}
+                    Engine: {settings.renderEngine === 'babylon' ? 'Babylon.js 3D' : settings.renderEngine === 'pixi' ? 'PixiJS v8 (WebGL)' : 'Canvas 2D'}
                   </span>
                 </div>
               </div>
@@ -1924,6 +1926,16 @@ export default function SongSelect({
                         }`}
                       >
                         PixiJS v8
+                      </button>
+                      <button 
+                        onClick={() => updateSettings({ renderEngine: 'babylon' })}
+                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
+                          settings.renderEngine === 'babylon'
+                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
+                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Babylon 3D
                       </button>
                     </div>
                   </div>

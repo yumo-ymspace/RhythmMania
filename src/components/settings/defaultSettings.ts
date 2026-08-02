@@ -58,6 +58,8 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   bindPause: 'escape',
   bindRetry: 'r',
   renderEngine: 'canvas',
+  babylonFloor: true,
+  babylonQuality: 'high',
   enableMapSV: true,
   disableLaneShake: false,
   enableSongPreview: true,

@@ -21,15 +21,7 @@ export function calculateColumnsLayout(
   activeColumns: boolean[],
   laneGlows: number[]
 ) {
-  let totalWeight = 0;
-  for (let i = 0; i < keyCount; i++) {
-    let weight = 1.0;
-    if (keyCount === 5 && i === 2) weight = 1.35;
-    else if (keyCount === 7 && i === 3) weight = 1.35;
-    else if (keyCount === 8 && i === 0) weight = 1.4;
-    totalWeight += weight;
-  }
-  const baseWidth = width / totalWeight;
+  const baseWidth = width / keyCount;
   const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
 
   const columns = [];
@@ -55,15 +47,7 @@ export function updateColumnsLayout(
   activeColumns: boolean[],
   laneGlows: number[]
 ): ColumnLayout[] {
-  let totalWeight = 0;
-  for (let i = 0; i < keyCount; i++) {
-    let weight = 1.0;
-    if (keyCount === 5 && i === 2) weight = 1.35;
-    else if (keyCount === 7 && i === 3) weight = 1.35;
-    else if (keyCount === 8 && i === 0) weight = 1.4;
-    totalWeight += weight;
-  }
-  const baseWidth = width / totalWeight;
+  const baseWidth = width / keyCount;
   const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
 
   while (existingColumns.length < keyCount) {

@@ -21,6 +21,7 @@ import ResultsScreen from './components/ResultsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PersonalHistoryScreen from './components/PersonalHistoryScreen';
 import ProfileScreen from './components/ProfileScreen';
+import EditProfileScreen from './components/EditProfileScreen';
 import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import JSZip from 'jszip';
 import { mainAudio } from './audio/AudioEngine';
@@ -57,6 +58,9 @@ export default function App() {
     if (typeof window !== 'undefined' && /^\/profile\/[A-Za-z0-9]{16}$/.test(window.location.pathname)) {
       return 'profile';
     }
+    if (typeof window !== 'undefined' && /^\/profile\/edit(?:\/)?$/.test(window.location.pathname)) {
+      return 'editprofile';
+    }
     return 'menu';
   });
   const [selectedBeatmap, setSelectedBeatmap] = useState<Beatmap | null>(null);
@@ -72,6 +76,12 @@ export default function App() {
     navigateToPath(`/profile/${userId}`);
     setProfileUserId(userId);
     setCurrentScreen('profile');
+  }, [navigateToPath]);
+
+  const openEditProfile = useCallback(() => {
+    navigateToPath('/profile/edit');
+    setProfileUserId(null);
+    setCurrentScreen('editprofile');
   }, [navigateToPath]);
 
   const leaveProfilePath = useCallback((screen: GameScreen = 'menu') => {
@@ -94,6 +104,11 @@ export default function App() {
 
   // Sync profile route from URL path
   useEffect(() => {
+    if (/^\/profile\/edit(?:\/)?$/.test(path)) {
+      setProfileUserId(null);
+      setCurrentScreen('editprofile');
+      return;
+    }
     const match = path.match(/^\/profile\/([A-Za-z0-9]{16})$/);
     if (match) {
       setProfileUserId(match[1]);
@@ -111,7 +126,7 @@ export default function App() {
     // UI matches the URL. Other non-profile screens (play/select/
     // results/history) deliberately share the "/" URL, so we only
     // intervene when the screen state is actually stale on 'profile'.
-    if (currentScreen === 'profile') {
+    if (currentScreen === 'profile' || currentScreen === 'editprofile') {
       setProfileUserId(null);
       setCurrentScreen('menu');
     }
@@ -658,7 +673,9 @@ export default function App() {
         musicVolume: Number(updated.musicVolume !== undefined ? updated.musicVolume : 0.75),
         keyMode: Number(updated.keyMode !== undefined ? updated.keyMode : 4),
         bindings: {},
-        upsurfaceNoteMode: updated.upsurfaceNoteMode === true || String(updated.upsurfaceNoteMode) === 'true',
+        upsurfaceNoteMode: updated.renderEngine === 'babylon'
+          ? false
+          : (updated.upsurfaceNoteMode === true || String(updated.upsurfaceNoteMode) === 'true'),
         videoOpacity: 1.0,
         backgroundDim: Number(updated.backgroundDim !== undefined ? updated.backgroundDim : 0.60),
         menuBackgroundDim: Number(updated.menuBackgroundDim !== undefined ? updated.menuBackgroundDim : 0.30),
@@ -688,7 +705,15 @@ export default function App() {
         selectedMods: updated.selectedMods || [],
         bindPause: updated.bindPause !== undefined ? String(updated.bindPause) : 'escape',
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
-        renderEngine: updated.renderEngine === 'pixi' ? 'pixi' : 'canvas',
+        renderEngine:
+          updated.renderEngine === 'pixi' ? 'pixi'
+          : updated.renderEngine === 'babylon' ? 'babylon'
+          : 'canvas',
+        babylonFloor: updated.babylonFloor !== undefined ? Boolean(updated.babylonFloor) : true,
+        babylonQuality:
+          updated.babylonQuality === 'low' ? 'low'
+          : updated.babylonQuality === 'medium' ? 'medium'
+          : 'high',
         enableMapSV: updated.enableMapSV !== false,
         disableLaneShake: Boolean(updated.disableLaneShake),
         enableSongPreview: updated.enableSongPreview !== false,
@@ -1198,9 +1223,28 @@ export default function App() {
             </motion.div>
           )}
 
+          {currentScreen === 'editprofile' && (
+            <motion.div
+              key="edit-profile"
+              variants={PAGE_TRANSITION_VARIANTS}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="h-full w-full overflow-hidden"
+            >
+              <EditProfileScreen
+                onDone={() => openProfile(currentUser?.id ?? '')}
+                onBack={() => {
+                  if (currentUser) openProfile(currentUser.id);
+                  else leaveProfilePath('menu');
+                }}
+              />
+            </motion.div>
+          )}
+
           {currentScreen === 'profile' && (
             <motion.div
-              key={`profile-${profileUserId ?? 'self'}`}
+              key={`profile-${profileUserId ?? 'search'}`}
               variants={PAGE_TRANSITION_VARIANTS}
               initial="initial"
               animate="animate"
@@ -1211,6 +1255,8 @@ export default function App() {
                 user={currentUser}
                 profileId={profileUserId}
                 onBack={() => leaveProfilePath('menu')}
+                onEditProfile={openEditProfile}
+                onOpenProfile={openProfile}
               />
             </motion.div>
           )}

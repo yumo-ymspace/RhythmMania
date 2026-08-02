@@ -197,7 +197,9 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     musicVolume: clamp(parsed.musicVolume, 0, 1, defaultSettings.musicVolume),
     keyMode: clamp(parsed.keyMode, 2, 8, defaultSettings.keyMode),
     bindings: bindings,
-    upsurfaceNoteMode: Boolean(parsed.upsurfaceNoteMode),
+    upsurfaceNoteMode: (parsed.renderEngine === 'babylon' || String(parsed.renderEngine) === 'babylon')
+      ? false
+      : Boolean(parsed.upsurfaceNoteMode),
     videoOpacity: 1.0,
     backgroundDim: clamp(parsed.backgroundDim, 0, 1, defaultSettings.backgroundDim),
     menuBackgroundDim: clamp(parsed.menuBackgroundDim, 0, 1, defaultSettings.menuBackgroundDim ?? 0.3),
@@ -227,7 +229,15 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     selectedMods: selectedMods,
     bindPause: sanitizeString(parsed.bindPause, defaultSettings.bindPause || 'escape', 15),
     bindRetry: sanitizeString(parsed.bindRetry, defaultSettings.bindRetry || 'r', 15),
-    renderEngine: parsed.renderEngine === 'pixi' ? 'pixi' : 'canvas',
+    renderEngine:
+      parsed.renderEngine === 'pixi' ? 'pixi'
+      : parsed.renderEngine === 'babylon' ? 'babylon'
+      : 'canvas',
+    babylonFloor: parsed.babylonFloor !== undefined ? Boolean(parsed.babylonFloor) : (defaultSettings.babylonFloor ?? true),
+    babylonQuality:
+      parsed.babylonQuality === 'low' ? 'low'
+      : parsed.babylonQuality === 'medium' ? 'medium'
+      : (defaultSettings.babylonQuality ?? 'high'),
     enableMapSV: parsed.enableMapSV !== undefined ? Boolean(parsed.enableMapSV) : true,
     enableSongPreview: parsed.enableSongPreview !== undefined ? Boolean(parsed.enableSongPreview) : true,
     showFpsCounter: Boolean(parsed.showFpsCounter),
