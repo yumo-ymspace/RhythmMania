@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
  * Railroad-track lane separators: one thin box per lane boundary, rotated and
- * scaled so it spans from its near-plane X (depth 0) to its converged X at the
- * vanishing point (depth 1). Geometry is only recomputed when the layout key
+ * scaled so it spans from its near-plane X (depth 0) to the full back of the
+ * runway. Geometry is only recomputed when the layout key
  * (keyCount + nearWidth + perspective) changes.
  */
 
@@ -15,7 +15,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
-import { runwayBoundary, FAR_Z, NEAR_Z, SLAB_HEIGHT, RUNWAY_CONVERGENCE, safeHex } from '../coords';
+import { runwayBoundary, FAR_Z, FLOOR_FAR_Z, RECEPTOR_Z, SLAB_HEIGHT, RUNWAY_CONVERGENCE, safeHex } from '../coords';
 
 export class LaneLayer {
   private separatorMeshes: Mesh[] = [];
@@ -31,7 +31,8 @@ export class LaneLayer {
     while (this.separatorMeshes.length < count) {
       const i = this.separatorMeshes.length;
       const mesh = MeshBuilder.CreateBox(`sep_${i}`, { width: 0.04, height: 0.02, depth: 1 }, this.scene);
-      mesh.isPickable = false;
+       mesh.isPickable = false;
+       mesh.renderingGroupId = 1;
       const mat = new StandardMaterial(`sepMat_${i}`, this.scene);
       mat.disableLighting = true;
       mat.backFaceCulling = false;
@@ -62,11 +63,13 @@ export class LaneLayer {
 
       if (layoutChanged) {
         const near = runwayBoundary(i, keyCount, 0, RUNWAY_CONVERGENCE, ctx.nearWidth);
-        const far = runwayBoundary(i, keyCount, 1, RUNWAY_CONVERGENCE, ctx.nearWidth);
+        const backDepth = (FLOOR_FAR_Z - RECEPTOR_Z) / (FAR_Z - RECEPTOR_Z);
+        const far = runwayBoundary(i, keyCount, backDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
         const dx = far.x - near.x;
         const dz = far.z - near.z;
         const len = Math.max(0.1, Math.sqrt(dx * dx + dz * dz));
-        mesh.position.set((near.x + far.x) / 2, SLAB_HEIGHT + 0.002, (near.z + far.z) / 2);
+        // Keep divider rails visibly above the floor and away from z-fighting.
+        mesh.position.set((near.x + far.x) / 2, SLAB_HEIGHT + 0.08, (near.z + far.z) / 2);
         mesh.scaling.set(1, 1, len);
         mesh.rotation.y = Math.atan2(dx, dz);
       }
@@ -79,8 +82,6 @@ export class LaneLayer {
     for (let i = boundaryCount; i < this.separatorMeshes.length; i++) {
       this.separatorMeshes[i].setEnabled(false);
     }
-    void NEAR_Z;
-    void FAR_Z;
   }
 
   dispose(): void {

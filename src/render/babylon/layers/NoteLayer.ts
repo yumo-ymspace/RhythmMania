@@ -3,11 +3,10 @@
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
  * Glowing note slabs for normal notes and hold heads/tails. Slabs have a
- * constant world width (a fraction of the near-plane lane width) so they
- * stay readable at every depth — the perspective camera makes far slabs
- * appear smaller. Hold heads use the same slab as normal notes; hold tails
- * cap the tapered body (HoldLayer) and scale with the lane width at the
- * tail's depth. Signed depth lets late notes fly past the camera naturally.
+ * scale with the lane width at their depth so they track the converging
+ * separators. Hold heads use the same slab as normal notes; hold tails cap
+ * the tapered body (HoldLayer) and scale with the lane width at the tail's
+ * depth. Signed depth lets late notes fly past the camera naturally.
  */
 
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
@@ -64,8 +63,6 @@ export class NoteLayer {
     const { notes, columns, receptorY, settingsSlice } = frame;
     const keep = new Set<string>();
     const noteOp = settingsSlice.noteOpacity ?? 1;
-    const headWidth = ctx.laneWidthNear * NOTE_WIDTH_FRAC;
-
     for (const n of notes) {
       const col = columns[n.column];
       if (!col) continue;
@@ -80,6 +77,7 @@ export class NoteLayer {
 
         const depthFactor = yToDepthFactor(n.y, receptorY);
         const pos = runwayPosition(n.column, ctx.keyCount, depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth);
+        const headWidth = laneWidthAt(depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC;
 
         mesh.position.copyFrom(pos);
         mesh.scaling.set(headWidth, 0.22, 0.18);

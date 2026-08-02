@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass, UserRound } from 'lucide-react';
+import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass, UserRound, Loader2 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
 import { AnimatePresence, motion } from 'motion/react';
@@ -45,7 +45,13 @@ const PAGE_TRANSITION_VARIANTS = {
 const LOCAL_STORAGE_SETTINGS_KEY = 'rhythm_mania_v1_settings';
 const LOCAL_STORAGE_CUSTOM_MAPS_KEY = 'rhythm_mania_v1_custom_maps';
 
-import { DEFAULT_SETTINGS } from './components/settings/defaultSettings';
+import {
+  BABYLON_PLAYFIELD_WIDTH_MAX,
+  BABYLON_PLAYFIELD_WIDTH_MIN,
+  DEFAULT_SETTINGS,
+  PLAYFIELD_WIDTH_MAX,
+  PLAYFIELD_WIDTH_MIN,
+} from './components/settings/defaultSettings';
 
 export default function App() {
   const [path, setPath] = useState<string>(() => typeof window !== 'undefined' ? window.location.pathname : '/');
@@ -465,26 +471,19 @@ export default function App() {
 
     // Auto-download logic for missing catalog beatmaps
     const catalogSetId = record.catalogSetId;
+    const chartRevisionId = record.chartRevisionId;
     let oszToDownload = (record as any).oszUrl;
     let catalogEntry: any = null;
 
-    if (!oszToDownload) {
+    if (chartRevisionId) {
       try {
-        const res = await fetch(`/beatmaps/manifest.json?t=${Date.now()}`);
+        const res = await fetch(`/api/catalog/chart?chartRevisionId=${encodeURIComponent(chartRevisionId)}`, { credentials: 'include' });
         if (res.ok) {
-          const manifest = await res.json();
-          if (Array.isArray(manifest)) {
-            catalogEntry = manifest.find((item: any) => 
-              (catalogSetId && item.id === catalogSetId) ||
-              item.difficulties?.some((d: any) => d.id === record.catalogMapId || d.id === record.beatmapId)
-            );
-            if (catalogEntry) {
-              oszToDownload = catalogEntry.oszUrl;
-            }
-          }
+          const json = await res.json();
+          if (json.success) { catalogEntry = json.data; oszToDownload = json.data.downloadUrl; }
         }
       } catch (err) {
-        console.warn('Error querying manifest for replay auto-download:', err);
+        console.warn('Error querying catalog for replay auto-download:', err);
       }
     }
 
@@ -505,21 +504,24 @@ export default function App() {
       if (osuFiles.length === 0) throw new Error('No .osu files in beatmap package');
 
       const importedMaps: Beatmap[] = [];
-      const pkgId = catalogSetId || catalogEntry?.id || `pkg_${Date.now()}`;
+       const pkgId = catalogEntry?.cloudSetId || catalogSetId;
+       if (!pkgId) throw new Error('Replay has no verified cloud set identity');
 
       for (const fileKey of osuFiles) {
-        const content = await zip.files[fileKey].async('string');
-        const parsed = parseBeatmap(content, fileKey);
-        if (parsed) {
-          const diffMatch = catalogEntry?.difficulties?.find((d: any) =>
-            d.osuFilename === fileKey || d.name === parsed.difficulty
-          );
-          const fullMap: any = {
-            ...parsed,
-            id: diffMatch?.id || `server_${pkgId}_${Math.random().toString(36).slice(2, 7)}`,
-            catalogSetId: pkgId,
-            catalogMapId: diffMatch?.id || record.catalogMapId || undefined,
-            isServerMap: true,
+         const content = await zip.files[fileKey].async('string');
+         const parsed = parseBeatmap(content, fileKey);
+         if (parsed) {
+           const isTarget = fileKey === catalogEntry.originalOsuFilename;
+           if (!isTarget) continue;
+           const fullMap: any = {
+             ...parsed,
+             id: chartRevisionId,
+             catalogSetId: pkgId,
+             catalogMapId: chartRevisionId,
+             chartRevisionId,
+             checksum: catalogEntry.checksum,
+             checksumAlgorithm: catalogEntry.checksumAlgorithm,
+             isServerMap: true,
             parentPackageId: pkgId,
           };
           importedMaps.push(fullMap as Beatmap);
@@ -665,12 +667,21 @@ export default function App() {
   const updateSettings = useCallback((newSettings: Partial<GameSettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
+      const renderEngine = updated.renderEngine === 'pixi' ? 'pixi' : updated.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+      const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
+      const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
+      const requestedWidth = Number(updated.playfieldWidthPercent !== undefined ? updated.playfieldWidthPercent : 40);
+      const playfieldWidthPercent = Number.isFinite(requestedWidth)
+        ? Math.max(widthMin, Math.min(widthMax, requestedWidth))
+        : Math.max(widthMin, Math.min(widthMax, 40));
       const safePayload: GameSettings = {
         scrollSpeed: Number(updated.scrollSpeed !== undefined ? updated.scrollSpeed : 21),
         audioOffset: Number(updated.audioOffset !== undefined ? updated.audioOffset : 0),
         visualOffset: Number(updated.visualOffset !== undefined ? updated.visualOffset : 0),
         hitsoundVolume: Number(updated.hitsoundVolume !== undefined ? updated.hitsoundVolume : 0.60),
         musicVolume: Number(updated.musicVolume !== undefined ? updated.musicVolume : 0.75),
+        previewVolume: Number(updated.previewVolume !== undefined ? updated.previewVolume : 0.70),
+        masterVolume: Number(updated.masterVolume !== undefined ? updated.masterVolume : 1.0),
         keyMode: Number(updated.keyMode !== undefined ? updated.keyMode : 4),
         bindings: {},
         upsurfaceNoteMode: updated.renderEngine === 'babylon'
@@ -700,15 +711,12 @@ export default function App() {
         circleSize: updated.circleSize !== undefined ? Number(updated.circleSize) : 1.0,
         noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Number(updated.noteSizeMultiplier) : 1.0,
         playfieldStyle: updated.playfieldStyle || 'square',
-        playfieldWidthPercent: updated.playfieldWidthPercent !== undefined ? Number(updated.playfieldWidthPercent) : 40,
+         playfieldWidthPercent,
         progressBarTop: updated.progressBarTop === true || String(updated.progressBarTop) === 'true',
         selectedMods: updated.selectedMods || [],
         bindPause: updated.bindPause !== undefined ? String(updated.bindPause) : 'escape',
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
-        renderEngine:
-          updated.renderEngine === 'pixi' ? 'pixi'
-          : updated.renderEngine === 'babylon' ? 'babylon'
-          : 'canvas',
+         renderEngine,
         babylonFloor: updated.babylonFloor !== undefined ? Boolean(updated.babylonFloor) : true,
         babylonQuality:
           updated.babylonQuality === 'low' ? 'low'
@@ -1025,7 +1033,7 @@ export default function App() {
           id="main-header" 
           className="h-16 flex items-center px-4 md:px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
         >
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4">
+          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4 relative">
             <div
               onClick={() => leaveProfilePath('menu')}
               className="flex items-center cursor-pointer group select-none shrink-0"
@@ -1044,7 +1052,7 @@ export default function App() {
 
             {/* TOP MIDDLE: Find Online Beatmaps Button */}
             {!isMobile && (
-              <div className="flex-1 flex justify-center">
+              <div className="absolute left-1/2 -translate-x-1/2">
                 <button
                   id="header-find-beatmap-button"
                   onClick={() => {
@@ -1115,11 +1123,16 @@ export default function App() {
               </button>
 
               {/* Account Button / Avatar */}
-              {currentUser ? (
+              <div className="w-8 md:w-[150px] h-9 shrink-0 flex justify-end">
+              {authLoading ? (
+                <div className="w-full h-full rounded-xl border border-white/10 bg-white/5 text-slate-400 flex items-center justify-center">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-pink-400" />
+                </div>
+              ) : currentUser ? (
                 <button
                   id="header-nav-account"
                   onClick={requestSignOut}
-                  className="p-1 md:px-2.5 md:py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 flex items-center gap-2"
+                   className="w-full p-1 md:px-2.5 md:py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 flex items-center justify-center gap-2"
                   title="Sign Out"
                 >
                   {currentUser.avatarUrl ? (
@@ -1140,7 +1153,7 @@ export default function App() {
                 <button
                   id="header-nav-login"
                   onClick={handleGoogleSignIn}
-                  className="px-2.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center gap-1.5"
+                   className="w-full px-2.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5"
                   title="Sign in with Google"
                 >
                   <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
@@ -1157,6 +1170,7 @@ export default function App() {
                   )}
                 </button>
               )}
+              </div>
 
               <button
                 id="header-nav-profile"
@@ -1215,7 +1229,8 @@ export default function App() {
                   leaveProfilePath(screen as GameScreen);
                 }} 
                 onOpenSettings={() => setShowSettings(true)}
-                currentUser={currentUser}
+                 currentUser={currentUser}
+                 authLoading={authLoading}
                 onSignIn={handleGoogleSignIn}
                 onSignOut={requestSignOut}
                 authError={authError}

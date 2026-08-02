@@ -30,8 +30,9 @@ export class BackgroundLayer {
   private ensureFloor(): void {
     if (this.floor) return;
     // Base unit ground; scaled each frame to the current nearWidth (aspect-driven).
-    this.floor = MeshBuilder.CreateGround('runwayFloor', { width: 1, height: 1, subdivisions: 1 }, this.scene);
-    this.floor.isPickable = false;
+     this.floor = MeshBuilder.CreateGround('runwayFloor', { width: 1, height: 1, subdivisions: 1 }, this.scene);
+     this.floor.isPickable = false;
+     this.floor.renderingGroupId = 0;
     this.floor.position.set(0, 0, FAR_Z / 2);
     this.floorMat = new StandardMaterial('floorMat', this.scene);
     this.floorMat.disableLighting = true;
@@ -46,17 +47,19 @@ export class BackgroundLayer {
       this.ensureFloor();
       if (this.floor) {
         this.floor.setEnabled(true);
-        const nearHalf = ctx.nearWidth / 2;
-        const farHalf = nearHalf * (1 - RUNWAY_CONVERGENCE);
+         const nearHalf = ctx.nearWidth / 2;
+         const backDepth = (FLOOR_FAR_Z - RECEPTOR_Z) / (FAR_Z - RECEPTOR_Z);
+         const farHalf = nearHalf * (1 - RUNWAY_CONVERGENCE);
+         const backHalf = nearHalf * Math.max(0, 1 - backDepth * RUNWAY_CONVERGENCE);
         const vertices = new VertexData();
         vertices.positions = [
           -nearHalf, 0, FLOOR_NEAR_Z,
           nearHalf, 0, FLOOR_NEAR_Z,
           nearHalf, 0, RECEPTOR_Z,
-          farHalf, 0, FAR_Z,
-          farHalf, 0, FLOOR_FAR_Z,
-          -farHalf, 0, FLOOR_FAR_Z,
-          -farHalf, 0, FAR_Z,
+           farHalf, 0, FAR_Z,
+           backHalf, 0, FLOOR_FAR_Z,
+           -backHalf, 0, FLOOR_FAR_Z,
+           -farHalf, 0, FAR_Z,
           -nearHalf, 0, RECEPTOR_Z,
         ];
         vertices.indices = [

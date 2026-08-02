@@ -5,7 +5,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
-import { NEAR_Z, SLAB_HEIGHT, safeHex } from '../coords';
+import { RECEPTOR_Z, SLAB_HEIGHT, safeHex } from '../coords';
 
 export class ParticleLayer {
   private pool: Mesh[] = [];
@@ -42,8 +42,11 @@ export class ParticleLayer {
       const mesh = this.acquire();
       const material = mesh.material as StandardMaterial;
       const x = ((particle.x / Math.max(1, frame.width)) - 0.5) * ctx.nearWidth;
-      const y = SLAB_HEIGHT + 0.16 + particle.size * 0.006;
-      mesh.position.set(x, y, NEAR_Z + 0.18);
+       // Particle coordinates start at the 2D receptor, so keep their spawn
+       // point on the Babylon judgement line and only apply their animation
+       // offset afterward. The small Z offset puts them in front of the line.
+       const y = SLAB_HEIGHT - (particle.y - frame.receptorY) * 0.005;
+       mesh.position.set(x, y, RECEPTOR_Z + 0.12);
       const size = Math.max(0.035, particle.size * 0.018);
       mesh.scaling.setAll(size);
       material.emissiveColor = Color3.FromHexString(safeHex(particle.color, '#22d3ee'));

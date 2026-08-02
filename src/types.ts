@@ -12,6 +12,36 @@
 
 export type NoteType = 'normal' | 'hold';
 
+export type CloudBeatmapSource = 'bundled' | 'osuapi';
+export type CloudCatalogState = 'pending' | 'active' | 'frozen';
+
+export interface CloudChartRef {
+  chartRevisionId: string;
+  cloudSetId: string;
+  sourceChartId?: number;
+  originalOsuFilename: string;
+  checksum: string;
+  checksumAlgorithm: 'md5' | 'sha256';
+  difficulty: string;
+  keyCount: number;
+  mode: 3;
+  isActive: boolean;
+}
+
+export interface CloudSetSummary {
+  cloudSetId: string;
+  source: CloudBeatmapSource;
+  sourceSetId?: number;
+  title: string;
+  artist: string;
+  creator: string;
+  coverUrl?: string;
+  state: CloudCatalogState;
+  rankStatus?: string;
+  downloadUrl?: string;
+  charts: CloudChartRef[];
+}
+
 export interface HitSample {
   normalSet: number;
   additionSet: number;
@@ -76,6 +106,9 @@ export interface BeatmapMetadata {
   catalogMapId?: string | null;
   beatmapHash?: string;
   isServerMap?: boolean;
+  chartRevisionId?: string | null;
+  checksum?: string;
+  checksumAlgorithm?: 'md5' | 'sha256';
 }
 
 export interface Beatmap extends BeatmapMetadata {
@@ -170,6 +203,9 @@ export interface PlayHistoryRecord {
   replaySource?: ReplaySource;
   catalogSetId?: string | null; // e.g., 'server_usseewa'
   catalogMapId?: string | null; // e.g., 'server_usseewa_idx0'
+  chartRevisionId?: string | null;
+  checksum?: string;
+  checksumAlgorithm?: 'md5' | 'sha256';
   beatmapHash?: string; // deterministic hash of content or metadata
   uploadEligibility?: UploadEligibility;
   uploadStatus?: UploadStatus;
@@ -186,6 +222,8 @@ export interface GameSettings {
   visualOffset: number; // in milliseconds (positive means visual notes are delayed)
   hitsoundVolume: number; // 0 to 1
   musicVolume: number; // 0 to 1
+  previewVolume: number; // 0 to 1 multiplier applied to song previews
+  masterVolume: number; // 0 to 1 applied to all gameplay audio
   keyMode: number; // 4, 5, 6, 7
   bindings: KeyBindings;
   upsurfaceNoteMode: boolean; // whether notes scroll upwards rather than downwards

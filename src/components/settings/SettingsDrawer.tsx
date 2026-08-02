@@ -19,7 +19,12 @@ import SettingsPane from './SettingsPane';
 import OffsetWizardModal from './OffsetWizardModal';
 import ConfirmModal from './controls/ConfirmModal';
 import { SectionId, SECTIONS, ROWS } from './settingsRegistry';
-import { isAtDefault, DEFAULT_SETTINGS } from './defaultSettings';
+import {
+  BABYLON_PLAYFIELD_WIDTH_MAX,
+  BABYLON_PLAYFIELD_WIDTH_MIN,
+  isAtDefault,
+  DEFAULT_SETTINGS,
+} from './defaultSettings';
 import { loadSkinFile } from './skinParser';
 import * as LucideIcons from 'lucide-react';
 import metadata from '../../../metadata.json';
@@ -71,6 +76,12 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (settings.renderEngine === 'babylon' && activeSection === 'skin') {
+      setActiveSection('graphics');
+    }
+  }, [settings.renderEngine, activeSection]);
+
   const resetRow = (id: string) => {
     // If it's a complex object like bindings, we need to deep copy from DEFAULT_SETTINGS
     const dv = (DEFAULT_SETTINGS as any)[id];
@@ -115,6 +126,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
   if (isMobile) {
     const sectionDef = SECTIONS.find(s => s.id === activeSection);
     const rows = ROWS.filter(r => r.section === activeSection).filter(r => {
+      if (r.section === 'skin' && settings.renderEngine === 'babylon') return false;
       if (r.showWhen && !r.showWhen(settings)) return false;
       return true;
     });
@@ -144,7 +156,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
 
               {/* Category selector */}
               <div className="flex-none bg-slate-950/40 border-b border-white/5 flex flex-wrap gap-2 px-4 py-3 justify-center">
-                {SECTIONS.filter(s => s.id !== 'input').map((s) => {
+                {SECTIONS.filter(s => s.id !== 'input' && (!s.showWhen || s.showWhen(settings))).map((s) => {
                   const Icon = (LucideIcons as any)[s.icon] || LucideIcons.Circle;
                   const isActive = s.id === activeSection;
 
@@ -191,13 +203,19 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         </div>
                       );
                     } else if (row.control.kind === 'slider') {
+                      const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
+                        ? BABYLON_PLAYFIELD_WIDTH_MIN
+                        : row.control.min;
+                      const sliderMax = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
+                        ? BABYLON_PLAYFIELD_WIDTH_MAX
+                        : row.control.max;
                       controlNode = (
                         <div className="w-full">
                           <SettingsSlider
                             id={`setting-mobile-${row.id}`}
                             value={Number(currentValue)}
-                            min={row.control.min}
-                            max={row.control.max}
+                             min={sliderMin}
+                             max={sliderMax}
                             step={row.control.step}
                             format={row.control.format}
                             suffix={row.control.suffix}
@@ -374,6 +392,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                 activeSection={activeSection} 
                 onSelect={setActiveSection}
                 onRestoreAll={handleRestoreRequest} 
+                settings={settings}
               />
               <div className="flex-1 flex flex-col min-w-0">
                 <SettingsSearchBar 

@@ -149,6 +149,7 @@ self.addEventListener('fetch', (event) => {
       .then((networkResponse) => {
         if (
           event.request.url.startsWith('http') &&
+          !url.pathname.startsWith('/api/') &&
           (networkResponse.status === 200 || networkResponse.status === 304)
         ) {
           const responseClone = networkResponse.clone();

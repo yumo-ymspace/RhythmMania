@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import JSZip from 'jszip';
+import SparkMD5 from 'spark-md5';
 import { 
   Search, X, Music, Check, Loader, Download, Info, SlidersHorizontal, ArrowUpDown 
 } from 'lucide-react';
@@ -38,12 +39,16 @@ export default function OnlineBeatmapCatalog({
 }: OnlineBeatmapCatalogProps) {
   const [serverManifest, setServerManifest] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [catalogRequestState, setCatalogRequestState] = useState<'idle' | 'loading' | 'loaded'>('idle');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [submittedSearchTerm, setSubmittedSearchTerm] = useState<string>('');
+  const [filterSearchTerm, setFilterSearchTerm] = useState<string>('');
   const [selectedMode, setSelectedMode] = useState<string>('Any');
   const [sortBy, setSortBy] = useState<string>('Title');
   const [downloadingMapId, setDownloadingMapId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null);
   const [importStatus, setImportStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync isLoading when open changes to true
@@ -53,27 +58,80 @@ export default function OnlineBeatmapCatalog({
     }
   }, [open]);
 
-  // Fetch server manifest on mount/open
+  // Fetch server results only for an explicitly submitted, non-empty query.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !submittedSearchTerm.trim()) {
+      if (open) {
+        setServerManifest([]);
+        setIsLoading(false);
+        setCatalogRequestState('idle');
+      }
+      return;
+    }
+    const controller = new AbortController();
+    const requestTerm = submittedSearchTerm;
     const fetchManifest = async () => {
       setIsLoading(true);
+      setCatalogRequestState('loading');
+      setCatalogError(null);
       try {
-        const response = await fetch(`/beatmaps/manifest.json?t=${Date.now()}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setServerManifest(data);
-          }
+        const [localResponse, osuResponse] = await Promise.all([
+          fetch(`/api/catalog/search?q=${encodeURIComponent(requestTerm)}`, { credentials: 'include', signal: controller.signal }),
+          fetch(`/api/catalog/search?source=osu&q=${encodeURIComponent(requestTerm)}`, { credentials: 'include', signal: controller.signal }),
+        ]);
+        const [local, osu] = await Promise.all([
+          localResponse.json().catch(() => ({ data: [] })),
+          osuResponse.json().catch(() => ({ data: [] })),
+        ]);
+        const failures = [localResponse, osuResponse].filter(response => !response.ok);
+        if (failures.length === 2) {
+          throw new Error(local.error || osu.error || 'Cloud catalog is unavailable.');
         }
+        if (failures.length > 0) {
+          setCatalogError('One catalog source is unavailable; showing the results from the other source.');
+        }
+        const results = [
+          ...(Array.isArray(local.data) ? local.data : []),
+          ...(Array.isArray(osu.data) ? osu.data.map((item: any) => ({ ...item, id: `osuapi_${item.sourceSetId}`, source: 'osuapi', catalogState: 'pending' })) : []),
+        ];
+        const uniqueResults = Array.from(new Map(
+          results.map((item: any) => [`${item.source || 'local'}:${item.cloudSetId || item.id}`, item])
+        ).values());
+        setServerManifest(uniqueResults);
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.warn('Unable to load online beatmap manifest.', err);
+        setServerManifest([]);
+        setCatalogError(err instanceof Error ? err.message : 'Cloud catalog is unavailable.');
       } finally {
+        if (controller.signal.aborted) return;
         setIsLoading(false);
+        setCatalogRequestState('loaded');
       }
     };
     fetchManifest();
-  }, [open]);
+    return () => controller.abort();
+  }, [open, submittedSearchTerm]);
+
+  // Remove old remote results as soon as a new query is submitted. This prevents
+  // a previous response from remaining visible while the new request is pending.
+  useEffect(() => {
+    if (open && submittedSearchTerm.trim()) {
+      setServerManifest([]);
+    }
+  }, [open, submittedSearchTerm]);
+
+  useEffect(() => {
+    if (!open || searchTerm === submittedSearchTerm) return;
+    const timer = window.setTimeout(() => setSubmittedSearchTerm(searchTerm), 4000);
+    return () => window.clearTimeout(timer);
+  }, [open, searchTerm, submittedSearchTerm]);
+
+  useEffect(() => {
+    if (!open || searchTerm === filterSearchTerm) return;
+    const timer = window.setTimeout(() => setFilterSearchTerm(searchTerm), 1500);
+    return () => window.clearTimeout(timer);
+  }, [open, searchTerm, filterSearchTerm]);
 
   // Handle ESC key to close
   useEffect(() => {
@@ -123,14 +181,32 @@ export default function OnlineBeatmapCatalog({
 
     const serverMapId = s.id;
     const serverMapTitle = s.title;
-    const oszUrl = s.oszUrl;
+    let oszUrl = s.oszUrl;
+    let activationToken: string | null = null;
+    const activationCharts: { beatmapId: number; checksum: string }[] = [];
 
     setDownloadingMapId(serverMapId);
     setDownloadProgress({ loaded: 0, total: 0, percentage: 0 });
-    setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
+    setImportStatus({
+      type: 'ok',
+      msg: s.source === 'osuapi' ? 'Verifying map authentication...' : `Downloading "${serverMapTitle}"...`,
+    });
 
     try {
-      assertSafeAssetUrl(oszUrl, 'OnlineBeatmapCatalog download');
+      if (s.source === 'osuapi' && s.sourceSetId) {
+        const registration = await fetch('/api/catalog/register-download', {
+         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ beatmapsetId: s.sourceSetId }),
+       });
+        const registrationJson = await registration.json();
+        if (!registration.ok || !registrationJson.success) throw new Error(registrationJson.error || 'osu! mirror registration failed');
+        oszUrl = registrationJson.data.downloadUrl;
+        activationToken = registrationJson.data.token;
+        s = { ...s, id: registrationJson.data.cloudSetId, difficulties: registrationJson.data.charts.map((chart: any) => ({ ...chart, sourceChartId: chart.sourceChartId ?? chart.id, chartRevisionId: `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum}`, name: chart.version })) };
+        setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
+      }
+       if (typeof oszUrl !== 'string' || !oszUrl) throw new Error('This catalog entry has no downloadable package URL. Reseed the bundled catalog.');
+       if (s.source !== 'osuapi') assertSafeAssetUrl(oszUrl, 'OnlineBeatmapCatalog download');
       const response = await fetch(oszUrl);
       if (!response.ok) {
         throw new Error(`Failed to request map pack. Status: ${response.status}`);
@@ -171,37 +247,23 @@ export default function OnlineBeatmapCatalog({
       setImportStatus({ type: 'ok', msg: 'Storing package and cache...' });
 
       const blob = new Blob(chunks, { type: 'application/octet-stream' });
-      const packageId = `pkg_${serverMapId}`;
+       const packageId = serverMapId;
 
-      // Unzip and delete all .wav files
-      const zip = await JSZip.loadAsync(blob);
-      validateZipLimits(zip);
-      const zipKeys = Object.keys(zip.files);
-      let wavsDeletedCount = 0;
-      for (const key of zipKeys) {
-        if (key.toLowerCase().endsWith('.wav')) {
-          zip.remove(key);
-          wavsDeletedCount++;
-        }
-      }
-      if (wavsDeletedCount > 0) {
-        console.log(`Removed ${wavsDeletedCount} .wav files from downloaded map: ${serverMapTitle}`);
-      }
-
-      // Compile clean zip without wavs
-      const cleanedBlob = await zip.generateAsync({ type: 'blob' });
-      await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, cleanedBlob);
+       // Preserve the verified archive byte-for-byte; media is validated when unpacked.
+       const zip = await JSZip.loadAsync(blob);
+       validateZipLimits(zip);
+       await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
       await new Promise(resolve => setTimeout(resolve, 15));
 
       const resolver = new RobustZipResolver(zip);
       const fileNames = Object.keys(zip.files);
-      const beatmapFiles: { name: string; content: string }[] = [];
+       const beatmapFiles: { name: string; content: string; checksum: string }[] = [];
 
       for (const name of fileNames) {
         if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
           validateZipEntrySize(zip.files[name], name);
-          const content = await zip.files[name].async('text');
-          beatmapFiles.push({ name, content });
+          const raw = await zip.files[name].async('arraybuffer');
+          beatmapFiles.push({ name, content: new TextDecoder().decode(raw), checksum: SparkMD5.ArrayBuffer.hash(raw) });
         }
       }
 
@@ -214,24 +276,24 @@ export default function OnlineBeatmapCatalog({
 
       for (let i = 0; i < beatmapFiles.length; i++) {
         const beatmapStr = beatmapFiles[i];
-        const matchingServerObj = serverManifest.find(sm => sm.id === serverMapId);
+         const matchingServerObj = s.source === 'osuapi'
+           ? s
+           : serverManifest.find(sm => sm.id === serverMapId);
 
-        let canonicalMapId = `${serverMapId}_idx${i}`;
-        let tempParsedDifficulty = '';
-        const diffMatch = beatmapStr.content.match(/^Version:(.*)$/m);
-        if (diffMatch) {
-          tempParsedDifficulty = diffMatch[1].trim();
-        }
-
-        if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
-          const matchedDiff = matchingServerObj.difficulties.find((d: any) =>
-            d.osuFilename === beatmapStr.name ||
-            (d.name && tempParsedDifficulty && d.name.trim().toLowerCase() === tempParsedDifficulty.toLowerCase())
-          );
-          if (matchedDiff?.id) {
-            canonicalMapId = matchedDiff.id;
+          let canonicalMapId = '';
+          let matchedDiff: any;
+           if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
+            matchedDiff = matchingServerObj.difficulties.find((d: any) =>
+             d.checksum?.toLowerCase() === beatmapStr.checksum.toLowerCase() ||
+             ((d.originalOsuFilename || d.osuFilename) === beatmapStr.name)
+           );
+           if (matchedDiff?.chartRevisionId) canonicalMapId = matchedDiff.chartRevisionId;
+         }
+          if (!canonicalMapId) continue;
+          const sourceChartId = Number(matchedDiff?.sourceChartId ?? matchedDiff?.id);
+          if (s.source === 'osuapi' && Number.isInteger(sourceChartId) && sourceChartId > 0 && matchedDiff.checksum) {
+            activationCharts.push({ beatmapId: sourceChartId, checksum: matchedDiff.checksum });
           }
-        }
 
         const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
 
@@ -242,7 +304,11 @@ export default function OnlineBeatmapCatalog({
           mapWithMeta.packageId = packageId;
           mapWithMeta.parentPackageId = serverMapId;
           mapWithMeta.catalogSetId = serverMapId;
-          mapWithMeta.catalogMapId = canonicalMapId;
+           mapWithMeta.catalogMapId = canonicalMapId;
+           mapWithMeta.chartRevisionId = canonicalMapId;
+           const chart = matchingServerObj?.difficulties?.find((d: any) => d.chartRevisionId === canonicalMapId);
+           mapWithMeta.checksum = chart?.checksum;
+           mapWithMeta.checksumAlgorithm = chart?.checksumAlgorithm;
           mapWithMeta.audioFilename = media.audioFilename;
           mapWithMeta.videoFilename = media.videoFilename;
           mapWithMeta.bgFilename = media.bgFilename;
@@ -269,7 +335,17 @@ export default function OnlineBeatmapCatalog({
         }
       }
 
-      if (importedCount > 0 && parsedDifficulties.length > 0) {
+       if (importedCount > 0 && parsedDifficulties.length > 0) {
+        if (s.source === 'osuapi' && activationToken) {
+          const activation = await fetch('/api/catalog/activate-download', {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cloudSetId: s.id, token: activationToken, charts: activationCharts }),
+          });
+          const activationJson = await activation.json().catch(() => ({}));
+          if (!activation.ok || !activationJson.success) {
+            throw new Error(activationJson.error || 'Downloaded map authentication failed.');
+          }
+        }
         setImportStatus({ type: 'ok', msg: `Successfully downloaded and unpacked "${serverMapTitle}"!` });
       } else {
         throw new Error('No valid playable difficulties found inside.');
@@ -295,8 +371,8 @@ export default function OnlineBeatmapCatalog({
       const requiredMode = selectedMode.toLowerCase().includes('mania') ? 3 : 0;
       if (s.mode !== undefined && s.mode !== requiredMode) return false;
     }
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
+    if (filterSearchTerm) {
+      const q = filterSearchTerm.toLowerCase();
       const match = (s.title || '').toLowerCase().includes(q) ||
                     (s.artist || '').toLowerCase().includes(q) ||
                     (s.creator || '').toLowerCase().includes(q);
@@ -373,9 +449,25 @@ export default function OnlineBeatmapCatalog({
                   placeholder="Type song title, artist, or creator... (Ctrl+F)"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setFilterSearchTerm(searchTerm);
+                      setSubmittedSearchTerm(searchTerm);
+                    }
+                  }}
                   className="w-full pl-9 pr-4 py-2 bg-black/30 border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all shadow-inner"
                 />
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterSearchTerm(searchTerm);
+                    setSubmittedSearchTerm(searchTerm);
+                  }}
+                  className="absolute right-1 top-1 bottom-1 rounded-lg bg-white/10 px-3 text-[10px] font-mono font-black uppercase text-white transition hover:bg-white/20"
+                >
+                  Search
+                </button>
               </div>
 
               {/* Sorting Filter buttons */}
@@ -407,28 +499,26 @@ export default function OnlineBeatmapCatalog({
             {/* Main Content Area (Aesthetic Grid of Beatmap Tiles) */}
             <div className="flex-1 overflow-y-auto px-6 md:px-12 py-6 min-h-0 bg-black/5">
               
-              {/* Import status message / notification banner */}
-              {importStatus && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`p-3.5 mb-5 rounded-xl text-xs font-mono border flex items-center gap-2.5 ${
-                    importStatus.type === 'ok' 
-                      ? 'bg-emerald-950/20 text-emerald-400 border-emerald-500/20 shadow-[0_4px_12px_rgba(16,185,129,0.08)]' 
-                      : 'bg-rose-950/20 text-rose-400 border-rose-500/20'
-                  }`}
-                >
-                  <Info className="h-4.5 w-4.5 shrink-0" />
-                  <span>{importStatus.msg}</span>
-                </motion.div>
+              {/* Catalog availability message */}
+              {catalogError && (
+                <div className="p-3.5 mb-5 rounded-xl text-xs font-mono border bg-rose-950/20 text-rose-400 border-rose-500/20">
+                  {catalogError}
+                </div>
               )}
-
               {isLoading ? (
-                <div className="bg-[#12121a]/50 border border-white/5 py-16 px-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-300 max-w-md mx-auto shadow-xl">
-                  <div className="flex items-center gap-3 bg-[#0d0d14] px-6 py-4 rounded-xl border border-white/5 shadow-inner">
-                    <Loader className="h-5 w-5 animate-spin text-cyan-400 shrink-0" />
-                    <p className="text-xs font-sans font-black tracking-widest uppercase text-white">Fetching beatmaps from the server...</p>
-                  </div>
+                <div className="py-16 text-center text-slate-500">
+                  <Loader className="h-8 w-8 mx-auto mb-3 animate-spin text-cyan-400" />
+                  <p className="text-xs font-mono font-black uppercase tracking-widest text-white">Fetching beatmaps from the server...</p>
+                </div>
+              ) : !filterSearchTerm.trim() ? (
+                <div className="py-16 text-center text-slate-500">
+                  <Search className="h-8 w-8 mx-auto mb-3 text-slate-600" />
+                  <p className="text-xs font-mono font-black uppercase tracking-widest text-white">Search a song!</p>
+                </div>
+              ) : catalogRequestState !== 'loaded' ? (
+                <div className="py-16 text-center text-slate-500">
+                  <Loader className="h-8 w-8 mx-auto mb-3 animate-spin text-cyan-400" />
+                  <p className="text-xs font-mono font-black uppercase tracking-widest text-white">Searching beatmaps...</p>
                 </div>
               ) : filteredManifest.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
@@ -447,18 +537,6 @@ export default function OnlineBeatmapCatalog({
                             : 'border-white/5 hover:border-white/20 hover:shadow-white/[0.01]'
                         }`}
                       >
-                        {/* Left Cover Art */}
-                        <div className="w-16 h-16 rounded-xl bg-slate-900 border border-white/5 overflow-hidden relative shrink-0 flex items-center justify-center shadow">
-                          {s.bgUrl ? (
-                            <img src={s.bgUrl} className="w-full h-full object-cover transition duration-300 group-hover:scale-105" referrerPolicy="no-referrer" />
-                          ) : (
-                            <Music className="h-6 w-6 text-slate-450" />
-                          )}
-                          <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/80 border border-white/10 rounded font-mono text-[8px] text-slate-300 uppercase leading-none scale-90">
-                            {s.mode === 0 ? 'std' : 'mania'}
-                          </div>
-                        </div>
-
                         {/* Middle Text Info */}
                         <div className="flex-1 min-w-0 text-left">
                           <h4 className="font-extrabold text-sm text-white leading-snug truncate group-hover:text-slate-200 transition-colors">
@@ -499,24 +577,33 @@ export default function OnlineBeatmapCatalog({
                     );
                   })}
                 </div>
-              ) : (
+              ) : serverManifest.length === 0 ? (
                 <div className="bg-[#12121a]/50 border border-white/5 py-16 px-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-500 max-w-md mx-auto shadow-xl">
                   <Info className="h-8 w-8 mb-3 text-slate-600" />
                   <p className="text-xs font-sans font-black tracking-widest uppercase text-white">No community profiles discovered</p>
                   <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Tweak your search keywords or select different timing mode filters</p>
                 </div>
+              ) : (
+                <div className="bg-[#12121a]/50 border border-white/5 py-16 px-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-500 max-w-md mx-auto shadow-xl">
+                  <Info className="h-8 w-8 mb-3 text-slate-600" />
+                  <p className="text-xs font-sans font-black tracking-widest uppercase text-white">No matching beatmaps</p>
+                  <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Try a different local filter</p>
+                </div>
               )}
-            </div>
-
-            {/* Bottom status/nav metrics matching settings style */}
-            <div className="flex-none px-6 md:px-12 py-3 bg-black/20 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500 uppercase select-none">
-              <div>
-                Showing {filteredManifest.length} of {serverManifest.length} total cloud packages
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span>SERVER RESPONSE: 200 OK</span>
-              </div>
+              {importStatus && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`mt-2 p-3.5 rounded-xl text-xs font-mono border flex items-center gap-2.5 ${
+                    importStatus.type === 'ok'
+                      ? 'bg-emerald-950/20 text-emerald-400 border-emerald-500/20 shadow-[0_4px_12px_rgba(16,185,129,0.08)]'
+                      : 'bg-rose-950/20 text-rose-400 border-rose-500/20'
+                  }`}
+                >
+                  <Info className="h-4.5 w-4.5 shrink-0" />
+                  <span>{importStatus.msg}</span>
+                </motion.div>
+              )}
             </div>
           </motion.div>
         </>

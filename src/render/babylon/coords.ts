@@ -19,7 +19,7 @@ export const FAR_Z = 18;
 export const NEAR_Z = 0;
 export const RECEPTOR_Z = -1;
 export const FLOOR_NEAR_Z = -3;
-export const FLOOR_FAR_Z = 24;
+export const FLOOR_FAR_Z = 28;
 export const SLAB_HEIGHT = 0.12;
 export const RUNWAY_CONVERGENCE = 0.4;
 

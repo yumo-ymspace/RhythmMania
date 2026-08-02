@@ -12,12 +12,19 @@
 
 import type { GameSettings } from '../../types';
 
+export const PLAYFIELD_WIDTH_MIN = 20;
+export const PLAYFIELD_WIDTH_MAX = 50;
+export const BABYLON_PLAYFIELD_WIDTH_MIN = 40;
+export const BABYLON_PLAYFIELD_WIDTH_MAX = 90;
+
 export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   scrollSpeed: 21,
   audioOffset: 0,
   visualOffset: 0,
   hitsoundVolume: 0.60,
   musicVolume: 0.75,
+  previewVolume: 0.70,
+  masterVolume: 1.0,
   keyMode: 4,
   bindings: {
     2: ['f', 'j'],

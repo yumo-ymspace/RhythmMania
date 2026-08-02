@@ -40,6 +40,7 @@ function hashString(str: string): string {
 export interface CatalogIdentityInfo {
   catalogSetId: string | null;
   catalogMapId: string | null;
+  chartRevisionId: string | null;
   isServerCatalogMap: boolean;
 }
 
@@ -47,31 +48,27 @@ export interface CatalogIdentityInfo {
  * Resolves catalog set ID, catalog map ID, and server map boolean for a given beatmap.
  */
 export function determineCatalogIdentity(beatmap: Beatmap | null, beatmapId: string): CatalogIdentityInfo {
-  const bm = beatmap as any;
-  const isServer = Boolean(
-    bm?.isServerMap || 
-    bm?.parentPackageId || 
-    (typeof beatmapId === 'string' && beatmapId.startsWith('server_'))
-  );
+  const bm = beatmap;
+  const chartRevisionId = bm?.chartRevisionId || null;
+  const isServer = Boolean(chartRevisionId && bm?.isServerMap);
 
   if (!isServer) {
     return {
       catalogSetId: null,
       catalogMapId: null,
+      chartRevisionId: null,
       isServerCatalogMap: false,
     };
   }
 
-  let catalogSetId = bm?.catalogSetId || bm?.parentPackageId || null;
-  if (!catalogSetId && typeof beatmapId === 'string' && beatmapId.startsWith('server_')) {
-    catalogSetId = beatmapId.includes('_idx') ? beatmapId.split('_idx')[0] : beatmapId;
-  }
+  const catalogSetId = bm?.catalogSetId || null;
 
   const catalogMapId = bm?.catalogMapId || beatmapId || null;
 
   return {
     catalogSetId,
     catalogMapId,
+    chartRevisionId,
     isServerCatalogMap: true,
   };
 }
@@ -151,6 +148,9 @@ export function createPlayHistoryRecord(params: {
     replaySource,
     catalogSetId: catalogInfo.catalogSetId,
     catalogMapId: catalogInfo.catalogMapId,
+    chartRevisionId: catalogInfo.chartRevisionId,
+    checksum: beatmap.checksum,
+    checksumAlgorithm: beatmap.checksumAlgorithm,
     beatmapHash: hash,
     uploadEligibility,
     uploadStatus: 'local_only',
@@ -177,9 +177,12 @@ export function migrateHistoryRecord(rawRecord: any, availableBeatmaps: Beatmap[
 
   const replayFrames = Array.isArray(rawRecord.replayFrames) ? rawRecord.replayFrames : [];
   const isAutoplay = Boolean(rawRecord.scoreState?.isAutoplay || (Array.isArray(rawRecord.mods) && rawRecord.mods.includes('AT')));
-  const isFailed = Boolean(rawRecord.isFailed || rawRecord.scoreState?.failed);
+  const isNoFail = Array.isArray(rawRecord.mods) && rawRecord.mods.some((mod: any) => typeof mod === 'string' && mod.toUpperCase() === 'NF');
+  const isFailed = isNoFail ? false : Boolean(rawRecord.isFailed || rawRecord.scoreState?.failed);
 
-  const uploadEligibility: UploadEligibility = rawRecord.uploadEligibility || determineUploadEligibility({
+  const uploadEligibility: UploadEligibility = rawRecord.uploadEligibility && !(isNoFail && rawRecord.uploadEligibility === 'ineligible_failed')
+    ? rawRecord.uploadEligibility
+    : determineUploadEligibility({
     isServerCatalogMap: catalogInfo.isServerCatalogMap,
     isAutoplay,
     isFailed,
@@ -195,6 +198,8 @@ export function migrateHistoryRecord(rawRecord: any, availableBeatmaps: Beatmap[
     catalogMapId: rawRecord.catalogMapId ?? catalogInfo.catalogMapId,
     beatmapHash: hash,
     uploadEligibility,
+    isFailed,
+    scoreState: { ...rawRecord.scoreState, failed: isFailed },
     uploadStatus: (rawRecord.uploadStatus as UploadStatus) || 'local_only',
     isServerCatalogMap: rawRecord.isServerCatalogMap ?? catalogInfo.isServerCatalogMap,
   };
@@ -205,49 +210,17 @@ export function migrateHistoryRecord(rawRecord: any, availableBeatmaps: Beatmap[
   */
 export async function migrateAndNormalizeBeatmaps(rawMaps: Beatmap[]): Promise<{ maps: Beatmap[]; migratedCount: number }> {
   let migratedCount = 0;
-  let manifest: any[] = [];
-  try {
-    const res = await fetch(`/beatmaps/manifest.json?t=${Date.now()}`);
-    if (res.ok) {
-      manifest = await res.json();
-    }
-  } catch {
-    // Ignore offline or fetch errors
-  }
-
   const normalized = await Promise.all(
     rawMaps.map(async (m) => {
       const map = { ...m } as any;
       let dirty = false;
 
-      const isServer = Boolean(
-        map.isServerMap || 
-        map.parentPackageId || 
-        (typeof map.id === 'string' && map.id.startsWith('server_'))
-      );
+      const isServer = Boolean(map.isServerMap && map.chartRevisionId);
 
       if (isServer) {
-        const catalogSetId = map.catalogSetId || map.parentPackageId || (typeof map.id === 'string' && map.id.startsWith('server_') ? (map.id.includes('_idx') ? map.id.split('_idx')[0] : map.id) : null);
+        const catalogSetId = map.catalogSetId || null;
         if (map.catalogSetId !== catalogSetId) {
           map.catalogSetId = catalogSetId;
-          dirty = true;
-        }
-
-        let canonicalMapId = map.catalogMapId || map.id;
-        if ((!map.catalogMapId || map.catalogMapId.includes('_idx')) && catalogSetId && manifest.length > 0) {
-          const matchingSet = manifest.find((s: any) => s.id === catalogSetId);
-          if (matchingSet?.difficulties && Array.isArray(matchingSet.difficulties)) {
-            const matchedDiff = matchingSet.difficulties.find((d: any) =>
-              d.name && map.difficulty && d.name.trim().toLowerCase() === map.difficulty.trim().toLowerCase()
-            );
-            if (matchedDiff?.id) {
-              canonicalMapId = matchedDiff.id;
-            }
-          }
-        }
-
-        if (map.catalogMapId !== canonicalMapId) {
-          map.catalogMapId = canonicalMapId;
           dirty = true;
         }
 
@@ -258,6 +231,7 @@ export async function migrateAndNormalizeBeatmaps(rawMaps: Beatmap[]): Promise<{
       } else {
         if (map.catalogSetId !== null && map.catalogSetId !== undefined) { map.catalogSetId = null; dirty = true; }
         if (map.catalogMapId !== null && map.catalogMapId !== undefined) { map.catalogMapId = null; dirty = true; }
+        if (map.chartRevisionId !== null && map.chartRevisionId !== undefined) { map.chartRevisionId = null; dirty = true; }
         if (map.isServerMap !== false) { map.isServerMap = false; dirty = true; }
       }
 

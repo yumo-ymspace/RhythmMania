@@ -13,6 +13,7 @@ import { laneWidthAt, runwayPosition, RUNWAY_CONVERGENCE, safeHex, yToDepthFacto
 
 const MAX_FRUSTUMS = 64;
 const POSITION_KIND = 'position';
+const NOTE_WIDTH_FRAC = 0.82;
 
 type HoldMesh = Mesh & { holdPositions?: Float32Array };
 
@@ -93,11 +94,10 @@ export class HoldLayer {
       const head = runwayPosition(note.column, ctx.keyCount, headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
       const tail = runwayPosition(note.column, ctx.keyCount, tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
 
-      const headHalfWidth = ctx.laneWidthNear * 0.82 * 0.40;
-      const tailHalfWidth = Math.max(
-        0.04,
-        laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * 0.40
-      );
+       // Match the exact full width of the head and tail note slabs. Connecting
+       // those two widths makes the hold body taper with the runway lanes.
+       const headHalfWidth = laneWidthAt(headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * 0.5;
+       const tailHalfWidth = laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * 0.5;
       const yBottom = 0.07;
       const yTop = 0.17;
       const positions = mesh.holdPositions;

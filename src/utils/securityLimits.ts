@@ -13,6 +13,12 @@
 import JSZip from 'jszip';
 import { Beatmap, GameSettings, PlayHistoryRecord, ReplaySource, UploadEligibility, UploadStatus } from '../types';
 import { migrateHistoryRecord } from './replayManager';
+import {
+  BABYLON_PLAYFIELD_WIDTH_MAX,
+  BABYLON_PLAYFIELD_WIDTH_MIN,
+  PLAYFIELD_WIDTH_MAX,
+  PLAYFIELD_WIDTH_MIN,
+} from '../components/settings/defaultSettings';
 
 // SECURITY LIMIT CONSTANTS
 export const MAX_COMPRESSED_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB max compressed size for .osz
@@ -189,12 +195,18 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     customSkinColors.push(...(defaultSettings.customSkinColors || []));
   }
 
+  const renderEngine = parsed.renderEngine === 'pixi' ? 'pixi' : parsed.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+  const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
+  const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
+
   return {
     scrollSpeed: clamp(parsed.scrollSpeed, 1, 40, defaultSettings.scrollSpeed),
     audioOffset: clamp(parsed.audioOffset, -1000, 1000, defaultSettings.audioOffset),
     visualOffset: clamp(parsed.visualOffset, -1000, 1000, defaultSettings.visualOffset),
     hitsoundVolume: clamp(parsed.hitsoundVolume, 0, 1, defaultSettings.hitsoundVolume),
     musicVolume: clamp(parsed.musicVolume, 0, 1, defaultSettings.musicVolume),
+    previewVolume: clamp(parsed.previewVolume, 0, 1, defaultSettings.previewVolume),
+    masterVolume: clamp(parsed.masterVolume, 0, 1, defaultSettings.masterVolume),
     keyMode: clamp(parsed.keyMode, 2, 8, defaultSettings.keyMode),
     bindings: bindings,
     upsurfaceNoteMode: (parsed.renderEngine === 'babylon' || String(parsed.renderEngine) === 'babylon')
@@ -224,15 +236,12 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     circleSize: clamp(parsed.circleSize, 0.5, 2, defaultSettings.circleSize || 1.0),
     noteSizeMultiplier: clamp(parsed.noteSizeMultiplier, 0.5, 2, defaultSettings.noteSizeMultiplier || 1.0),
     playfieldStyle: parsed.playfieldStyle === 'circle' ? 'circle' : 'square',
-    playfieldWidthPercent: clamp(parsed.playfieldWidthPercent, 10, 100, defaultSettings.playfieldWidthPercent || 40),
+     playfieldWidthPercent: clamp(parsed.playfieldWidthPercent, widthMin, widthMax, Math.max(widthMin, Math.min(widthMax, defaultSettings.playfieldWidthPercent || 40))),
     progressBarTop: Boolean(parsed.progressBarTop),
     selectedMods: selectedMods,
     bindPause: sanitizeString(parsed.bindPause, defaultSettings.bindPause || 'escape', 15),
     bindRetry: sanitizeString(parsed.bindRetry, defaultSettings.bindRetry || 'r', 15),
-    renderEngine:
-      parsed.renderEngine === 'pixi' ? 'pixi'
-      : parsed.renderEngine === 'babylon' ? 'babylon'
-      : 'canvas',
+     renderEngine,
     babylonFloor: parsed.babylonFloor !== undefined ? Boolean(parsed.babylonFloor) : (defaultSettings.babylonFloor ?? true),
     babylonQuality:
       parsed.babylonQuality === 'low' ? 'low'
@@ -348,9 +357,16 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     }
   }
 
+  const isNoFail = mods.some(mod => mod.toUpperCase() === 'NF');
+
   // Failed runs are intentionally ephemeral unless No Fail was active.
-  if ((Boolean(record.isFailed) || scoreState.failed) && !mods.some(mod => mod.toUpperCase() === 'NF')) {
+  if ((Boolean(record.isFailed) || scoreState.failed) && !isNoFail) {
     return null;
+  }
+
+  // NF runs are completed ranked plays, not failed replays.
+  if (isNoFail) {
+    scoreState.failed = false;
   }
 
   const baseCleaned: PlayHistoryRecord = {
@@ -364,7 +380,7 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     accuracy: clamp(record.accuracy, 0, 100, 0),
     maxCombo: clamp(record.maxCombo, 0, 100000, 0),
     grade: sanitizeString(record.grade, 5),
-    isFailed: Boolean(record.isFailed),
+    isFailed: isNoFail ? false : Boolean(record.isFailed),
     scoreState,
     replayFrames,
     recordedSettings,

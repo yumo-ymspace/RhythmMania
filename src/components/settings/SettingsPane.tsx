@@ -14,6 +14,7 @@ import React, { useEffect } from 'react';
 import type { GameSettings } from '../../types';
 import type { SectionId } from './settingsRegistry';
 import { SECTIONS, ROWS } from './settingsRegistry';
+import { BABYLON_PLAYFIELD_WIDTH_MAX, BABYLON_PLAYFIELD_WIDTH_MIN } from './defaultSettings';
 import SettingsRow from './SettingsRow';
 import SettingsToggle from './controls/SettingsToggle';
 import SettingsSlider from './controls/SettingsSlider';
@@ -49,6 +50,7 @@ export default function SettingsPane({
   const q = query.trim().toLowerCase();
 
   const rows = ROWS.filter(r => {
+    if (r.section === 'skin' && settings.renderEngine === 'babylon') return false;
     if (q) return true; // If searching, ignore section filter initially
     return r.section === activeSection;
   }).filter(r => {
@@ -96,6 +98,12 @@ export default function SettingsPane({
                 />
               );
             } else if (row.control.kind === 'slider') {
+              const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
+                ? BABYLON_PLAYFIELD_WIDTH_MIN
+                : row.control.min;
+              const sliderMax = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
+                ? BABYLON_PLAYFIELD_WIDTH_MAX
+                : row.control.max;
               const sliderVal = currentValue === undefined || currentValue === null || Number.isNaN(Number(currentValue))
                 ? Number(row.defaultValue ?? 0)
                 : Number(currentValue);
@@ -103,8 +111,8 @@ export default function SettingsPane({
                 <SettingsSlider
                   id={`setting-${row.id}`}
                   value={sliderVal}
-                  min={row.control.min}
-                  max={row.control.max}
+                   min={sliderMin}
+                   max={sliderMax}
                   step={row.control.step}
                   format={row.control.format}
                   suffix={row.control.suffix}

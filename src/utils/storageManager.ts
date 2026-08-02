@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Beatmap } from '../types';
+import { Beatmap, CloudBeatmapSource } from '../types';
 import { AssetLifecycleManager, getMediaCacheKey } from './assetLifecycle';
 import { TempMemoryCache } from './tempMemoryCache';
 
@@ -23,6 +23,14 @@ export interface SavedBeatmap extends Beatmap {
   originalContent?: string;
   isServerMap?: boolean;
   oszUrl?: string;
+  cloudSetId?: string;
+  chartRevisionId?: string;
+  source?: CloudBeatmapSource;
+  sourceSetId?: number;
+  sourceChartId?: number;
+  originalOsuFilename?: string;
+  checksum?: string;
+  checksumAlgorithm?: 'md5' | 'sha256';
   importedAt?: number; // epoch ms when first saved locally; used by "Date Added" sort
 }
 
@@ -220,20 +228,20 @@ class StorageManager {
     }
   }
 
-  public async deletePackageAndAllBeatmaps(serverMapId: string): Promise<void> {
+  public async deletePackageAndAllBeatmaps(cloudSetId: string): Promise<void> {
     const database = await this.getDB();
-    const packageId = `pkg_${serverMapId}`;
+    const packageId = cloudSetId;
 
     // 1. Clear TempMemoryCache
     TempMemoryCache.remove(packageId);
 
     // 2. Evict LRU cache
-    this.lruMediaCache.evict(serverMapId);
+    this.lruMediaCache.evict(cloudSetId);
 
     // 3. Find and delete all beatmaps matching id prefix, parentPackageId, or packageId
     const allMaps = await this.getAllBeatmaps();
     const mapsToDelete = allMaps.filter(
-      m => m.id === serverMapId || m.id.startsWith(`${serverMapId}_idx`) || m.parentPackageId === serverMapId || m.packageId === packageId
+      m => m.cloudSetId === cloudSetId || m.parentPackageId === cloudSetId || m.packageId === packageId
     );
 
     for (const m of mapsToDelete) {

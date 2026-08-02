@@ -105,9 +105,10 @@ export class AudioEngine {
     this.refreshOutputLatencyCache();
   }
 
-  public setVolumes(musicVolume: number, sfxVolume: number) {
+  public setVolumes(musicVolume: number, sfxVolume: number, masterVolume = 1) {
     this.init();
-    if (this.musicGain && this.sfxGain) {
+    if (this.musicGain && this.sfxGain && this.masterGain) {
+      this.masterGain.gain.setValueAtTime(masterVolume, this.ctx!.currentTime);
       this.musicGain.gain.setValueAtTime(musicVolume, this.ctx!.currentTime);
       this.sfxGain.gain.setValueAtTime(sfxVolume, this.ctx!.currentTime);
     }

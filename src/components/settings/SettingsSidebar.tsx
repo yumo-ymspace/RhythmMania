@@ -13,15 +13,17 @@
 import React from 'react';
 import * as LucideIcons from 'lucide-react';
 import { SECTIONS, SectionId } from './settingsRegistry';
+import type { GameSettings } from '../../types';
 import metadata from '../../../metadata.json';
 
 interface SettingsSidebarProps {
   activeSection: SectionId;
   onSelect: (id: SectionId) => void;
   onRestoreAll: () => void;
+  settings: GameSettings;
 }
 
-export default function SettingsSidebar({ activeSection, onSelect, onRestoreAll }: SettingsSidebarProps) {
+export default function SettingsSidebar({ activeSection, onSelect, onRestoreAll, settings }: SettingsSidebarProps) {
   return (
     <div className="w-full md:w-[240px] flex-none border-r border-[var(--settings-border)]/5 bg-black/20 flex flex-col h-[200px] md:h-auto shrink-0 md:shrink">
       <div className="p-6 pb-4">
@@ -32,7 +34,7 @@ export default function SettingsSidebar({ activeSection, onSelect, onRestoreAll 
       </div>
       
       <div className="flex-1 overflow-y-auto px-3 flex flex-col gap-1 pb-4">
-        {SECTIONS.map((s) => {
+        {SECTIONS.filter((s) => !s.showWhen || s.showWhen(settings)).map((s) => {
           const Icon = (LucideIcons as any)[s.icon] || LucideIcons.Circle;
           const isActive = s.id === activeSection;
           

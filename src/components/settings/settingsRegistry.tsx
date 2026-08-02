@@ -12,7 +12,13 @@
 
 import type { ReactNode } from 'react';
 import type { GameSettings } from '../../types';
-import { DEFAULT_SETTINGS } from './defaultSettings';
+import {
+  BABYLON_PLAYFIELD_WIDTH_MAX,
+  BABYLON_PLAYFIELD_WIDTH_MIN,
+  DEFAULT_SETTINGS,
+  PLAYFIELD_WIDTH_MAX,
+  PLAYFIELD_WIDTH_MIN,
+} from './defaultSettings';
 import BindingMatrix from './BindingMatrix';
 import SectionSkinPreview from './SectionSkinPreview';
 
@@ -24,6 +30,7 @@ export interface SectionDef {
   label: string;
   description: string;
   icon: string;   // Lucide icon name resolved by SettingsSidebar
+  showWhen?: (s: GameSettings) => boolean;
 }
 
 export const SECTIONS: SectionDef[] = [
@@ -31,7 +38,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'graphics',    label: 'Graphics',    description: 'Rendering, video, particles, and pixel ratio.',     icon: 'Monitor' },
   { id: 'gameplay',    label: 'Gameplay',    description: 'Scroll speed, scroll direction, and timing.',      icon: 'Gamepad2' },
   { id: 'audio',       label: 'Audio',       description: 'Volumes and the universal audio offset.',          icon: 'Volume2' },
-  { id: 'skin',        label: 'Skin',        description: 'Receptor shape, note style, and custom palette.',  icon: 'Palette' },
+  { id: 'skin',        label: 'Skin',        description: 'Receptor shape, note style, and custom palette.',  icon: 'Palette', showWhen: (s) => s.renderEngine !== 'babylon' },
   { id: 'input',       label: 'Input',       description: 'Keyboard bindings per key count.',                 icon: 'Keyboard' },
   { id: 'maintenance', label: 'Maintenance', description: 'Reset to defaults and other global actions.',      icon: 'Wrench' },
 ];
@@ -132,7 +139,7 @@ export const ROWS: RowDef[] = [
   {
     id: 'playfieldWidthPercent', section: 'graphics', label: 'Playfield width',
     description: 'How wide the lanes are, as a percentage of the screen width.',
-    control: { kind: 'slider', min: 20, max: 50, step: 1, suffix: '%' },
+    control: { kind: 'slider', min: PLAYFIELD_WIDTH_MIN, max: PLAYFIELD_WIDTH_MAX, step: 1, suffix: '%' },
     defaultValue: DEFAULT_SETTINGS.playfieldWidthPercent,
   },
   {
@@ -247,9 +254,21 @@ export const ROWS: RowDef[] = [
   // ── AUDIO ─────────────────────────────────────────────────────────────
   {
     id: 'musicVolume', section: 'audio', label: 'Music volume',
-    description: 'Master volume for the playing track.',
+    description: 'Volume of the playing track before the master volume.',
     control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
     defaultValue: DEFAULT_SETTINGS.musicVolume,
+  },
+  {
+    id: 'previewVolume', section: 'audio', label: 'Song preview volume',
+    description: 'Volume multiplier for Song Select previews. Default is 70% of music volume.',
+    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
+    defaultValue: DEFAULT_SETTINGS.previewVolume,
+  },
+  {
+    id: 'masterVolume', section: 'audio', label: 'Master volume',
+    description: 'Overall volume applied to music and hitsounds during gameplay.',
+    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
+    defaultValue: DEFAULT_SETTINGS.masterVolume,
   },
   {
     id: 'hitsoundVolume', section: 'audio', label: 'Hitsound volume',

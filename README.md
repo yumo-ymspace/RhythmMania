@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.3
+**HIGH DENSITY MATRIX** · v0.8.4
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a triple rendering engine (**HTML5 Canvas 2D** default, **PixiJS v8** WebGL option, and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -27,6 +27,8 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 ## Overview
 
 RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, triple Canvas2D/PixiJS v8/Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools — all without any server-side runtime.
+
+RhythmMania is an **18+ service**. Minors may not use the game or any connected account, profile, catalog, or replay features, even with parental permission. See the in-app [Terms of Service](https://www.rhythm-mania.com/tos) and [Privacy Policy](https://www.rhythm-mania.com/privacypolicy).
 
 ---
 
@@ -47,7 +49,7 @@ RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre 
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Bundled beatmap catalog**: Pre-packaged beatmaps served as static assets in `public/beatmaps/` with `manifest.json` for in-app catalog browsing and client-side downloading (no backend server process required); an online catalog overlay supports downloading additional maps
+- **Cloud beatmap catalog**: Signed-in users browse verified bundled packages and eligible osu!mania sets through the PostgreSQL catalog API. Bundled packages are seeded from `public/beatmaps/*.osz`; osu! archives are delivered directly from osudl after server metadata validation and browser chart verification.
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 - **Song previews** — a toggleable audio preview plays while browsing Song Select, using a lightweight HTMLAudio path kept deliberately independent of the Web Audio gameplay clock
 - **Favorites** — star songs on Song Select for quick access; persisted locally
@@ -114,6 +116,9 @@ players can upload completed, non-failed, non-autoplay replays from supported
 catalog difficulties. Local maps, autoplay runs, failed runs, unsupported
 modes, and records without replay frames are not eligible.
 
+Account and local gameplay features are available only to users aged 18 or
+older. Minors may not use RhythmMania, including with parental permission.
+
 Signed-in players also get an editable public profile at
 `/profile/<userId>` or `/profile/<handle>`: display name, a unique lowercase
 handle (3–20 chars, starting with a letter), a bio, social links, and an
@@ -133,7 +138,7 @@ The API surface is:
 | `GET /api/auth/google/callback` | Complete Google OAuth |
 | `POST /api/auth/logout` | End the current session |
 | `POST /api/replays/upload` | Upload an eligible replay |
-| `GET /api/replays/list` | List the top replays for a catalog difficulty or hash |
+| `GET /api/replays/list` | List the top replays for one exact chart revision |
 | `GET /api/replays/get` | Retrieve a replay by ID |
 | `GET, PATCH /api/profile/me` | Read or update the signed-in user's profile |
 | `GET /api/profile/handle-check` | Check whether a handle is available |
@@ -290,3 +295,7 @@ history, video, touch input, and all three render engines.
 
 Licensed under the [PolyForm Perimeter License 1.0.1](LICENSE.md).
 Community beatmaps, audio, and video may be third-party content.
+
+For privacy questions or suspected minor data, contact
+`privacy@rhythm-mania.com`. Copyright concerns may be sent to
+`copyright@rhythm-mania.com`.

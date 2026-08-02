@@ -13,7 +13,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleCors, sendJson, sendError } from '../_lib/response.js';
 import { getSessionFromReq } from '../_lib/auth.js';
-import { getCatalogSetId } from '../_lib/catalog.js';
+import { findActiveChartRevision } from '../_lib/cloudCatalog.js';
 import { query } from '../_lib/db.js';
 
 const MAX_REPLAY_PAYLOAD_BYTES = 8 * 1024 * 1024;
@@ -47,8 +47,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const {
       id,
-      beatmapTitle,
-      beatmapArtist,
       keyCount = 4,
       score,
       accuracy,
@@ -59,16 +57,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       replayFrames = [],
       recordedSettings,
       mods = [],
-      catalogSetId,
-      catalogMapId,
+      chartRevisionId,
       beatmapHash,
+      checksum,
     } = payload;
 
     // 2. Server-side validation
     if (
       typeof id !== 'string' ||
       !RECORD_ID_PATTERN.test(id) ||
-      typeof catalogMapId !== 'string' ||
+      typeof chartRevisionId !== 'string' || chartRevisionId.length < 1 || chartRevisionId.length > 256 ||
       typeof beatmapHash !== 'string' ||
       !BEATMAP_HASH_PATTERN.test(beatmapHash) ||
       !isFiniteInteger(score, 0, 2_147_483_647) ||
@@ -90,7 +88,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendError(res, 400, 'Replay payload contains invalid fields');
     }
 
-    if (isFailed || scoreState?.failed) {
+    const isNoFail = mods.some((mod) => mod.toUpperCase() === 'NF');
+    if ((isFailed || scoreState?.failed) && !isNoFail) {
       return sendError(res, 400, 'Failed runs cannot be uploaded to online leaderboards');
     }
 
@@ -102,10 +101,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendError(res, 400, 'Replay is not eligible for upload');
     }
 
-    const expectedSetId = getCatalogSetId(catalogMapId);
-    if (!expectedSetId || (catalogSetId !== undefined && catalogSetId !== expectedSetId)) {
-      return sendError(res, 400, 'Replay does not reference a supported catalog difficulty');
-    }
+    const chart = await findActiveChartRevision(chartRevisionId);
+    if (!chart) return sendError(res, 400, 'Replay does not reference an active verified chart revision');
+    if (chart.mode !== 3 || chart.key_count !== keyCount) return sendError(res, 400, 'Replay chart metadata does not match the verified revision');
+    if (typeof checksum !== 'string' || checksum.toLowerCase() !== chart.checksum.toLowerCase()) return sendError(res, 400, 'Replay checksum does not match the verified chart revision');
 
     if (replayFrames.length > MAX_REPLAY_FRAMES) {
       return sendError(res, 400, 'Replay frame size exceeds maximum server limit');
@@ -116,34 +115,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return sendError(res, 400, 'Replay payload size exceeds 8MB server limit');
     }
 
-    const setId = expectedSetId;
-
-    // 3. Upsert beatmap_sets & beatmap_difficulties if missing
-    await query(
-      `INSERT INTO beatmap_sets (id, title, artist, creator, mode)
-       VALUES ($1, $2, $3, $4, 3)
-       ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, artist = EXCLUDED.artist, updated_at = NOW()`,
-      [setId, beatmapTitle || 'Unknown Title', beatmapArtist || 'Unknown Artist', 'Catalog']
-    );
-
-    await query(
-      `INSERT INTO beatmap_difficulties (id, beatmap_set_id, name, key_count, beatmap_hash, mode)
-       VALUES ($1, $2, $3, $4, $5, 3)
-       ON CONFLICT (id) DO UPDATE SET beatmap_hash = EXCLUDED.beatmap_hash`,
-      [catalogMapId, setId, payload.beatmapDifficulty || 'Normal', keyCount, beatmapHash]
-    );
-
-    // 4. Save replay in Postgres
+    // Save only a replay. Catalog rows are created by seed/registration, never uploads.
     await query(
       `INSERT INTO replays (
-        id, user_id, beatmap_set_id, beatmap_difficulty_id, beatmap_hash,
+         id, user_id, beatmap_set_id, beatmap_difficulty_id, chart_revision_id, beatmap_hash,
         score, accuracy, max_combo, grade, is_failed,
         score_state, replay_frames, recorded_settings, mods,
         replay_source, upload_status
       ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14,
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11,
+         $12, $13, $14, $15,
         'account-local', 'uploaded'
       ) ON CONFLICT (id) DO UPDATE SET
         score = EXCLUDED.score,
@@ -154,17 +136,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         replay_frames = EXCLUDED.replay_frames,
         upload_status = 'uploaded'`,
       [
-        id,
-        session.userId,
-        setId,
-        catalogMapId,
-        beatmapHash,
-        score,
+         id,
+         session.userId,
+         chart.cloud_set_id,
+         null,
+         chartRevisionId,
+         beatmapHash,
+         score,
         accuracy,
         maxCombo,
         grade || 'D',
         false,
-        JSON.stringify(scoreState || {}),
+         JSON.stringify({ ...(scoreState || {}), failed: false }),
         JSON.stringify(replayFrames || []),
         JSON.stringify(recordedSettings || {}),
         JSON.stringify(mods || []),

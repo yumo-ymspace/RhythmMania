@@ -3,276 +3,61 @@
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
  * This source code is licensed under the PolyForm Perimeter License 1.0.1.
- * You may modify and use this file for non-competing purposes, provided 
- * that open and explicit attribution is maintained.
- *
- * For the full license terms, see the LICENSE file in the root directory
- * from: https://github.com/yumo-ymspace/RhythmMania
+ * For the full license terms, see LICENSE.md in the repository root.
  */
 
 import React from 'react';
 import { motion } from 'motion/react';
-import { Shield, ArrowLeft, FileText, CheckCircle, Lock, BookOpen } from 'lucide-react';
+import { ArrowLeft, BookOpen, FileText, Shield } from 'lucide-react';
 
 interface LegalPageProps {
   onBack: () => void;
 }
 
-export const TermsOfServicePage: React.FC<LegalPageProps> = ({ onBack }) => {
+const LastUpdated = ({ date = '2 August 2026' }: { date?: string }) => (
+  <p className="text-xs text-slate-400 font-mono mt-0.5 uppercase tracking-wider">
+    Last updated: {date}
+  </p>
+);
+
+const LegalShell: React.FC<{
+  onBack: () => void;
+  accent: 'pink' | 'cyan';
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}> = ({ onBack, accent, icon, title, children }) => {
+  const isPink = accent === 'pink';
   return (
     <div className="h-screen overflow-y-auto w-full bg-[#050508] text-slate-100 font-sans pb-16 relative">
-      {/* Background glow effects */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-pink-500/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-purple-500/5 rounded-full blur-[150px] pointer-events-none" />
-
-      {/* Header Container */}
+      <div className={`absolute top-0 left-1/4 w-[500px] h-[500px] ${isPink ? 'bg-pink-500/5' : 'bg-cyan-500/5'} rounded-full blur-[120px] pointer-events-none`} />
+      <div className={`absolute bottom-0 right-1/4 w-[600px] h-[600px] ${isPink ? 'bg-purple-500/5' : 'bg-blue-500/5'} rounded-full blur-[150px] pointer-events-none`} />
       <div className="border-b border-white/10 bg-[#08080f]/80 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer text-xs md:text-sm font-semibold uppercase tracking-wider"
-          >
+          <button onClick={onBack} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer text-xs md:text-sm font-semibold uppercase tracking-wider">
             <ArrowLeft className="w-4 h-4" />
             Back to Game
           </button>
-          
-          <div className="flex items-center gap-2 text-pink-500 font-mono text-xs font-black uppercase tracking-widest">
+          <div className={`flex items-center gap-2 ${isPink ? 'text-pink-500' : 'text-cyan-500'} font-mono text-xs font-black uppercase tracking-widest`}>
             <BookOpen className="w-4 h-4" />
             Legal Document
           </div>
         </div>
       </div>
-
-      {/* Document Content */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="max-w-4xl mx-auto px-4 mt-8 md:mt-12"
-      >
+      <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="max-w-4xl mx-auto px-4 mt-8 md:mt-12">
         <div className="bg-[#0b0b14] border border-white/10 rounded-2xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
-          {/* Subtle neon corner accents */}
-          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-transparent to-pink-500/10 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-20 h-20 bg-gradient-to-tr from-purple-500/10 to-transparent pointer-events-none" />
-
-          {/* Title */}
+          <div className={`absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-transparent ${isPink ? 'to-pink-500/10' : 'to-cyan-500/10'} pointer-events-none`} />
           <div className="flex items-center gap-3.5 mb-6 border-b border-white/5 pb-6">
-            <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-xl text-pink-500">
-              <FileText className="w-6 h-6 md:w-7 md:h-7" />
+            <div className={`p-3 ${isPink ? 'bg-pink-500/10 border-pink-500/20 text-pink-500' : 'bg-cyan-500/10 border-cyan-500/20 text-cyan-500'} border rounded-xl`}>
+              {icon}
             </div>
             <div>
-              <h1 className="text-2xl md:text-3.5xl font-black tracking-tight text-white uppercase font-sans">
-                Terms of Service
-              </h1>
-              <p className="text-xs text-slate-400 font-mono mt-0.5 uppercase tracking-wider">
-                Last Updated: 9 July 2026
-              </p>
+              <h1 className="text-2xl md:text-3.5xl font-black tracking-tight text-white uppercase font-sans">{title}</h1>
+              <LastUpdated />
             </div>
           </div>
-
-          {/* Markdown Content rendered nicely */}
           <div className="prose prose-invert prose-slate max-w-none text-slate-300 text-sm md:text-base leading-relaxed space-y-6 select-text">
-            
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">01.</span> AGREEMENT TO TERMS
-              </h2>
-              <p>
-                These Terms of Service constitute a legally binding agreement made between you, whether personally or on behalf of an entity (“you”) and <strong>RhythmMania</strong> ("we," "us," or "our”), concerning your access to and use of the <strong>rhythm-mania.com</strong> website as well as any other media form, media channel, mobile website or mobile application related, linked, or otherwise connected thereto (collectively, the “Site”). You agree that by accessing the Site, you have read, understood, and agreed to be bound by all of these Terms of Service. IF YOU DO NOT AGREE WITH ALL OF THESE TERMS OF SERVICE, THEN YOU ARE EXPRESSLY PROHIBITED FROM USING THE SITE AND YOU MUST DISCONTINUE USE IMMEDIATELY.
-              </p>
-              <p>
-                Supplemental terms and conditions or documents that may be posted on the Site from time to time are hereby expressly incorporated herein by reference. We reserve the right, in our sole discretion, to make changes or modifications to these Terms of Service from time to time. We will alert you about any changes by updating the “Last updated” date of these Terms of Service, and you waive any right to receive specific notice of each such change. Please ensure that you check the applicable Terms every time you use our Site so that you understand which Terms apply. You will be subject to, and will be deemed to have been made aware of and to have accepted, the changes in any revised Terms of Service by your continued use of the Site after the date such revised Terms of Service are posted.
-              </p>
-              <p>
-                The information provided on the Site is not intended for distribution to or use by any person or entity in any jurisdiction or country where such distribution or use would be contrary to law or regulation or which would subject us to any registration requirement within such jurisdiction or country. Accordingly, those persons who choose to access the Site from other locations do so on their own initiative and are solely responsible for compliance with local laws, if and to the extent local laws are applicable.
-              </p>
-              <p>
-                The Site is not tailored to comply with industry-specific regulations (Health Insurance Portability and Accountability Act (HIPAA), Federal Information Security Management Act (FISMA), etc.), so if your interactions would be subjected to such laws, you may not use this Site. You may not use the Site in a way that would violate the Gramm-Leach-Bliley Act (GLBA).
-              </p>
-              <p>
-                All users who are minors in the jurisdiction in which they reside (generally under the age of 18) must have the permission of, and be directly supervised by, their parent or guardian to use the Site. If you are a minor, you must have your parent or guardian read and agree to these Terms of Service prior to you using the Site.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">02.</span> INTELLECTUAL PROPERTY RIGHTS
-              </h2>
-              <p>
-                Unless otherwise indicated, the Site is our proprietary property and all source code, databases, functionality, software, website designs, audio, video (except user uploaded or linked third-party audio and video), text, photographs, and graphics on the Site (collectively, the “Content”) and the trademarks, service marks, and logos contained therein (the “Marks”) are owned or controlled by us or licensed to us, and are protected by copyright and trademark laws and various other intellectual property rights and unfair competition laws of the United States, international copyright laws, and international conventions.
-              </p>
-              <div className="my-4 p-4 md:p-5 bg-[#141424] border border-pink-500/20 rounded-xl relative">
-                <div className="absolute top-0 right-0 px-2 py-0.5 bg-pink-500 text-black font-mono text-[9px] font-black uppercase rounded-bl-lg tracking-wider">
-                  Open Source
-                </div>
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                  <CheckCircle className="w-4 h-4 text-pink-500" /> Open Source Code Notice
-                </h4>
-                <p className="text-xs md:text-sm text-slate-300 leading-relaxed mb-0">
-                  Notwithstanding the general restrictions above, the core source code for <strong>RhythmMania</strong> is made available and licensed under the <strong>PolyForm Perimeter License 1.0.1</strong>. Your access to, modification, and distribution of the repository's underlying code are strictly governed by the permissions and commercial limitations outlined in that specific license.
-                </p>
-              </div>
-              <p>
-                The Content and the Marks are provided on the Site “AS IS” for your information and personal use only. Except as expressly provided in these Terms of Service or permitted under the <strong>PolyForm Perimeter License 1.0.1</strong>, no part of the Site and no Content or Marks may be copied, reproduced, aggregated, republished, uploaded, posted, publicly displayed, encoded, translated, transmitted, distributed, sold, licensed, or otherwise exploited for any commercial purpose whatsoever, without our express prior written permission.
-              </p>
-              <p>
-                Provided that you are eligible to use the Site, you are granted a limited license to access and use the Site and to download or print a copy of any portion of the Content to which you have properly gained access solely for your personal, non-commercial use. We reserve all rights not expressly granted to you in and to the Site, the Content and the Marks.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">03.</span> USER REPRESENTATIONS
-              </h2>
-              <p>
-                By using the Site, you represent and warrant that:
-              </p>
-              <ol className="list-decimal list-inside pl-4 space-y-2 text-slate-300">
-                <li>All registration information you submit will be true, accurate, current, and complete;</li>
-                <li>You will maintain the accuracy of such information and promptly update such registration information as necessary;</li>
-                <li>You have the legal capacity and you agree to comply with these Terms of Service;</li>
-                <li>You are not a minor in the jurisdiction in which you reside, or if a minor, you have received parental permission to use the Site;</li>
-                <li>You will not access the Site through automated or non-human means, whether through a bot, script, or otherwise;</li>
-                <li>You will not use the Site for any illegal or unauthorized purpose; and</li>
-                <li>Your use of the Site will not violate any applicable law or regulation.</li>
-              </ol>
-              <p>
-                If you provide any information that is untrue, inaccurate, not current, or incomplete, we have the right to suspend or terminate your account and refuse any and all current or future use of the Site (or any portion thereof).
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">04.</span> USER ACCOUNTS, AUTHENTICATION & REPLAYS
-              </h2>
-              <p>
-                You may register an account or sign in using supported authentication providers, including Google Sign-In. You are responsible for maintaining the security of your account credentials and all activities occurring under your account.
-              </p>
-              <p>
-                When participating in ranked gameplay on verified server catalog beatmaps, your gameplay statistics, score records, and frame-by-frame replay inputs are automatically submitted to our backend database to construct public leaderboards and enable online replay viewing. Automated scripts, modified clients, or unauthorized assist tools designed to artificially forge replay data or manipulate global rankings are strictly prohibited and will result in account suspension and score removal.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">05.</span> PROHIBITED ACTIVITIES
-              </h2>
-              <p>
-                You may not access or use the Site for any purpose other than that for which we make the Site available. The Site may not be used in connection with any commercial endeavors except those that are specifically endorsed or approved by us.
-              </p>
-              <p>As a user of the Site, you agree not to:</p>
-              <ul className="list-disc list-inside pl-4 space-y-1.5 text-slate-300 text-sm">
-                <li>Systematically retrieve data or other content from the Site to create or compile, directly or indirectly, a collection, compilation, database, or directory without written permission from us.</li>
-                <li>Trick, defraud, or mislead us and other users, especially in any attempt to learn sensitive account information such as user passwords.</li>
-                <li>Circumvent, disable, or otherwise interfere with security-related features of the Site, including features that prevent or restrict the use or copying of any Content or enforce limitations on the use of the Site and/or the Content contained therein.</li>
-                <li>Disparage, tarnish, or otherwise harm, in our opinion, us and/or the Site.</li>
-                <li>Use any information obtained from the Site in order to harass, abuse, or harm another person.</li>
-                <li>Make improper use of our support services or submit false reports of abuse or misconduct.</li>
-                <li>Use the Site in a manner inconsistent with any applicable laws or regulations.</li>
-                <li>Engage in unauthorized framing of or linking to the Site.</li>
-                <li>Upload or transmit (or attempt to upload or to transmit) viruses, Trojan horses, or other material, including excessive use of capital letters and spamming, that interferes with any party’s uninterrupted use.</li>
-                <li>Engage in any automated use of the system, such as using scripts to send comments or messages, or using any data mining, robots, or similar data gathering and extraction tools.</li>
-                <li>Delete the copyright or other proprietary rights notice from any Content.</li>
-                <li>Attempt to impersonate another user or person or use the username of another user.</li>
-                <li>Upload or transmit spyware, clear GIFs, 1x1 pixels, web bugs, or cookies.</li>
-                <li>Interfere with, disrupt, or create an undue burden on the Site or the networks or services connected to the Site.</li>
-                <li>Harass, annoy, intimidate, or threaten any of our employees or agents engaged in providing any portion of the Site to you.</li>
-                <li>Attempt to bypass any measures of the Site designed to prevent or restrict access to the Site.</li>
-                <li>Copy or adapt the Site’s software, including but not limited to HTML, JavaScript, or other code (subject to permissions explicitly offered to you via our open-source codebase).</li>
-                <li>Decipher, decompile, disassemble, or reverse engineer any of the software comprising or in any way making up a part of the Site.</li>
-                <li>Use the Site as part of any effort to compete with us or otherwise use the Site and/or the Content for any unauthorized revenue-generating endeavor or commercial enterprise.</li>
-              </ul>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">06.</span> USER GENERATED CONTRIBUTIONS & COMMUNITY CONTENT
-              </h2>
-              <p>
-                <strong>RhythmMania</strong> game levels (beatmaps), songs, and associated videos may be created, sourced, or uploaded entirely by community members. You acknowledge and understand that some of these materials, beatmaps, songs, and media are sourced directly from third-party platforms like YouTube, and <strong>RhythmMania</strong> does not own, license, or hold any direct legal rights to such third-party content.
-              </p>
-              <p>
-                We try to go out of our way to not advertise or profit directly from any user-uploaded or linked community content. The platform is entirely funded by user donations, a large portion of which we intend to use to reinvest in legitimate music licensing efforts. Licensing enquiries may be sent to: <strong>licensing@rhythm-mania.com</strong>.
-              </p>
-              <p>
-                The <strong>RhythmMania</strong> management makes no guarantees as to whether any user-uploaded content, external embeds, or beatmap information is accurate, current, or of substantial quality. We assume no responsibility as to whether objectionable content has been uploaded, or whether users have the proper rights to distribute uploaded or linked content.
-              </p>
-              <p>
-                When you create, link, or make available any Contributions (including beatmaps utilizing YouTube audio/video), you thereby represent and warrant that:
-              </p>
-              <ul className="list-disc list-inside pl-4 space-y-1 text-slate-300">
-                <li>Your Contributions do not and will not infringe the proprietary rights, including but not limited to the copyright, patent, trademark, or moral rights of any third party.</li>
-                <li>You have the necessary licenses, rights, consents, releases, and permissions to use and to authorize us and other users of the Site to use your Contributions.</li>
-                <li>Your Contributions are not false, inaccurate, or misleading.</li>
-                <li>Your Contributions are not obscene, lewd, lascivious, filthy, violent, harassing, or otherwise objectionable.</li>
-                <li>Your Contributions do not violate any applicable law, regulation, or rule.</li>
-              </ul>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">07.</span> COPYRIGHT INFRINGEMENT POLICY (DMCA NOTICE)
-              </h2>
-              <p>
-                <strong>RhythmMania</strong> takes copyright and other intellectual property rights very seriously. In accordance with the Digital Millennium Copyright Act (DMCA), 17 U.S.C. 512, it is our strict policy to:
-              </p>
-              <ol className="list-decimal list-inside pl-4 space-y-1.5 text-slate-300">
-                <li>Expeditiously block access to or remove content (including user-created beatmaps, audio tracks, or linked videos) that it believes in good faith may contain material that infringes the copyrights of third parties; and</li>
-                <li>Remove and discontinue service to repeat offenders.</li>
-              </ol>
-              <h3 className="text-white font-bold text-sm uppercase tracking-wide mt-4">Reporting Copyright Infringements</h3>
-              <p className="text-sm">
-                If you believe that content residing on or accessible through the <strong>RhythmMania</strong> website or service infringes your copyright, please send a notice of claimed copyright infringement containing the following information to our Designated Agent listed below:
-              </p>
-              <ul className="list-disc list-inside pl-4 space-y-1 text-xs md:text-sm text-slate-400">
-                <li>A physical or electronic signature of a person authorized to act on behalf of the owner of the copyright;</li>
-                <li>Identification of the copyrighted works claimed to have been infringed;</li>
-                <li>Identification of the material that is claimed to be infringing and info to locate it (like URL or beatmap link);</li>
-                <li>Contact info for the notifier (address, phone, email);</li>
-                <li>A statement that the notifier has a good faith belief that the use is unauthorized; and</li>
-                <li>A statement that the notification is accurate, and under penalty of perjury, that the notifier is authorized to act.</li>
-              </ul>
-              <p className="text-xs md:text-sm text-pink-500 font-mono mt-2">
-                Designated Agent Contact Info:<br />
-                • Attn: Copyright / DMCA Agent<br />
-                • Email: copyright@rhythm-mania.com
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">08.</span> DISCLAIMER OF WARRANTIES
-              </h2>
-              <p className="uppercase font-mono text-xs md:text-sm text-amber-500/90 leading-relaxed bg-amber-500/5 p-4 rounded-xl border border-amber-500/10">
-                USER EXPRESSLY AGREES THAT USE OF THE SERVICE IS AT USER'S SOLE RISK. THE SERVICE IS PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS. RhythmMania DISCLAIMS ALL WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT OR TITLE. RhythmMania MAKES NO WARRANTY OR REPRESENTATION REGARDING THE RESULTS THAT MAY BE OBTAINED FROM THE USE OF THE SERVICES, OR THAT RhythmMania'S SERVICES WILL MEET ANY USER'S REQUIREMENTS, BE UNINTERRUPTED, TIMELY, SECURE, OR ERROR-FREE.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-pink-500 font-mono text-sm font-black">09.</span> LIMITATION OF LIABILITY
-              </h2>
-              <p>
-                IN NO EVENT SHALL <strong>RhythmMania</strong>, ITS OFFICERS, DIRECTORS, EMPLOYEES, OR AGENTS, BE LIABLE TO YOU FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, PUNITIVE, OR CONSEQUENTIAL DAMAGES WHATSOEVER RESULTING FROM ANY (1) ERRORS, MISTAKES, OR INACCURACIES OF CONTENT, (2) PERSONAL INJURY OR PROPERTY DAMAGE, (3) ANY UNAUTHORIZED ACCESS TO OR USE OF OUR SECURE SERVERS, (4) ANY INTERRUPTION OF TRANSMISSION, OR (5) ANY BUGS, VIRUSES, TROJAN HORSES OR THE LIKE TRANSMITTED TO OR THROUGH THE SITE.
-              </p>
-            </section>
-
+            {children}
           </div>
         </div>
       </motion.div>
@@ -280,129 +65,112 @@ export const TermsOfServicePage: React.FC<LegalPageProps> = ({ onBack }) => {
   );
 };
 
-export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({ onBack }) => {
-  return (
-    <div className="h-screen overflow-y-auto w-full bg-[#050508] text-slate-100 font-sans pb-16 relative">
-      {/* Background glow effects */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-blue-500/5 rounded-full blur-[150px] pointer-events-none" />
+const Section: React.FC<{ number: string; title: string; children: React.ReactNode; accent?: 'pink' | 'cyan' }> = ({ number, title, children, accent = 'pink' }) => (
+  <section className="space-y-3">
+    <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
+      <span className={`${accent === 'pink' ? 'text-pink-500' : 'text-cyan-500'} font-mono text-sm font-black`}>{number}.</span> {title}
+    </h2>
+    {children}
+  </section>
+);
 
-      {/* Header Container */}
-      <div className="border-b border-white/10 bg-[#08080f]/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer text-xs md:text-sm font-semibold uppercase tracking-wider"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Game
-          </button>
-          
-          <div className="flex items-center gap-2 text-cyan-500 font-mono text-xs font-black uppercase tracking-widest">
-            <BookOpen className="w-4 h-4" />
-            Legal Document
-          </div>
-        </div>
-      </div>
+const Divider = () => <hr className="border-white/5 my-6" />;
 
-      {/* Document Content */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="max-w-4xl mx-auto px-4 mt-8 md:mt-12"
-      >
-        <div className="bg-[#0b0b14] border border-white/10 rounded-2xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
-          {/* Subtle neon corner accents */}
-          <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-transparent to-cyan-500/10 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-20 h-20 bg-gradient-to-tr from-blue-500/10 to-transparent pointer-events-none" />
+export const TermsOfServicePage: React.FC<LegalPageProps> = ({ onBack }) => (
+  <LegalShell onBack={onBack} accent="pink" icon={<FileText className="w-6 h-6 md:w-7 md:h-7" />} title="Terms of Service">
+    <Section number="01" title="Agreement and service scope">
+      <p>These Terms govern your use of RhythmMania, a browser-based rhythm game and its optional account, profile, catalog, and replay features. By using the service, you agree to these Terms. If you do not agree, do not use RhythmMania.</p>
+      <p>RhythmMania is provided by the project operator identified in the copyright and repository notices. These Terms do not replace rights that cannot be excluded under the law where you live.</p>
+    </Section>
+    <Divider />
+    <Section number="02" title="Eligibility and accounts">
+      <p>You may use local gameplay without an account. Google Sign-In is required for cloud catalog access, public profiles, and replay uploads. You must provide accurate information, keep access to your Google account secure, and not use another person&apos;s account.</p>
+      <p>RhythmMania is intended only for people who are at least 18 years old. Minors may not access or use the service, including local gameplay and connected features, even with parental permission. We may suspend access or remove data that violates these Terms or creates a security, legal, or operational risk.</p>
+    </Section>
+    <Divider />
+    <Section number="03" title="Local gameplay and cloud features">
+      <p>Settings, imported maps, packages, favorites, and local play history are stored in your browser. They are not automatically sent to RhythmMania. Clearing browser storage, using private browsing, or changing browsers can remove or make that data unavailable.</p>
+      <p>Signed-in users can browse the bundled and eligible osu!mania catalog, download catalog maps, edit a public profile, choose or upload an avatar, and upload eligible replays. Only supported, verified chart revisions can receive an online replay upload.</p>
+      <p>Uploaded replays contain score and performance data, selected modifiers and settings, and input replay frames. Eligible non-failed, non-autoplay replays may appear in public rankings, replay listings, and public profile statistics. Local-only, failed, autoplay, and unsupported runs are not eligible for online upload.</p>
+    </Section>
+    <Divider />
+    <Section number="04" title="Content and intellectual property">
+      <p>RhythmMania software and original site materials are protected by applicable intellectual-property laws. The source repository is separately governed by the PolyForm Perimeter License 1.0.1; that license controls permissions to copy, modify, and distribute the code.</p>
+      <p>Beatmaps, music, artwork, videos, trademarks, and links supplied by catalog sources or third parties may belong to their respective owners. You are responsible for having the rights needed to import, store, or use material locally. RhythmMania does not grant a license to third-party content.</p>
+      <p>Text, profile details, social links, avatars, and replay data that you submit must be lawful, accurate, and non-infringing. You grant RhythmMania the limited permission needed to host, process, display, and back up that material to provide the features you request.</p>
+    </Section>
+    <Divider />
+    <Section number="05" title="Acceptable use">
+      <p>You must not cheat, falsify replay data, manipulate rankings, scrape or overload the service, bypass access controls, probe or damage systems, distribute malware, impersonate another person, infringe rights, or use the service for unlawful harassment or abuse. Automated access is permitted only where expressly authorized.</p>
+      <p>We may remove content, invalidate scores, limit features, or suspend accounts when necessary to enforce these rules, protect users, or comply with law.</p>
+    </Section>
+    <Divider />
+    <Section number="06" title="Third-party services and availability">
+      <p>Sign-in is provided through Google. Cloud catalog downloads may be retrieved from external osu! ecosystem or mirror services. Those providers have their own terms and privacy practices, and RhythmMania does not control their availability or processing.</p>
+      <p>The service, catalog, and stored data may change, be interrupted, or be unavailable. RhythmMania is provided on an “as is” and “as available” basis to the maximum extent permitted by law. We do not guarantee uninterrupted operation, error-free gameplay, preservation of local browser data, or continued availability of third-party material.</p>
+    </Section>
+    <Divider />
+    <Section number="07" title="Liability and changes">
+      <p>To the maximum extent permitted by law, RhythmMania and its contributors are not liable for indirect, incidental, special, consequential, or data-loss damages arising from use of the service. Nothing here limits liability that cannot legally be limited.</p>
+      <p>We may update these Terms when the service or law changes. The “Last updated” date identifies the current version. Continued use after an update means you accept the revised Terms where that effect is permitted by law.</p>
+    </Section>
+    <Divider />
+    <Section number="08" title="Contact">
+      <p>Questions about these Terms, account data, or rights requests may be sent to <strong>privacy@rhythm-mania.com</strong>. Copyright concerns may be sent to <strong>copyright@rhythm-mania.com</strong> with enough detail for us to identify the material and contact you.</p>
+    </Section>
+  </LegalShell>
+);
 
-          {/* Title */}
-          <div className="flex items-center gap-3.5 mb-6 border-b border-white/5 pb-6">
-            <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-500">
-              <Shield className="w-6 h-6 md:w-7 md:h-7" />
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-3.5xl font-black tracking-tight text-white uppercase font-sans">
-                Privacy Policy
-              </h1>
-              <p className="text-xs text-slate-400 font-mono mt-0.5 uppercase tracking-wider">
-                Last Updated: 9 July 2026
-              </p>
-            </div>
-          </div>
-
-          {/* Markdown Content rendered nicely */}
-          <div className="prose prose-invert prose-slate max-w-none text-slate-300 text-sm md:text-base leading-relaxed space-y-6 select-text">
-            
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-cyan-500 font-mono text-sm font-black">01.</span> INTRODUCTION & CORE ETHOS
-              </h2>
-              <p>
-                We at <strong>RhythmMania</strong> care deeply about privacy and data minimization. We believe that your gameplay scores, local custom charts, settings, and performance data belong solely to you. Because our platform is architected primarily as an offline-first, client-side single page web application, we do not systematically collect, sell, or monetize your personal details.
-              </p>
-              <p>
-                By accessing or using our game, you acknowledge and accept the terms of this Privacy Policy. If you do not agree, please do not use the service.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-cyan-500 font-mono text-sm font-black">02.</span> DATA STORAGE, ACCOUNTS & REPLAY UPLOADS
-              </h2>
-              <p>
-                RhythmMania offers both local offline gameplay and optional connected cloud features:
-              </p>
-              <ul className="list-disc list-inside pl-4 space-y-2 text-slate-300">
-                <li>
-                  <strong>Local Storage & IndexedDB:</strong> Your custom key bindings, audio/visual offsets, game volumes, local custom maps, and offline play history are saved directly in your browser's local sandbox and IndexedDB.
-                </li>
-                <li>
-                  <strong>Google Sign-In & User Accounts:</strong> You may optionally authenticate using Google Sign-In (OAuth 2.0). When you log in, we store basic profile information (Google User ID, email, display name, avatar URL) to manage your verified player account and associate your server activity.
-                </li>
-                <li>
-                  <strong>Replay Uploads & Leaderboards:</strong> When playing verified server catalog beatmaps without gameplay automation cheats (Autoplay), your performance score and keypress replay telemetry frames are uploaded to our secure backend database. These replays and scores are stored on server infrastructure to render global leaderboards and allow public replay spectating.
-                </li>
-                <li>
-                  <strong>Server-Hosted User Data:</strong> Server-hosted account records and uploaded replays are retained to maintain global ranks and leaderboard integrity. You may request account deletion or data purge by contacting our support team.
-                </li>
-              </ul>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-cyan-500 font-mono text-sm font-black">03.</span> THIRD-PARTY INTEGRATIONS & EMBEDS
-              </h2>
-              <p>
-                To provide music, synchronization, and backgrounds, some community-created beatmaps utilize embedded assets or link directly to external APIs. In particular, some charts play background media sourced from <strong>YouTube</strong>.
-              </p>
-              <p>
-                When interacting with these embedded players, YouTube/Google may place tracking cookies, collect telemetry, or process information about your browser. This activity is strictly subject to the <strong>Google Privacy Policy</strong> and <strong>YouTube Terms of Service</strong>, which we do not control.
-              </p>
-            </section>
-
-            <hr className="border-white/5 my-6" />
-
-            <section className="space-y-3">
-              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 uppercase tracking-wide">
-                <span className="text-cyan-500 font-mono text-sm font-black">04.</span> CONTACT INFORMATION
-              </h2>
-              <p>
-                If you have any questions about this Privacy Policy, your local data protection rights, or our licensing efforts, you can contact us at:
-              </p>
-              <p className="text-sm text-cyan-400 font-mono">
-                Email: privacy@rhythm-mania.com
-              </p>
-            </section>
-
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
+export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({ onBack }) => (
+  <LegalShell onBack={onBack} accent="cyan" icon={<Shield className="w-6 h-6 md:w-7 md:h-7" />} title="Privacy Policy">
+    <Section number="01" title="What this policy covers" accent="cyan">
+      <p>This policy explains what RhythmMania processes when you use local gameplay, sign in, use the cloud catalog, publish a profile, or upload a replay. RhythmMania is designed to work offline first. We do not sell personal information or use it for behavioral advertising.</p>
+      <p>The policy covers the RhythmMania website and its related API endpoints. It does not cover Google, osu!, external download mirrors, or other third-party services.</p>
+    </Section>
+    <Divider />
+    <Section number="02" title="Information stored in your browser" accent="cyan">
+      <ul className="list-disc list-inside pl-4 space-y-2">
+        <li><strong>Local storage:</strong> settings, key bindings, offsets, favorites, selected maps, history, and other UI preferences.</li>
+        <li><strong>IndexedDB:</strong> imported beatmaps and retained package/media data used for local play.</li>
+        <li><strong>Temporary data:</strong> audio, video, replay, and object URLs used during a session.</li>
+      </ul>
+      <p>This data is controlled by your browser, not routinely readable by our backend. You can remove it through the game&apos;s available controls or your browser&apos;s site-data settings. Removing it may delete local maps and history.</p>
+    </Section>
+    <Divider />
+    <Section number="03" title="Information processed for accounts" accent="cyan">
+      <p>When you sign in with Google, Google sends us the account identifier and profile fields needed for authentication, including your email address, name, and profile image when available. We store a RhythmMania user ID, username, email, Google identifier, and avatar URL.</p>
+      <p>We create a server-side session and set an HTTP-only, SameSite session cookie named <code>rm_session_token</code>. Sessions are currently issued for up to 30 days. A short-lived HTTP-only OAuth state cookie is used to protect the sign-in flow and expires after 10 minutes.</p>
+    </Section>
+    <Divider />
+    <Section number="04" title="Profiles, avatars, and replays" accent="cyan">
+      <p>You may choose to publish a display name, handle, biography, social links, activity status, and activity message. Public profile pages expose profile information, avatar, non-private identity fields, aggregate statistics, and recent non-failed replay results. Your email is shown only on your own profile response.</p>
+      <p>If you upload an avatar, we store the JPEG, PNG, or WebP image you provide, up to 2 MB, so it can be served from your profile. Preset avatar selection stores a reference to a bundled image.</p>
+      <p>An uploaded replay may include its record ID, chart identity and checksum, score, accuracy, combo, grade, failed state, score state, replay frames, recorded settings, and modifiers. We use this data for validation, leaderboards, replay viewing, and profile statistics. Replay uploads are associated with your account and are retained until deleted or no longer needed for those purposes.</p>
+    </Section>
+    <Divider />
+    <Section number="05" title="Catalog and technical processing" accent="cyan">
+      <p>Signed-in catalog searches and downloads are processed through the RhythmMania API. Search requests may include your account ID for access control and rate limiting. Catalog services may receive requests needed to find or retrieve a map; their own privacy policies apply.</p>
+      <p>Like most web services, our hosting, database, and security infrastructure may process request metadata such as IP address, timestamps, user agent, and error logs. We use this information for authentication, abuse prevention, troubleshooting, and service operation. We do not use it to build an advertising profile.</p>
+    </Section>
+    <Divider />
+    <Section number="06" title="Sharing and retention" accent="cyan">
+      <p>We share information only as needed to operate the service: with Google for OAuth sign-in, with hosting/database providers that process data on our behalf, and with external catalog or download services when you request those features. We may disclose information where required by law or to protect the service, users, or rights of others.</p>
+      <p>Account records, profiles, avatars, sessions, and uploaded replays are stored on server infrastructure. Sessions expire after their stated lifetime. Other account data is kept while the account or feature is active, or longer where needed for security, legal, dispute, or leaderboard-integrity purposes. Local browser data follows your browser&apos;s retention rules.</p>
+    </Section>
+    <Divider />
+    <Section number="07" title="Your choices and rights" accent="cyan">
+      <p>You can play locally without signing in, decline optional cloud features, edit your profile, log out, and delete local browser data. You may request access, correction, deletion, or restriction of server-held personal data by emailing <strong>privacy@rhythm-mania.com</strong>. We may need to verify the request and may retain limited information where law or legitimate security and integrity needs require it.</p>
+      <p>Depending on where you live, you may also have the right to object to or limit processing and to complain to a data-protection authority. We do not use automated decision-making to make decisions with legal or similarly significant effects.</p>
+    </Section>
+    <Divider />
+    <Section number="08" title="Children, security, and updates" accent="cyan">
+      <p>RhythmMania is not directed to, and may not be used by, anyone under 18. We do not knowingly collect personal information from minors. If we learn that a minor has used the service or provided personal information, we will take reasonable steps to restrict access and delete the information, subject to legal and security requirements. A parent or guardian may contact us at <strong>privacy@rhythm-mania.com</strong> about suspected minor data.</p>
+      <p>We use reasonable technical and organizational measures, including HTTPS deployment where configured, secure OAuth state validation, HTTP-only session cookies, access controls, and server-side validation. No internet service can guarantee absolute security.</p>
+      <p>We may update this policy as the product or legal requirements change. The current version and its “Last updated” date are posted on this page.</p>
+    </Section>
+    <Divider />
+    <Section number="09" title="Contact" accent="cyan">
+      <p>For privacy questions or rights requests, contact <strong>privacy@rhythm-mania.com</strong>.</p>
+    </Section>
+  </LegalShell>
+);

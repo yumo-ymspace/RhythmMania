@@ -22,11 +22,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return sendError(res, 405, 'Method Not Allowed');
   }
 
-  const difficultyId = (req.query.difficultyId || req.query.difficulty_id) as string;
-  const hash = (req.query.hash || req.query.beatmapHash) as string;
+  const chartRevisionId = req.query.chartRevisionId as string;
 
-  if (!difficultyId && !hash) {
-    return sendError(res, 400, 'Missing difficultyId or hash parameter');
+  if (!chartRevisionId || chartRevisionId.length > 256) {
+    return sendError(res, 400, 'Missing chartRevisionId parameter');
   }
 
   try {
@@ -41,7 +40,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mods: any;
       created_at: Date;
       beatmap_set_id: string;
-      beatmap_difficulty_id: string;
+       beatmap_difficulty_id: string | null;
+       chart_revision_id: string;
       beatmap_hash: string;
       username: string | null;
       avatar_url: string | null;
@@ -60,7 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         r.created_at,
         r.beatmap_set_id,
         r.beatmap_difficulty_id,
-        r.beatmap_hash,
+         r.beatmap_hash, r.chart_revision_id,
         u.username,
         u.avatar_url,
         bs.title as beatmap_title,
@@ -69,12 +69,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       FROM replays r
       LEFT JOIN users u ON r.user_id = u.id
       LEFT JOIN beatmap_sets bs ON r.beatmap_set_id = bs.id
-      LEFT JOIN beatmap_difficulties bd ON r.beatmap_difficulty_id = bd.id
-      WHERE (r.beatmap_difficulty_id = $1 OR ($2 != '' AND r.beatmap_hash = $2))
+       LEFT JOIN beatmap_difficulties bd ON r.beatmap_difficulty_id = bd.id
+       WHERE r.chart_revision_id = $1
         AND r.is_failed = false
       ORDER BY r.score DESC
       LIMIT 50`,
-      [difficultyId || '', hash || '']
+       [chartRevisionId]
     );
 
     const replays = dbRes.rows.map((row) => ({
@@ -87,6 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       createdAt: row.created_at.toISOString(),
       catalogSetId: row.beatmap_set_id,
       catalogMapId: row.beatmap_difficulty_id,
+      chartRevisionId: row.chart_revision_id,
       beatmapHash: row.beatmap_hash,
       userId: row.user_id,
       username: row.username || 'Guest Player',

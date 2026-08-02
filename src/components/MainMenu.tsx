@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings as SettingsIcon, Play, History, LogOut, User } from 'lucide-react';
+import { Settings as SettingsIcon, Play, History, LogOut, User, Loader2 } from 'lucide-react';
 import metadata from '../../metadata.json';
 import { AuthUser } from '../utils/authClient';
 
@@ -20,6 +20,7 @@ export const MainMenu = ({
   onNavigate,
   onOpenSettings,
   currentUser,
+  authLoading,
   onSignIn,
   onSignOut,
   authError,
@@ -27,6 +28,7 @@ export const MainMenu = ({
   onNavigate: (screen: 'select' | 'history' | 'profile') => void;
   onOpenSettings: () => void;
   currentUser?: AuthUser | null;
+  authLoading?: boolean;
   onSignIn?: () => void;
   onSignOut?: () => void;
   authError?: string | null;
@@ -79,7 +81,12 @@ export const MainMenu = ({
 
         {/* Top Account Bar (Mobile) */}
         <div className="absolute top-4 inset-x-4 z-40 pointer-events-auto flex items-center justify-between bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-3.5 py-2 shadow-lg">
-          {currentUser ? (
+          {authLoading ? (
+            <div className="flex items-center gap-2 text-white/70 text-xs font-mono uppercase">
+              <Loader2 className="h-4 w-4 animate-spin text-pink-400" />
+              <span>Loading account...</span>
+            </div>
+          ) : currentUser ? (
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-2.5">
                 {currentUser.avatarUrl ? (
@@ -255,7 +262,12 @@ export const MainMenu = ({
 
       {/* Top Right Account Panel (Desktop) */}
       <div className="absolute top-6 right-6 z-40 pointer-events-auto flex items-center gap-3 bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2.5 shadow-xl">
-        {currentUser ? (
+        {authLoading ? (
+          <div className="flex items-center gap-2 text-white/70 text-xs font-mono uppercase">
+            <Loader2 className="h-4 w-4 animate-spin text-pink-400" />
+            <span>Loading account...</span>
+          </div>
+        ) : currentUser ? (
           <div className="flex items-center gap-3">
             {currentUser.avatarUrl ? (
               <img src={currentUser.avatarUrl} alt={currentUser.username} className="w-8 h-8 rounded-full border border-pink-500/50" />

@@ -68,6 +68,7 @@ export interface LeaderboardReplayItem {
   createdAt: string;
   catalogSetId: string;
   catalogMapId: string;
+  chartRevisionId: string;
   beatmapHash: string;
   userId: string | null;
   username: string;
@@ -79,13 +80,11 @@ export interface LeaderboardReplayItem {
 }
 
 export async function fetchLeaderboardReplays(
-  difficultyId: string,
-  hash?: string
+  chartRevisionId: string
 ): Promise<{ success: boolean; replays: LeaderboardReplayItem[]; error?: string }> {
   try {
     const params = new URLSearchParams();
-    if (difficultyId) params.set('difficultyId', difficultyId);
-    if (hash) params.set('hash', hash);
+    params.set('chartRevisionId', chartRevisionId);
 
     const res = await fetch(`/api/replays/list?${params.toString()}`, {
       headers: { Accept: 'application/json' },

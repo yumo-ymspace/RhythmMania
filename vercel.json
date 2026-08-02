@@ -15,6 +15,10 @@
       "destination": "/api/profile-router?_route=:path*"
     },
     {
+      "source": "/api/catalog/:path*",
+      "destination": "/api/catalog-router?_route=:path*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

@@ -34,6 +34,12 @@ import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout
 import { getVisibleNotes } from '../render/noteVisibility';
 import { createScrollModel, ScrollModel } from '../render/scrollVelocity';
 import { parseBeatmap } from '../utils/beatmapParser';
+import {
+  BABYLON_PLAYFIELD_WIDTH_MAX,
+  BABYLON_PLAYFIELD_WIDTH_MIN,
+  PLAYFIELD_WIDTH_MAX,
+  PLAYFIELD_WIDTH_MIN,
+} from './settings/defaultSettings';
 
 export interface ColumnStyle {
   width: number;
@@ -314,6 +320,7 @@ export default function GameplayCanvas({
         ...replayRecord.recordedSettings,
         musicVolume: propSettings.musicVolume,
         hitsoundVolume: propSettings.hitsoundVolume,
+        masterVolume: propSettings.masterVolume,
         videoOpacity: propSettings.videoOpacity,
         backgroundDim: propSettings.backgroundDim
       };
@@ -930,7 +937,7 @@ export default function GameplayCanvas({
       setMediaUrls(resolved);
 
       mainAudio.init();
-      mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
+      mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume, settings.masterVolume);
       mainAudio.setOffset(settings.audioOffset);
 
       let activeRate = 1.0;
@@ -992,10 +999,10 @@ export default function GameplayCanvas({
   // Handle immediate sync of volume and offset values
   useEffect(() => {
     if (isAudioLoaded) {
-      mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume);
+      mainAudio.setVolumes(settings.musicVolume, settings.hitsoundVolume, settings.masterVolume);
       mainAudio.setOffset(settings.audioOffset);
     }
-  }, [isAudioLoaded, settings.musicVolume, settings.hitsoundVolume, settings.audioOffset]);
+  }, [isAudioLoaded, settings.musicVolume, settings.hitsoundVolume, settings.masterVolume, settings.audioOffset]);
 
   const snapVideoToAudio = (audioTimeMs?: number, playIfReady: boolean = true) => {
     const video = videoRef.current;
@@ -2874,13 +2881,20 @@ export default function GameplayCanvas({
                   {/* Playfield Width */}
                   {!replayData && (
                     <div className="space-y-1.5">
+                      {(() => {
+                        const isBabylon = settings.renderEngine === 'babylon';
+                        const widthMin = isBabylon ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
+                        const widthMax = isBabylon ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
+                        const width = Math.max(widthMin, Math.min(widthMax, settings.playfieldWidthPercent ?? 40));
+                        return (
+                          <>
                       <div className="flex justify-between text-slate-400">
                         <span>Lane Playfield Width</span>
-                        <span className="font-mono text-cyan-400 font-extrabold">{settings.playfieldWidthPercent ?? 40}%</span>
+                        <span className="font-mono text-cyan-400 font-extrabold">{width}%</span>
                       </div>
                       <input 
-                        type="range" min="20" max="50" step="1"
-                        value={settings.playfieldWidthPercent ?? 40} 
+                        type="range" min={widthMin} max={widthMax} step="1"
+                        value={width}
                         onChange={(e) => updateSettings?.({ playfieldWidthPercent: Number(e.target.value) })}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
@@ -2888,6 +2902,9 @@ export default function GameplayCanvas({
                         onPointerDown={(e) => e.stopPropagation()}
                         className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
                       />
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
 

@@ -34,6 +34,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       beatmap_set_id: string | null;
       beatmap_difficulty_id: string | null;
       beatmap_hash: string;
+      chart_revision_id: string | null;
+      checksum: string | null;
+      checksum_algorithm: string | null;
+      source: string | null;
+      source_set_id: number | null;
+      catalog_state: string | null;
       score: number;
       accuracy: number;
       max_combo: number;
@@ -59,12 +65,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         u.avatar_url,
         bs.title as beatmap_title,
         bs.artist as beatmap_artist,
-        bs.osz_url,
+         bs.osz_url, bs.source, bs.source_set_id, bs.catalog_state,
+         cr.checksum, cr.checksum_algorithm,
         bd.name as beatmap_difficulty
       FROM replays r
       LEFT JOIN users u ON r.user_id = u.id
       LEFT JOIN beatmap_sets bs ON r.beatmap_set_id = bs.id
-      LEFT JOIN beatmap_difficulties bd ON r.beatmap_difficulty_id = bd.id
+       LEFT JOIN beatmap_difficulties bd ON r.beatmap_difficulty_id = bd.id
+       LEFT JOIN beatmap_chart_revisions cr ON r.chart_revision_id = cr.id
       WHERE r.id = $1`,
       [id]
     );
@@ -74,6 +82,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const row = dbRes.rows[0];
+    const scoreState = typeof row.score_state === 'string' ? JSON.parse(row.score_state) : row.score_state || {};
+    const mods = Array.isArray(row.mods) ? row.mods : [];
+    const isNoFail = mods.some((mod: unknown) => typeof mod === 'string' && mod.toUpperCase() === 'NF');
+    if (isNoFail) scoreState.failed = false;
 
     const record = {
       schemaVersion: 2,
@@ -88,21 +100,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       accuracy: row.accuracy,
       maxCombo: row.max_combo,
       grade: row.grade,
-      isFailed: row.is_failed,
-      scoreState: typeof row.score_state === 'string' ? JSON.parse(row.score_state) : row.score_state,
+       isFailed: isNoFail ? false : row.is_failed,
+       scoreState,
       replayFrames: typeof row.replay_frames === 'string' ? JSON.parse(row.replay_frames) : row.replay_frames || [],
       recordedSettings: typeof row.recorded_settings === 'string' ? JSON.parse(row.recorded_settings) : row.recorded_settings || {},
-      mods: Array.isArray(row.mods) ? row.mods : [],
+       mods,
       replaySource: row.replay_source || 'account-local',
       uploadStatus: row.upload_status || 'uploaded',
       uploadEligibility: 'eligible',
       catalogSetId: row.beatmap_set_id || undefined,
       catalogMapId: row.beatmap_difficulty_id || undefined,
+      chartRevisionId: row.chart_revision_id || undefined,
       beatmapHash: row.beatmap_hash,
       isServerCatalogMap: true,
       username: row.username || 'Guest Player',
       avatarUrl: row.avatar_url,
       oszUrl: row.osz_url || undefined,
+      cloudSource: row.source || undefined,
+      sourceSetId: row.source_set_id || undefined,
+      checksum: row.checksum || undefined,
+      checksumAlgorithm: row.checksum_algorithm || undefined,
+      catalogState: row.catalog_state || undefined,
     };
 
     return sendJson(res, 200, {

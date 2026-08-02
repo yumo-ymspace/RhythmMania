@@ -53,15 +53,30 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE TABLE IF NOT EXISTS beatmap_sets (
-    id VARCHAR(128) PRIMARY KEY, -- e.g., 'server_usseewa'
+    id VARCHAR(128) PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     artist VARCHAR(255) NOT NULL,
     creator VARCHAR(255) NOT NULL,
     osz_url VARCHAR(512),
     mode INT NOT NULL DEFAULT 3,
+    source VARCHAR(16) NOT NULL DEFAULT 'bundled',
+    source_set_id BIGINT,
+    source_slug VARCHAR(128),
+    catalog_state VARCHAR(16) NOT NULL DEFAULT 'active',
+    rank_status VARCHAR(32),
+    cover_url VARCHAR(512),
+    download_url VARCHAR(512),
+    last_source_check_at TIMESTAMPTZ,
+    source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ,CONSTRAINT beatmap_sets_source_chk CHECK (source IN ('bundled', 'osuapi'))
+    ,CONSTRAINT beatmap_sets_state_chk CHECK (catalog_state IN ('pending', 'active', 'frozen'))
+    ,CONSTRAINT beatmap_sets_source_id_chk CHECK ((source = 'osuapi' AND source_set_id IS NOT NULL) OR (source = 'bundled'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_beatmap_sets_osu_source ON beatmap_sets(source_set_id) WHERE source = 'osuapi';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_beatmap_sets_bundled_slug ON beatmap_sets(source_slug) WHERE source = 'bundled' AND source_slug IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS beatmap_difficulties (
     id VARCHAR(128) PRIMARY KEY, -- e.g., 'server_usseewa_diff_0'
@@ -74,12 +89,31 @@ CREATE TABLE IF NOT EXISTS beatmap_difficulties (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS beatmap_chart_revisions (
+    id VARCHAR(256) PRIMARY KEY,
+    beatmap_set_id VARCHAR(128) NOT NULL REFERENCES beatmap_sets(id) ON DELETE CASCADE,
+    source_chart_id BIGINT,
+    original_osu_filename VARCHAR(512) NOT NULL,
+    difficulty_name VARCHAR(255) NOT NULL,
+    key_count INT NOT NULL CHECK (key_count BETWEEN 2 AND 8),
+    mode INT NOT NULL DEFAULT 3 CHECK (mode = 3),
+    checksum VARCHAR(128) NOT NULL,
+    checksum_algorithm VARCHAR(8) NOT NULL CHECK (checksum_algorithm IN ('md5', 'sha256')),
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retired_at TIMESTAMPTZ,
+    UNIQUE (source_chart_id, checksum),
+    UNIQUE (beatmap_set_id, original_osu_filename, checksum)
+);
+
 CREATE TABLE IF NOT EXISTS replays (
     id VARCHAR(64) PRIMARY KEY, -- Unique record UUID/identifier
     user_id VARCHAR(16) REFERENCES users(id) ON DELETE SET NULL,
     beatmap_set_id VARCHAR(128) REFERENCES beatmap_sets(id) ON DELETE CASCADE,
     beatmap_difficulty_id VARCHAR(128) REFERENCES beatmap_difficulties(id) ON DELETE CASCADE,
     beatmap_hash VARCHAR(64) NOT NULL,
+    chart_revision_id VARCHAR(256) REFERENCES beatmap_chart_revisions(id) ON DELETE CASCADE,
     score INT NOT NULL,
     accuracy REAL NOT NULL,
     max_combo INT NOT NULL,
@@ -123,10 +157,17 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_beatmap_diffs_set ON beatmap_difficulties(beatmap_set_id);
 CREATE INDEX IF NOT EXISTS idx_replays_diff_score ON replays(beatmap_difficulty_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_replays_revision_score ON replays(chart_revision_id, score DESC) WHERE is_failed = FALSE;
 CREATE INDEX IF NOT EXISTS idx_replays_user ON replays(user_id);
 CREATE INDEX IF NOT EXISTS idx_replays_hash ON replays(beatmap_hash);
 CREATE INDEX IF NOT EXISTS idx_replays_user_created ON replays(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_replays_user_grade ON replays(user_id, grade)
     WHERE is_failed = FALSE;
+
+CREATE TABLE IF NOT EXISTS catalog_search_rate_limits (
+    user_id VARCHAR(16) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    window_started TIMESTAMPTZ NOT NULL,
+    request_count INT NOT NULL DEFAULT 0
+);
 
 COMMIT;

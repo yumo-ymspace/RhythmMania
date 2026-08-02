@@ -188,12 +188,10 @@ export default function SongSelect({
   useEffect(() => {
     const fetchManifest = async () => {
       try {
-        const response = await fetch(`/beatmaps/manifest.json?t=${Date.now()}`);
+        const response = await fetch('/api/catalog/search?q=', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
-          if (Array.isArray(data)) {
-            setServerManifest(data);
-          }
+          if (data.success && Array.isArray(data.data)) setServerManifest(data.data);
         }
       } catch (err) {
         console.warn('Unable to load beatmap manifest. Using cached custom maps only.', err);
@@ -610,13 +608,12 @@ export default function SongSelect({
       return;
     }
 
-    const diffId = (currentMap as any).catalogMapId || currentMap.id;
-    const hash = (currentMap as any).beatmapHash || computeBeatmapHash(currentMap);
+    const diffId = (currentMap as any).chartRevisionId || '';
 
     setIsLoadingOnlineReplays(true);
     setOnlineReplayError(null);
 
-    fetchLeaderboardReplays(diffId, hash).then((res) => {
+    fetchLeaderboardReplays(diffId).then((res) => {
       setIsLoadingOnlineReplays(false);
       if (res.success) {
         setOnlineReplays(res.replays);
@@ -850,14 +847,14 @@ export default function SongSelect({
     const previewMs = (map.previewTime != null && map.previewTime >= 0)
       ? map.previewTime
       : (map.duration || 180) * 1000 * 0.4;
-    previewPlayer.play(map.audioUrl, previewMs, settings.musicVolume, getMapSongKey(map));
+    previewPlayer.play(map.audioUrl, previewMs, settings.musicVolume * settings.previewVolume * settings.masterVolume, getMapSongKey(map));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomMapId, unpackTrigger, mergedCustomMaps, settings.enableSongPreview]);
+  }, [selectedCustomMapId, unpackTrigger, mergedCustomMaps, settings.enableSongPreview, settings.previewVolume, settings.masterVolume]);
 
   // Keep preview volume in sync with the music volume setting
   useEffect(() => {
-    previewPlayer.setVolume(settings.musicVolume);
-  }, [settings.musicVolume]);
+    previewPlayer.setVolume(settings.musicVolume * settings.previewVolume * settings.masterVolume);
+  }, [settings.musicVolume, settings.previewVolume, settings.masterVolume]);
 
   // Stop preview when leaving Song Select
   useEffect(() => () => previewPlayer.stop(), []);
@@ -971,7 +968,7 @@ export default function SongSelect({
             const beatmapStr = beatmapFiles[i];
             const matchingServerObj = serverManifest.find(s => s.id === serverMapId);
 
-            let canonicalMapId = `${serverMapId}_idx${i}`;
+            let canonicalMapId = '';
             let tempParsedDifficulty = '';
             const diffMatch = beatmapStr.content.match(/^Version:(.*)$/m);
             if (diffMatch) {
@@ -982,10 +979,9 @@ export default function SongSelect({
               const matchedDiff = matchingServerObj.difficulties.find((d: any) =>
                 d.name && tempParsedDifficulty && d.name.trim().toLowerCase() === tempParsedDifficulty.toLowerCase()
               );
-              if (matchedDiff?.id) {
-                canonicalMapId = matchedDiff.id;
-              }
+              if (matchedDiff?.chartRevisionId) canonicalMapId = matchedDiff.chartRevisionId;
             }
+            if (!canonicalMapId) continue;
 
             const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
 
@@ -997,6 +993,10 @@ export default function SongSelect({
               mapWithMeta.parentPackageId = serverMapId;
               mapWithMeta.catalogSetId = serverMapId;
               mapWithMeta.catalogMapId = canonicalMapId;
+              mapWithMeta.chartRevisionId = canonicalMapId;
+              const chart = matchingServerObj?.difficulties?.find((d: any) => d.chartRevisionId === canonicalMapId);
+              mapWithMeta.checksum = chart?.checksum;
+              mapWithMeta.checksumAlgorithm = chart?.checksumAlgorithm;
               mapWithMeta.audioFilename = media.audioFilename;
               mapWithMeta.videoFilename = media.videoFilename;
               mapWithMeta.bgFilename = media.bgFilename;
@@ -1198,6 +1198,21 @@ export default function SongSelect({
     }
   };
 
+  const handleDeleteSelectedSet = () => {
+    if (!selectedCustomMap || (selectedCustomMap as any).isServerPackage || !onDeleteSongGroup) return;
+    const songKey = getMapSongKey(selectedCustomMap);
+    const mapIds = mergedCustomMaps
+      .filter((map) => getMapSongKey(map) === songKey && !(map as any).isServerPackage)
+      .map((map) => map.id);
+    if (songDeleteConfirmKey === songKey) {
+      void onDeleteSongGroup(mapIds);
+      setSelectedCustomMapId('');
+      setSongDeleteConfirmKey(null);
+    } else {
+      setSongDeleteConfirmKey(songKey);
+    }
+  };
+
   // Extract selected beatmap statistics
   const currentStarRating = selectedCustomMap ? getStarRating(selectedCustomMap) : 0.0;
   const filteredScores = localScores.filter(s => s.beatmapId === selectedCustomMapId);
@@ -1281,6 +1296,14 @@ export default function SongSelect({
                 <Play className="h-4 w-4 fill-current text-slate-950" />
                 <span>{playButtonText}</span>
               </button>
+              {selectedCustomMap && !(selectedCustomMap as any).isServerPackage && onDeleteSongGroup && (
+                <button
+                  onClick={handleDeleteSelectedSet}
+                  className={`px-3 py-2.5 rounded-xl border text-[10px] font-sans font-black uppercase tracking-wider transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
+                >
+                  {songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'Confirm Delete' : 'Delete Set'}
+                </button>
+              )}
             </div>
 
             {/* Download Progress Bar overlay */}
@@ -1376,13 +1399,31 @@ export default function SongSelect({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0 z-10 select-none">
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${getDifficultyColor(rating)}`}>
+                   <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${getDifficultyColor(rating)}`}>
                       ★ {rating.toFixed(1)}
                     </span>
                     {group.isServerPackage && (
                       <span className="px-1.5 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[8px] font-mono font-black rounded uppercase">
                         CLOUD
-                      </span>
+                        </span>
+                      )}
+                    {!group.isServerPackage && onDeleteSongGroup && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (songDeleteConfirmKey === group.songKey) {
+                            void onDeleteSongGroup(group.maps.map((map) => map.id));
+                            if (group.maps.some((map) => map.id === selectedCustomMapId)) setSelectedCustomMapId('');
+                            setSongDeleteConfirmKey(null);
+                          } else {
+                            setSongDeleteConfirmKey(group.songKey);
+                          }
+                        }}
+                        title={songDeleteConfirmKey === group.songKey ? 'Confirm delete beatmap set' : 'Delete downloaded beatmap set'}
+                        className={`p-1.5 rounded-lg border transition-colors ${songDeleteConfirmKey === group.songKey ? 'border-rose-500/50 bg-rose-500/20 text-rose-300' : 'border-white/10 text-slate-500 hover:border-rose-500/40 hover:text-rose-300'}`}
+                      >
+                        {songDeleteConfirmKey === group.songKey ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -2054,6 +2095,14 @@ export default function SongSelect({
                 <Play className="h-5 w-5 fill-current text-slate-950" />
                 <span>PLAY SONG</span>
               </button>
+              {selectedCustomMap && !(selectedCustomMap as any).isServerPackage && onDeleteSongGroup && (
+                <button
+                  onClick={handleDeleteSelectedSet}
+                  className={`w-full py-3 rounded-xl border text-xs font-sans font-black uppercase tracking-widest transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
+                >
+                  {songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'Confirm Delete Beatmap Set' : 'Delete Beatmap Set'}
+                </button>
+              )}
 
               {/* ONLINE & LOCAL LEADERBOARD REPLAYS PANEL */}
               <div className="flex flex-col bg-[#08080d] rounded-2xl border border-white/10 shadow-2xl overflow-hidden mt-1">
@@ -2118,10 +2167,9 @@ export default function SongSelect({
                           <button 
                             onClick={() => {
                               if (selectedCustomMap) {
-                                const diffId = (selectedCustomMap as any).catalogMapId || selectedCustomMap.id;
-                                const hash = (selectedCustomMap as any).beatmapHash || computeBeatmapHash(selectedCustomMap);
+                                const diffId = (selectedCustomMap as any).chartRevisionId || '';
                                 setIsLoadingOnlineReplays(true);
-                                fetchLeaderboardReplays(diffId, hash).then(res => {
+                                fetchLeaderboardReplays(diffId).then(res => {
                                   setIsLoadingOnlineReplays(false);
                                   if (res.success) setOnlineReplays(res.replays);
                                 });
@@ -2567,12 +2615,30 @@ export default function SongSelect({
                             </span>
                           )}
 
-                          {group.isServerPackage && (
+                           {group.isServerPackage && (
                             <span className="px-1.5 py-0.5 bg-cyan-500/15 border border-cyan-500/20 text-cyan-300 text-[8px] font-mono font-black tracking-widest rounded uppercase">
                               CLOUD
-                            </span>
-                          )}
-                        </div>
+                             </span>
+                           )}
+                           {!group.isServerPackage && onDeleteSongGroup && (
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 if (songDeleteConfirmKey === group.songKey) {
+                                   void onDeleteSongGroup(group.maps.map((map) => map.id));
+                                   if (group.maps.some((map) => map.id === selectedCustomMapId)) setSelectedCustomMapId('');
+                                   setSongDeleteConfirmKey(null);
+                                 } else {
+                                   setSongDeleteConfirmKey(group.songKey);
+                                 }
+                               }}
+                               title={songDeleteConfirmKey === group.songKey ? 'Confirm delete beatmap set' : 'Delete downloaded beatmap set'}
+                               className={`p-1.5 rounded-lg border transition-colors ${songDeleteConfirmKey === group.songKey ? 'border-rose-500/50 bg-rose-500/20 text-rose-300' : 'border-white/10 text-slate-500 hover:border-rose-500/40 hover:text-rose-300'}`}
+                             >
+                               {songDeleteConfirmKey === group.songKey ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                             </button>
+                           )}
+                         </div>
                       </div>
                     </div>
                   </div>
