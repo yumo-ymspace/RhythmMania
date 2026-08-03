@@ -55,8 +55,8 @@ export class ReceptorLayer {
       const column = frame.columns[i];
       const glow = column?.glow ?? 0;
       segment.position.set(-ctx.nearWidth / 2 + laneWidth * (i + 0.5), SLAB_HEIGHT + 0.01, RECEPTOR_Z + 0.05);
-      segment.scaling.set(laneWidth * 0.86, 1, 1);
-      const color = Color3.FromHexString(safeHex(column?.color, '#22d3ee'));
+      segment.scaling.set(laneWidth * 0.86 * (frame.settingsSlice.receptorSizeMultiplier ?? 1), 1, 1);
+      const color = Color3.FromHexString(safeHex(frame.settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[i] || column?.color, '#22d3ee'));
       this.segmentMats[i].emissiveColor = color.scale(0.8 + glow * 1.2);
       this.segmentMats[i].alpha = opacity * Math.min(1, 0.18 + glow * 0.82 + (column?.pressed ? 0.2 : 0));
     }

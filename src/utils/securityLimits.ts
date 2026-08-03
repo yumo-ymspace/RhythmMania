@@ -194,8 +194,26 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
   } else {
     customSkinColors.push(...(defaultSettings.customSkinColors || []));
   }
+  const sanitizeLanePalettes = (value: unknown, fallback: Record<number, string[]> = {}) => {
+    const result: Record<number, string[]> = {};
+    if (!value || typeof value !== 'object') return fallback;
+    for (const keyCount of [2, 3, 4, 5, 6, 7, 8]) {
+      const colors = (value as Record<string, unknown>)[keyCount];
+      if (Array.isArray(colors) && colors.length === keyCount) {
+        result[keyCount] = colors.map(color => validateStringColor(color, '#ffffff'));
+      } else if (fallback[keyCount]) {
+        result[keyCount] = [...fallback[keyCount]];
+      }
+    }
+    return result;
+  };
 
   const renderEngine = parsed.renderEngine === 'pixi' ? 'pixi' : parsed.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+  const sizeMax = renderEngine === 'babylon'
+    ? 1.2
+    : parsed.playfieldStyle === 'circle'
+      ? 1.5
+      : parsed.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
   const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
   const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
 
@@ -223,18 +241,16 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     customSkinColors: customSkinColors,
     customSkinName: parsed.customSkinName ? sanitizeString(parsed.customSkinName, 'custom', 30) : undefined,
     squareRenderStyle: parsed.squareRenderStyle === 'rhythmplus' ? 'rhythmplus' : 'rhythmmania',
-    rhythmplusColor: validateStringColor(parsed.rhythmplusColor, defaultSettings.rhythmplusColor || '#ffff00'),
-    rhythmmaniaNoteColor: validateStringColor(parsed.rhythmmaniaNoteColor, defaultSettings.rhythmmaniaNoteColor || '#00b0ff'),
-    rhythmmaniaReceptorColor: validateStringColor(parsed.rhythmmaniaReceptorColor, defaultSettings.rhythmmaniaReceptorColor || '#00b0ff'),
-    circleNoteColor: validateStringColor(parsed.circleNoteColor, defaultSettings.circleNoteColor || '#00b0ff'),
-    circleReceptorColor: validateStringColor(parsed.circleReceptorColor, defaultSettings.circleReceptorColor || '#00b0ff'),
+    receptorColorsByKeyCount: sanitizeLanePalettes(parsed.receptorColorsByKeyCount, defaultSettings.receptorColorsByKeyCount),
     noteOpacity: clamp(parsed.noteOpacity, 0, 1, defaultSettings.noteOpacity || 1.0),
     receptorOpacity: clamp(parsed.receptorOpacity, 0, 1, defaultSettings.receptorOpacity || 1.0),
     judgementOpacity: clamp(parsed.judgementOpacity, 0, 1, defaultSettings.judgementOpacity || 1.0),
     judgementSize: clamp(parsed.judgementSize, 0.5, 2, defaultSettings.judgementSize || 1.0),
+    judgementPositionY: clamp(parsed.judgementPositionY, 20, 85, defaultSettings.judgementPositionY || 50),
     laneSeparatorOpacity: clamp(parsed.laneSeparatorOpacity, 0, 1, defaultSettings.laneSeparatorOpacity || 0.30),
     circleSize: clamp(parsed.circleSize, 0.5, 2, defaultSettings.circleSize || 1.0),
-    noteSizeMultiplier: clamp(parsed.noteSizeMultiplier, 0.5, 2, defaultSettings.noteSizeMultiplier || 1.0),
+    noteSizeMultiplier: clamp(parsed.noteSizeMultiplier, 0.85, sizeMax, defaultSettings.noteSizeMultiplier || 1.0),
+    receptorSizeMultiplier: clamp(parsed.receptorSizeMultiplier ?? parsed.circleSize, 0.85, sizeMax, defaultSettings.receptorSizeMultiplier || 1.0),
     playfieldStyle: parsed.playfieldStyle === 'circle' ? 'circle' : 'square',
      playfieldWidthPercent: clamp(parsed.playfieldWidthPercent, widthMin, widthMax, Math.max(widthMin, Math.min(widthMax, defaultSettings.playfieldWidthPercent || 40))),
     progressBarTop: Boolean(parsed.progressBarTop),

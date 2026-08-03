@@ -69,7 +69,7 @@ export class ReceptorLayer extends Container {
       const txt = this.labelTexts[i];
 
       if (col && sp) {
-        const tex = col.pressed
+         const tex = col.pressed
           ? textures.receptorsPressed[i]
           : textures.receptorsNormal[i];
 

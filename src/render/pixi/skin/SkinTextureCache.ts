@@ -43,12 +43,9 @@ export class SkinTextureCache {
       settings.squareRenderStyle || '',
       settings.circleSize ?? '',
       settings.noteSizeMultiplier ?? '',
+      settings.receptorSizeMultiplier ?? '',
       colorsStr,
-      settings.circleNoteColor || '',
-      settings.rhythmplusColor || '',
-      settings.rhythmmaniaNoteColor || '',
-      settings.circleReceptorColor || '',
-      settings.rhythmmaniaReceptorColor || '',
+      JSON.stringify(settings.receptorColorsByKeyCount || {}),
       isFocusMode ? 'focus' : 'normal'
     ].join('_');
   }

@@ -12,7 +12,7 @@
 
 import { Application, Texture } from 'pixi.js';
 import { PlayfieldVisualSettings, ColumnLayout } from '../../types';
-import { resolveSkinTheme, isCircleSkinMode } from '../../skinTheme';
+import { resolveSkinTheme, isCircleSkinMode, getLaneColors } from '../../skinTheme';
 import { hexToRgba } from '../../../components/GameplayCanvas';
 
 function applyFade(colorStr: string, stopOpacity: number) {
@@ -57,8 +57,12 @@ export class TextureAtlasBuilder {
 
     const isCircle = isCircleSkinMode(settings);
     const theme = resolveSkinTheme(settings);
+    const lanePalette = getLaneColors(settings, columns.length, 'receptor');
+    const laneColor = (column: number) => lanePalette?.[column] || columns[column].color;
 
     columns.forEach((col, colIdx) => {
+      const noteColor = laneColor(colIdx);
+      const receptorColor = noteColor;
       const colW = col.width;
       const notePadding = isCircle ? 3 : (isFocusMode ? 1.5 : 6);
       const rw = colW - notePadding * 2;
@@ -83,22 +87,20 @@ export class TextureAtlasBuilder {
       let noteStroke = col.color;
 
       if (isCircle) {
-        noteFill = settings.circleNoteColor || '#00b0ff';
-        noteStroke = settings.circleNoteColor || '#00b0ff';
+        noteFill = noteColor;
+        noteStroke = noteColor;
       } else if (settings.squareRenderStyle === 'rhythmplus') {
-        noteFill = settings.rhythmplusColor || '#ffff00';
-        noteStroke = settings.rhythmplusColor || '#ffff00';
+        noteFill = noteColor;
+        noteStroke = noteColor;
       } else {
-        noteFill = settings.rhythmmaniaNoteColor || '#00b0ff';
-        noteStroke = settings.rhythmmaniaNoteColor || '#00b0ff';
+        noteFill = noteColor;
+        noteStroke = noteColor;
       }
 
       if (isCircle) {
         const cx = colW / 2;
         const cy = colW / 2;
         const r = (colW * (settings.noteSizeMultiplier ?? 1.0)) / 3.0;
-        const noteColor = col.color;
-
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fillStyle = noteColor;
@@ -151,16 +153,14 @@ export class TextureAtlasBuilder {
           drawNoteShape(0);
           ctx.fill();
         } else if (settings.playfieldStyle !== 'circle') {
-          grad.addColorStop(0, noteFill);
-          grad.addColorStop(1, noteFill);
-          ctx.fillStyle = grad;
+          ctx.fillStyle = noteFill;
           ctx.strokeStyle = noteStroke;
           ctx.lineWidth = 2.5;
           drawNoteShape(4);
           ctx.fill();
           ctx.stroke();
 
-          ctx.shadowColor = noteFill;
+          ctx.shadowColor = noteStroke;
           ctx.shadowBlur = 8;
           ctx.stroke();
           ctx.shadowBlur = 0;
@@ -208,7 +208,7 @@ export class TextureAtlasBuilder {
 
         ctxEnd.beginPath();
         ctxEnd.arc(cx, cy, r, 0, Math.PI * 2);
-        ctxEnd.strokeStyle = col.color;
+        ctxEnd.strokeStyle = noteColor;
         ctxEnd.lineWidth = 3;
         ctxEnd.stroke();
 
@@ -217,7 +217,7 @@ export class TextureAtlasBuilder {
         ctxEnd.fillStyle = '#ffffff';
         ctxEnd.fill();
       } else if (settings.squareRenderStyle === 'rhythmplus') {
-        const rpColor = settings.rhythmplusColor || '#ffff00';
+        const rpColor = noteColor;
         ctxEnd.strokeStyle = rpColor;
         ctxEnd.lineWidth = 4;
         ctxEnd.setLineDash([3, 3]);
@@ -227,8 +227,6 @@ export class TextureAtlasBuilder {
         ctxEnd.stroke();
         ctxEnd.setLineDash([]);
       } else {
-        const noteColor = col.color;
-
         ctxEnd.beginPath();
         ctxEnd.roundRect(rx, ry, rw, rh, 4);
         ctxEnd.strokeStyle = '#ffffff';
@@ -262,12 +260,7 @@ export class TextureAtlasBuilder {
       holdEnds.push(endTex);
 
       // 3. BAKE RECEPTORS
-      let rcColor = col.color;
-      if (isCircle) {
-        rcColor = settings.circleReceptorColor || '#00b0ff';
-      } else if (settings.squareRenderStyle !== 'rhythmplus') {
-        rcColor = settings.rhythmmaniaReceptorColor || '#00b0ff';
-      }
+      const rcColor = receptorColor;
 
       // Normal Receptor
       const recNormCanvas = document.createElement('canvas');
@@ -280,43 +273,49 @@ export class TextureAtlasBuilder {
       if (isCircle) {
         const cx = colW / 2;
         const cy = colW / 2;
-        const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
+        const r = (colW * (settings.receptorSizeMultiplier ?? 1.0)) / 3.0;
 
         ctxNorm.strokeStyle = 'rgba(255, 255, 255, 0.45)';
         ctxNorm.lineWidth = 1.5;
         ctxNorm.beginPath();
         ctxNorm.arc(cx, cy, r, 0, Math.PI * 2);
         ctxNorm.setLineDash([4, 3]);
+        ctxNorm.shadowColor = rcColor;
+        ctxNorm.shadowBlur = 8;
         ctxNorm.stroke();
         ctxNorm.setLineDash([]);
 
-        ctxNorm.fillStyle = 'rgba(15, 23, 42, 0.15)';
+        ctxNorm.fillStyle = 'transparent';
         ctxNorm.beginPath();
         ctxNorm.arc(cx, cy, r, 0, Math.PI * 2);
-        ctxNorm.fill();
-      } else if (settings.squareRenderStyle === 'rhythmplus') {
-        const rx = 1;
-        const ry = recH / 2 - 2;
-        const rw = colW - 2;
-        const rh = 4;
+        ctxNorm.shadowColor = rcColor;
+        ctxNorm.shadowBlur = 8;
+        } else if (settings.squareRenderStyle === 'rhythmplus') {
+        const receptorScale = settings.receptorSizeMultiplier ?? 1;
+        const rw = (colW - 2) * receptorScale;
+        const rh = 4 * receptorScale;
+        const rx = (colW - rw) / 2;
+        const ry = recH / 2 - rh / 2;
 
-        ctxNorm.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctxNorm.fillStyle = rcColor;
+        ctxNorm.shadowColor = rcColor;
+        ctxNorm.shadowBlur = 8;
         ctxNorm.beginPath();
         ctxNorm.rect(rx, ry, rw, rh);
         ctxNorm.fill();
       } else {
-        const rx = 6;
-        const ry = 0;
-        const rw = colW - 12;
-        const rh = 28;
+        const receptorScale = settings.receptorSizeMultiplier ?? 1;
+        const rw = (colW - 12) * receptorScale;
+        const rh = 28 * receptorScale;
+        const rx = (colW - rw) / 2;
+        const ry = (recH - rh) / 2;
 
         ctxNorm.strokeStyle = hexToRgba(rcColor, 0.85);
         ctxNorm.lineWidth = 2;
-        ctxNorm.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctxNorm.fillStyle = 'transparent';
 
         ctxNorm.beginPath();
         ctxNorm.roundRect(rx, ry, rw, rh, 6);
-        ctxNorm.fill();
         ctxNorm.stroke();
 
         ctxNorm.fillStyle = rcColor;
@@ -337,7 +336,7 @@ export class TextureAtlasBuilder {
       if (isCircle) {
         const cx = colW / 2;
         const cy = colW / 2;
-        const r = (colW * (settings.circleSize ?? 1.0)) / 3.0;
+        const r = (colW * (settings.receptorSizeMultiplier ?? 1.0)) / 3.0;
 
         ctxPress.fillStyle = rcColor;
         ctxPress.beginPath();
@@ -350,34 +349,36 @@ export class TextureAtlasBuilder {
         ctxPress.arc(cx, cy, r, 0, Math.PI * 2);
         ctxPress.stroke();
 
-        ctxPress.fillStyle = '#ffffff';
+        ctxPress.fillStyle = rcColor;
         ctxPress.beginPath();
         ctxPress.arc(cx, cy, r * 0.35, 0, Math.PI * 2);
         ctxPress.fill();
       } else if (settings.squareRenderStyle === 'rhythmplus') {
-        const rx = 1;
-        const ry = recH / 2 - 2;
-        const rw = colW - 2;
-        const rh = 4;
+        const receptorScale = settings.receptorSizeMultiplier ?? 1;
+        const rw = (colW - 2) * receptorScale;
+        const rh = 4 * receptorScale;
+        const rx = (colW - rw) / 2;
+        const ry = recH / 2 - rh / 2;
 
-        ctxPress.fillStyle = '#ffffff';
+        ctxPress.fillStyle = rcColor;
         ctxPress.beginPath();
         ctxPress.rect(rx, ry, rw, rh);
         ctxPress.fill();
 
         ctxPress.shadowColor = '#ffffff';
         ctxPress.shadowBlur = 10;
-        ctxPress.fillStyle = '#ffffff';
+        ctxPress.fillStyle = rcColor;
         ctxPress.fillRect(rx, ry, rw, rh);
       } else {
-        const rx = 6;
-        const ry = 0;
-        const rw = colW - 12;
-        const rh = 28;
+        const receptorScale = settings.receptorSizeMultiplier ?? 1;
+        const rw = (colW - 12) * receptorScale;
+        const rh = 28 * receptorScale;
+        const rx = (colW - rw) / 2;
+        const ry = (recH - rh) / 2;
 
         ctxPress.strokeStyle = '#ffffff';
         ctxPress.lineWidth = 3.5;
-        ctxPress.fillStyle = hexToRgba(rcColor, 0.45);
+        ctxPress.fillStyle = hexToRgba(rcColor, 0.15);
 
         ctxPress.beginPath();
         ctxPress.roundRect(rx, ry, rw, rh, 6);

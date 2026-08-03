@@ -76,12 +76,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (settings.renderEngine === 'babylon' && activeSection === 'skin') {
-      setActiveSection('graphics');
-    }
-  }, [settings.renderEngine, activeSection]);
-
   const resetRow = (id: string) => {
     // If it's a complex object like bindings, we need to deep copy from DEFAULT_SETTINGS
     const dv = (DEFAULT_SETTINGS as any)[id];
@@ -126,7 +120,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
   if (isMobile) {
     const sectionDef = SECTIONS.find(s => s.id === activeSection);
     const rows = ROWS.filter(r => r.section === activeSection).filter(r => {
-      if (r.section === 'skin' && settings.renderEngine === 'babylon') return false;
       if (r.showWhen && !r.showWhen(settings)) return false;
       return true;
     });
@@ -203,17 +196,24 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         </div>
                       );
                     } else if (row.control.kind === 'slider') {
+                      const sizeMax = settings.renderEngine === 'babylon'
+                        ? 1.2
+                        : settings.playfieldStyle === 'circle'
+                          ? 1.5
+                          : settings.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
                       const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                         ? BABYLON_PLAYFIELD_WIDTH_MIN
                         : row.control.min;
                       const sliderMax = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                         ? BABYLON_PLAYFIELD_WIDTH_MAX
+                        : (row.id === 'noteSizeMultiplier' || row.id === 'receptorSizeMultiplier')
+                          ? sizeMax
                         : row.control.max;
                       controlNode = (
                         <div className="w-full">
                           <SettingsSlider
                             id={`setting-mobile-${row.id}`}
-                            value={Number(currentValue)}
+                            value={currentValue === undefined || currentValue === null ? Number(row.defaultValue ?? 0) : Number(currentValue)}
                              min={sliderMin}
                              max={sliderMax}
                             step={row.control.step}
@@ -268,7 +268,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                       });
                     }
 
-                    const isCustomOrComplex = row.id === 'skinPreview' || row.id === 'bindings' || row.control.kind === 'color-grid';
+                     const isCustomOrComplex = row.id === 'bindings' || row.control.kind === 'color-grid';
                     const isVertical = isCustomOrComplex || row.control.kind === 'slider';
 
                     return (

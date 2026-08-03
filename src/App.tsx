@@ -671,9 +671,14 @@ export default function App() {
       const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
       const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
       const requestedWidth = Number(updated.playfieldWidthPercent !== undefined ? updated.playfieldWidthPercent : 40);
-      const playfieldWidthPercent = Number.isFinite(requestedWidth)
+       const playfieldWidthPercent = Number.isFinite(requestedWidth)
         ? Math.max(widthMin, Math.min(widthMax, requestedWidth))
-        : Math.max(widthMin, Math.min(widthMax, 40));
+         : Math.max(widthMin, Math.min(widthMax, 40));
+       const sizeMax = renderEngine === 'babylon'
+         ? 1.2
+         : updated.playfieldStyle === 'circle'
+           ? 1.5
+           : updated.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
       const safePayload: GameSettings = {
         scrollSpeed: Number(updated.scrollSpeed !== undefined ? updated.scrollSpeed : 21),
         audioOffset: Number(updated.audioOffset !== undefined ? updated.audioOffset : 0),
@@ -698,18 +703,16 @@ export default function App() {
         customSkinColors: updated.customSkinColors,
         customSkinName: updated.customSkinName,
         squareRenderStyle: updated.squareRenderStyle || 'rhythmmania',
-        rhythmplusColor: updated.rhythmplusColor || '#ffff00',
-        rhythmmaniaNoteColor: updated.rhythmmaniaNoteColor || '#00b0ff',
-        rhythmmaniaReceptorColor: updated.rhythmmaniaReceptorColor || '#00b0ff',
-        circleNoteColor: updated.circleNoteColor || '#00b0ff',
-        circleReceptorColor: updated.circleReceptorColor || '#00b0ff',
+         receptorColorsByKeyCount: updated.receptorColorsByKeyCount || {},
         noteOpacity: updated.noteOpacity !== undefined ? Number(updated.noteOpacity) : 1.0,
         receptorOpacity: updated.receptorOpacity !== undefined ? Number(updated.receptorOpacity) : 1.0,
         judgementOpacity: updated.judgementOpacity !== undefined ? Number(updated.judgementOpacity) : 1.0,
-        judgementSize: updated.judgementSize !== undefined ? Number(updated.judgementSize) : 1.0,
+         judgementSize: updated.judgementSize !== undefined ? Number(updated.judgementSize) : 1.0,
+         judgementPositionY: updated.judgementPositionY !== undefined ? Math.max(20, Math.min(85, Number(updated.judgementPositionY))) : 50,
         laneSeparatorOpacity: updated.laneSeparatorOpacity !== undefined ? Number(updated.laneSeparatorOpacity) : 0.30,
         circleSize: updated.circleSize !== undefined ? Number(updated.circleSize) : 1.0,
-        noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Number(updated.noteSizeMultiplier) : 1.0,
+         noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Math.max(0.85, Math.min(sizeMax, Number(updated.noteSizeMultiplier))) : 1.0,
+         receptorSizeMultiplier: updated.receptorSizeMultiplier !== undefined ? Math.max(0.85, Math.min(sizeMax, Number(updated.receptorSizeMultiplier))) : 1.0,
         playfieldStyle: updated.playfieldStyle || 'square',
          playfieldWidthPercent,
         progressBarTop: updated.progressBarTop === true || String(updated.progressBarTop) === 'true',

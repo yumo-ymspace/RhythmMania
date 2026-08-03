@@ -20,7 +20,7 @@ import {
   PLAYFIELD_WIDTH_MIN,
 } from './defaultSettings';
 import BindingMatrix from './BindingMatrix';
-import SectionSkinPreview from './SectionSkinPreview';
+import LaneColorEditor from './LaneColorEditor';
 
 export type SectionId =
   | 'general' | 'graphics' | 'gameplay' | 'audio' | 'skin' | 'input' | 'maintenance';
@@ -38,7 +38,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'graphics',    label: 'Graphics',    description: 'Rendering, video, particles, and pixel ratio.',     icon: 'Monitor' },
   { id: 'gameplay',    label: 'Gameplay',    description: 'Scroll speed, scroll direction, and timing.',      icon: 'Gamepad2' },
   { id: 'audio',       label: 'Audio',       description: 'Volumes and the universal audio offset.',          icon: 'Volume2' },
-  { id: 'skin',        label: 'Skin',        description: 'Receptor shape, note style, and custom palette.',  icon: 'Palette', showWhen: (s) => s.renderEngine !== 'babylon' },
+  { id: 'skin',        label: 'Skin',        description: 'Lane colors, note sizing, receptors, and judgement display.',  icon: 'Palette' },
   { id: 'input',       label: 'Input',       description: 'Keyboard bindings per key count.',                 icon: 'Keyboard' },
   { id: 'maintenance', label: 'Maintenance', description: 'Reset to defaults and other global actions.',      icon: 'Wrench' },
 ];
@@ -291,19 +291,14 @@ export const ROWS: RowDef[] = [
 
   // ── SKIN ──────────────────────────────────────────────────────────────
   {
-    id: 'skinPreview', section: 'skin', label: 'Live preview',
-    description: 'A miniature playfield that reflects the current skin settings.',
-    control: { kind: 'custom', render: (api) => <SectionSkinPreview {...api} /> },
-    defaultValue: null,
-  },
-  {
-    id: 'playfieldStyle', section: 'skin', label: 'Skin',
+    id: 'playfieldStyle', section: 'skin', label: 'Skin Shape',
     description: 'Pick the shape of the notes and receptors.',
     control: { kind: 'select', options: [
       { value: 'square',  label: 'Rectangular' },
       { value: 'circle',  label: 'Circular' },
     ]},
     defaultValue: DEFAULT_SETTINGS.playfieldStyle,
+    showWhen: (s) => s.renderEngine !== 'babylon',
   },
   {
     id: 'squareRenderStyle', section: 'skin', label: 'Note and Receptor Style',
@@ -313,91 +308,25 @@ export const ROWS: RowDef[] = [
       { value: 'rhythmplus', label: 'RhythmPlus Style' },
     ] },
     defaultValue: DEFAULT_SETTINGS.squareRenderStyle,
-    showWhen: (s) => s.playfieldStyle === 'square',
+    showWhen: (s) => s.renderEngine !== 'babylon' && s.playfieldStyle === 'square',
   },
   {
-    id: 'rhythmmaniaNoteColor', section: 'skin', label: 'RhythmMania Note Color',
-    description: 'Color of the notes when using RhythmMania style.',
-    control: { kind: 'custom', render: (api) => (
-      <input 
-        type="color" 
-        value={api.settings.rhythmmaniaNoteColor || '#00b0ff'}
-        onChange={(e) => api.update({ rhythmmaniaNoteColor: e.target.value })}
-        className="w-10 h-10 rounded cursor-pointer bg-slate-800 border-none outline-none focus:ring-2 focus:ring-cyan-500"
-      />
-    )},
-    defaultValue: DEFAULT_SETTINGS.rhythmmaniaNoteColor,
-    showWhen: (s) => s.playfieldStyle === 'square' && s.squareRenderStyle === 'rhythmmania',
-  },
-  {
-    id: 'rhythmmaniaReceptorColor', section: 'skin', label: 'RhythmMania Receptor Color',
-    description: 'Color of the receptors when using RhythmMania style.',
-    control: { kind: 'custom', render: (api) => (
-      <input 
-        type="color" 
-        value={api.settings.rhythmmaniaReceptorColor || '#00b0ff'}
-        onChange={(e) => api.update({ rhythmmaniaReceptorColor: e.target.value })}
-        className="w-10 h-10 rounded cursor-pointer bg-slate-800 border-none outline-none focus:ring-2 focus:ring-cyan-500"
-      />
-    )},
-    defaultValue: DEFAULT_SETTINGS.rhythmmaniaReceptorColor,
-    showWhen: (s) => s.playfieldStyle === 'square' && s.squareRenderStyle === 'rhythmmania',
-  },
-  {
-    id: 'rhythmplusColor', section: 'skin', label: 'RhythmPlus Note Color',
-    description: 'Color of the notes when using RhythmPlus style.',
-    control: { kind: 'custom', render: (api) => (
-      <input 
-        type="color" 
-        value={api.settings.rhythmplusColor || '#ffff00'}
-        onChange={(e) => api.update({ rhythmplusColor: e.target.value })}
-        className="w-10 h-10 rounded cursor-pointer bg-slate-800 border-none outline-none focus:ring-2 focus:ring-cyan-500"
-      />
-    )},
-    defaultValue: DEFAULT_SETTINGS.rhythmplusColor,
-    showWhen: (s) => s.playfieldStyle === 'square' && s.squareRenderStyle === 'rhythmplus',
-  },
-  {
-    id: 'circleNoteColor', section: 'skin', label: 'Circle Note Color',
-    description: 'Color of the notes when using Circle style.',
-    control: { kind: 'custom', render: (api) => (
-      <input 
-        type="color" 
-        value={api.settings.circleNoteColor || '#00b0ff'}
-        onChange={(e) => api.update({ circleNoteColor: e.target.value })}
-        className="w-10 h-10 rounded cursor-pointer bg-slate-800 border-none outline-none focus:ring-2 focus:ring-cyan-500"
-      />
-    )},
-    defaultValue: DEFAULT_SETTINGS.circleNoteColor,
-    showWhen: (s) => s.playfieldStyle === 'circle',
-  },
-  {
-    id: 'circleReceptorColor', section: 'skin', label: 'Circle Receptor Color',
-    description: 'Color of the receptors when using Circle style.',
-    control: { kind: 'custom', render: (api) => (
-      <input 
-        type="color" 
-        value={api.settings.circleReceptorColor || '#00b0ff'}
-        onChange={(e) => api.update({ circleReceptorColor: e.target.value })}
-        className="w-10 h-10 rounded cursor-pointer bg-slate-800 border-none outline-none focus:ring-2 focus:ring-cyan-500"
-      />
-    )},
-    defaultValue: DEFAULT_SETTINGS.circleReceptorColor,
-    showWhen: (s) => s.playfieldStyle === 'circle',
-  },
-  {
-    id: 'circleSize', section: 'skin', label: 'Receptor size',
-    description: 'Scale circular receptors up or down.',
-    control: { kind: 'slider', min: 0.5, max: 1.5, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.circleSize,
-    showWhen: (s) => s.playfieldStyle === 'circle',
+    id: 'receptorColorsByKeyCount', section: 'skin', label: 'Lane colors',
+    description: 'Set each lane color. Notes and receptors use the same color.',
+    control: { kind: 'custom', render: (api) => <LaneColorEditor {...api} /> },
+    defaultValue: DEFAULT_SETTINGS.receptorColorsByKeyCount,
   },
   {
     id: 'noteSizeMultiplier', section: 'skin', label: 'Note size',
     description: 'Scale falling notes up or down.',
-    control: { kind: 'slider', min: 0.5, max: 1.5, step: 0.05, format: pct },
+    control: { kind: 'slider', min: 0.85, max: 1.5, step: 0.01, format: pct },
     defaultValue: DEFAULT_SETTINGS.noteSizeMultiplier,
-    showWhen: (s) => s.playfieldStyle === 'circle',
+  },
+  {
+    id: 'receptorSizeMultiplier', section: 'skin', label: 'Receptor size',
+    description: 'Scale receptors relative to each lane width.',
+    control: { kind: 'slider', min: 0.85, max: 1.5, step: 0.01, format: pct },
+    defaultValue: DEFAULT_SETTINGS.receptorSizeMultiplier,
   },
   {
     id: 'noteOpacity', section: 'skin', label: 'Note opacity',
@@ -422,6 +351,12 @@ export const ROWS: RowDef[] = [
     description: 'Scale the judgement text up or down.',
     control: { kind: 'slider', min: 0.5, max: 1.5, step: 0.05, format: pct },
     defaultValue: DEFAULT_SETTINGS.judgementSize,
+  },
+  {
+    id: 'judgementPositionY', section: 'skin', label: 'Judgement text vertical position',
+    description: 'Move judgement text vertically. Higher percentages place it lower on the screen.',
+    control: { kind: 'slider', min: 20, max: 85, step: 1, suffix: '%' },
+    defaultValue: DEFAULT_SETTINGS.judgementPositionY,
   },
   {
     id: 'laneSeparatorOpacity', section: 'skin', label: 'Lane separator opacity',

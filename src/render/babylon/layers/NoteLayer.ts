@@ -80,12 +80,12 @@ export class NoteLayer {
         const headWidth = laneWidthAt(depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC;
 
         mesh.position.copyFrom(pos);
-        mesh.scaling.set(headWidth, 0.22, 0.18);
+        mesh.scaling.set(headWidth * (settingsSlice.noteSizeMultiplier ?? 1), 0.22, 0.18);
         mesh.rotation.set(0, 0, 0);
 
         let alpha = n.opacity * noteOp;
         if (n.type === 'hold' && n.isHoldFailed) alpha *= 0.35;
-        mat.emissiveColor = Color3.FromHexString(safeHex(col.color));
+        mat.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color));
         mat.alpha = alpha;
       }
 
@@ -100,7 +100,7 @@ export class NoteLayer {
         const pos = runwayPosition(n.column, ctx.keyCount, depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth);
         const tailW = Math.max(
           TAIL_MIN_WIDTH,
-          laneWidthAt(Math.max(0, depthFactor), RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC
+          laneWidthAt(Math.max(0, depthFactor), RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * (settingsSlice.noteSizeMultiplier ?? 1)
         );
 
         mesh.position.copyFrom(pos);
@@ -109,7 +109,7 @@ export class NoteLayer {
 
         let alpha = (n.endOpacity ?? n.opacity) * noteOp;
         if (n.isHoldFailed) alpha *= 0.35;
-        mat.emissiveColor = Color3.FromHexString(safeHex(col.color)).scale(0.9);
+        mat.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color)).scale(0.9);
         mat.alpha = alpha;
       }
     }

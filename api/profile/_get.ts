@@ -141,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          LEFT JOIN beatmap_sets bs ON bs.id = r.beatmap_set_id
          LEFT JOIN beatmap_difficulties bd ON bd.id = r.beatmap_difficulty_id
          WHERE r.user_id = $1 AND r.is_failed = false
-         ORDER BY r.created_at DESC LIMIT 10`,
+          ORDER BY r.created_at DESC LIMIT 3`,
         [targetUserId]
       ),
     ]);

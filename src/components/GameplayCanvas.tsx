@@ -30,6 +30,7 @@ import metadata from '../../metadata.json';
 // HIGH PERFORMANCE INTEGRATED RENDERER IMPORTS
 import { IPlayfieldRenderer, ColumnLayout } from '../render/types';
 import { Canvas2DRenderer } from '../render/Canvas2DRenderer';
+import { getLaneColors } from '../render/skinTheme';
 import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
 import { getVisibleNotes } from '../render/noteVisibility';
 import { createScrollModel, ScrollModel } from '../render/scrollVelocity';
@@ -130,7 +131,7 @@ export function checkNotesAutonomousMisses(
   });
 }
 
-export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: string, customSkinColors?: string[]): ColumnStyle[] {
+export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: string, customSkinColors?: string[], laneColors?: string[] | null): ColumnStyle[] {
   const styles: ColumnStyle[] = [];
   
   // Standard competitive color maps
@@ -231,7 +232,7 @@ export function getColumnStyles(keyCount: number, baseWidth: number, skinId?: st
       else color = colors.white;
     }
 
-    styles.push({ width, color });
+    styles.push({ width, color: laneColors?.[i] || color });
   }
 
   return styles;
@@ -387,6 +388,7 @@ export default function GameplayCanvas({
     }
   }, []);
   const animationFrameRef = useRef<number | null>(null);
+  const isPrePlayRef = useRef<boolean>(true);
 
   const handleExit = () => {
     if (finishTimeoutRef.current) {
@@ -422,10 +424,13 @@ export default function GameplayCanvas({
   // Synchronize dynamic focus view modes with the programmatic Fullscreen API
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const active = FullscreenManager.isFullscreenActive();
+        const active = FullscreenManager.isFullscreenActive();
       if (!active) {
         setIsFocusMode((prevActive) => {
           if (prevActive) {
+            // Leaving fullscreen before the player starts must not create a
+            // pause state underneath the pre-play screen.
+            if (isPrePlayRef.current) return false;
             // Trigger pause because user exited native fullscreen externally
             setIsPaused(true);
             isPlayingRef.current = false;
@@ -583,7 +588,6 @@ export default function GameplayCanvas({
   const isPausedRef = useRef<boolean>(false);
   const showCountdownRef = useRef<number>(0);
   const unpauseCountdownRef = useRef<number>(0);
-  const isPrePlayRef = useRef<boolean>(true);
   const showSettingsModalRef = useRef<boolean>(false);
   const showInfoModalRef = useRef<boolean>(false);
 
@@ -1564,7 +1568,7 @@ export default function GameplayCanvas({
     const logicalWidth = canvas.width / dpr;
     const logicalHeight = canvas.height / dpr;
     const baseWidth = logicalWidth / totalWeight;
-     const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
+      const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors, getLaneColors(settings, keyCount, 'note'));
     
     let spawnX = 0;
     for (let i = 0; i < colIndex; i++) {
@@ -2441,6 +2445,11 @@ export default function GameplayCanvas({
   };
 
   const handleStartGameplay = () => {
+    // Clear any stale pause state caused by a fullscreen transition while the
+    // pre-play screen was mounted. The countdown is the single start gate.
+    setIsPaused(false);
+    isPausedRef.current = false;
+    setUnpauseCountdown(0);
     setIsPrePlay(false);
     setShowCountdown(3);
   };
@@ -3479,11 +3488,11 @@ export default function GameplayCanvas({
 
             {/* DYNAMIC HIGH-PERFORMANCE DOM COMBO & JUDGEMENT POPUPS */}
             <div 
-              style={{ 
+              className="absolute inset-0 pointer-events-none flex flex-col items-center select-none z-10 font-sans transition-transform duration-150"
+              style={{
                 opacity: settings.judgementOpacity ?? 1.0,
-                transform: `scale(${settings.judgementSize ?? 1.0})`
+                transform: `scale(${settings.judgementSize ?? 1.0})`,
               }}
-              className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center select-none z-10 font-sans transition-transform duration-150"
             >
               {/* Combo Visualizer */}
               {comboBurst !== null && (
@@ -3509,7 +3518,8 @@ export default function GameplayCanvas({
                   className="absolute text-5xl font-[900] tracking-widest uppercase drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] animate-judgement-pulse"
                   style={{ 
                     color: uiJudgement.color,
-                    textShadow: `0 0 15px currentColor`
+                    textShadow: `0 0 15px currentColor`,
+                    top: `${settings.judgementPositionY ?? 50}%`,
                   }}
                 >
                   {uiJudgement.text}
@@ -3549,7 +3559,7 @@ export default function GameplayCanvas({
           )}
 
           {/* PAUSED DRAWER CARD */}
-          {isPaused && unpauseCountdown === 0 && (
+          {!isPrePlay && isPaused && unpauseCountdown === 0 && (
             <div id="game-paused-overlay" className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
               <h2 className="text-4xl font-extrabold font-sans tracking-tight text-slate-100 mb-2">GAME PAUSED</h2>
               <p className="text-sm text-slate-400 font-mono tracking-wider mb-8">

@@ -14,6 +14,7 @@ import { Container, Sprite } from 'pixi.js';
 import { PlayfieldFrame } from '../../types';
 import { SpritePool } from '../pool/SpritePool';
 import { BakedSkinTextures } from '../skin/TextureAtlasBuilder';
+import { isCircleSkinMode } from '../../skinTheme';
 
 export class NoteLayer extends Container {
   private activeSprites = new Map<string, Sprite>();
@@ -27,6 +28,7 @@ export class NoteLayer extends Container {
   update(frame: PlayfieldFrame, textures: BakedSkinTextures): void {
     const { notes, columns, settingsSlice } = frame;
     const currentKeys = new Set<string>();
+    const noteScale = isCircleSkinMode(settingsSlice) ? 1 : (settingsSlice.noteSizeMultiplier ?? 1);
 
     // Draw active visible notes (heads + holds)
     notes.forEach((n) => {
@@ -51,7 +53,8 @@ export class NoteLayer extends Container {
               }
 
               sp.x = colLayout.x + colLayout.width / 2;
-              sp.y = n.y;
+               sp.y = n.y;
+               sp.scale.set(noteScale);
               let alpha = n.opacity;
               sp.anchor.set(0.5);
 
@@ -84,6 +87,7 @@ export class NoteLayer extends Container {
 
             sp.x = colLayout.x + colLayout.width / 2;
             sp.y = n.endY;
+            sp.scale.set(noteScale);
             let alpha = n.endOpacity ?? n.opacity;
             sp.anchor.set(0.5);
 

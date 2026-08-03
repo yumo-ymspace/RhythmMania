@@ -346,7 +346,9 @@ export default function SongSelect({
   const getMapSongKey = (map: any) => {
     const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
     if (mapPkgId) return `server_pkg_${mapPkgId}`;
-    return getArtistTitleKey(map);
+    // Standalone imports have no package identity. Keep same-name imports
+    // separate instead of collapsing them into one song group.
+    return map.id ? `local_map_${map.id}` : getArtistTitleKey(map);
   };
 
   // Filter and prepare display beatmaps
@@ -532,7 +534,7 @@ export default function SongSelect({
     // Include unfiltered sibling diffs (star/search filters can hide the last-picked difficulty from group.maps)
     const artistTitleKey = getArtistTitleKey(group);
     mergedCustomMaps.forEach((m) => {
-      if (getMapSongKey(m) === group.songKey || getArtistTitleKey(m) === artistTitleKey) {
+      if (getMapSongKey(m) === group.songKey || (group.songKey === artistTitleKey && getArtistTitleKey(m) === artistTitleKey)) {
         pushAll([m]);
       }
     });
@@ -714,7 +716,7 @@ export default function SongSelect({
     if (typeof setSongSelectBgUrl === 'function') {
       if (selectBgUrl && selectBgUrl !== '/backgrounds/default.svg' && selectBgUrl !== '/backgrounds/Ferineon.webp') {
         setSongSelectBgUrl(selectBgUrl);
-      } else {
+      } else if (!selectedCustomMap) {
         if (!defaultRandomBgRef.current) {
           const bgs = [
             'Arushii.webp',
@@ -735,7 +737,7 @@ export default function SongSelect({
         setSongSelectBgUrl(`/backgrounds/${defaultRandomBgRef.current}`);
       }
     }
-  }, [selectBgUrl, setSongSelectBgUrl, unpackTrigger]);
+  }, [selectBgUrl, selectedCustomMap, setSongSelectBgUrl, unpackTrigger]);
 
   const selectedGroup = React.useMemo(() => {
     if (!selectedCustomMap) return null;
@@ -1101,7 +1103,7 @@ export default function SongSelect({
     try {
       if (isSingleOsu) {
         const text = await file.text();
-        const customId = `local_diff_${Date.now()}`;
+        const customId = `local_diff_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         const parsedMap = parseBeatmap(text, customId);
         if (parsedMap.notes.length === 0) {
           throw new Error('Beatmap has no playable hit notes.');
@@ -1146,7 +1148,7 @@ export default function SongSelect({
         }
 
         // Save binary bundle to local storage
-        const packageId = `pkg_${Date.now()}`;
+        const packageId = `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         await storageManager.savePackage(packageId, file.name, file);
 
         let successCount = 0;
@@ -1319,9 +1321,16 @@ export default function SongSelect({
               </div>
             )}
           </div>
-        ) : (
+          ) : (
           <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
             <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No song selected</p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-200 transition hover:bg-pink-500/20"
+            >
+              <Upload className="h-3.5 w-3.5" /> Import Songs
+            </button>
+            <input ref={fileInputRef} type="file" accept=".osu,.osz,.zip" onChange={handleFileSelect} className="hidden" />
           </div>
         )}
 
@@ -2414,6 +2423,13 @@ export default function SongSelect({
                 <p className="text-[10px] text-slate-500 font-mono max-w-xs leading-relaxed uppercase">
                   Download or select a song to play!
                 </p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-200 transition hover:bg-pink-500/20"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Import Songs
+                </button>
+                <input ref={fileInputRef} type="file" accept=".osu,.osz,.zip" onChange={handleFileSelect} className="hidden" />
               </div>
             </div>
           )}

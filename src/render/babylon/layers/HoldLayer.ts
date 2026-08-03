@@ -96,8 +96,9 @@ export class HoldLayer {
 
        // Match the exact full width of the head and tail note slabs. Connecting
        // those two widths makes the hold body taper with the runway lanes.
-       const headHalfWidth = laneWidthAt(headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * 0.5;
-       const tailHalfWidth = laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * 0.5;
+        const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
+        const headHalfWidth = laneWidthAt(headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
+        const tailHalfWidth = laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
       const yBottom = 0.07;
       const yTop = 0.17;
       const positions = mesh.holdPositions;
@@ -117,7 +118,7 @@ export class HoldLayer {
 
       let alpha = note.opacity * noteOpacity * 0.62;
       if (note.isHoldFailed) alpha *= 0.35;
-      material.emissiveColor = Color3.FromHexString(safeHex(column.color)).scale(0.7);
+       material.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[note.column] || column.color)).scale(0.7);
       material.alpha = alpha;
     }
 

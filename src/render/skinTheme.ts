@@ -12,6 +12,11 @@
 
 import { PlayfieldVisualSettings, ResolvedSkin } from './types';
 
+export function getLaneColors(settings: PlayfieldVisualSettings, keyCount: number, kind: 'note' | 'receptor'): string[] | null {
+  const colors = settings.receptorColorsByKeyCount?.[keyCount];
+  return Array.isArray(colors) && colors.length === keyCount ? colors : null;
+}
+
 export function isCircleSkinMode(settings: PlayfieldVisualSettings): boolean {
   return settings.playfieldStyle === 'circle' ||
          settings.skinId === 'circles' ||
@@ -87,13 +92,9 @@ export function resolveSkinTheme(settings: PlayfieldVisualSettings): ResolvedSki
     };
   }
 
-  const customHoldColor = (settings.skinId === 'custom' && settings.customSkinColors && settings.customSkinColors[4])
-    ? settings.customSkinColors[4]
-    : '#38bdf8';
-
   return {
     isCircleMode: isCircle,
     colors,
-    customHoldColor
+    customHoldColor: '#38bdf8'
   };
 }

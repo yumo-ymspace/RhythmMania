@@ -12,7 +12,7 @@
 
 import { Container, Graphics, Texture, Sprite } from 'pixi.js';
 import { PlayfieldFrame } from '../../types';
-import { isCircleSkinMode } from '../../skinTheme';
+import { getLaneColors, isCircleSkinMode } from '../../skinTheme';
 import { hexToRgba } from '../../../components/GameplayCanvas';
 import { SpritePool } from '../pool/SpritePool';
 
@@ -109,10 +109,6 @@ export class HoldLayer extends Container {
 
         if (!isOff) {
           const clipHeight = visualStartY - n.endY;
-          const customHoldColor = (settingsSlice.skinId === 'custom' && settingsSlice.customSkinColors && settingsSlice.customSkinColors[4])
-            ? settingsSlice.customSkinColors[4]
-            : '#38bdf8';
-
           const fadeStart = n.opacity;
           const fadeEnd = n.endOpacity ?? n.opacity;
 
@@ -124,7 +120,7 @@ export class HoldLayer extends Container {
           let color2 = '';
 
           if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-            const rpColor = settingsSlice.rhythmplusColor || '#ffff00';
+            const rpColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
@@ -143,7 +139,7 @@ export class HoldLayer extends Container {
               color2 = applyFade(rpColor, fadeEndRounded);
             }
           } else if (settingsSlice.playfieldStyle !== 'circle') {
-            const rmColor = settingsSlice.rhythmmaniaNoteColor || '#00b0ff';
+            const rmColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
@@ -161,21 +157,22 @@ export class HoldLayer extends Container {
               color2 = applyFade(hexToRgba(rmColor, 0.2), fadeEndRounded);
             }
           } else {
+            const noteColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
-                color1 = applyFade(flicker ? 'rgba(234,179,8,0.75)' : 'rgba(234,179,8,0.2)', fadeStartRounded);
-                color2 = applyFade('rgba(161,117,14,0.3)', fadeEndRounded);
+                color1 = applyFade(flicker ? hexToRgba(noteColor, 0.75) : hexToRgba(noteColor, 0.2), fadeStartRounded);
+                color2 = applyFade(hexToRgba(noteColor, 0.3), fadeEndRounded);
               } else {
-                color1 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.8) : 'rgba(34,211,238,0.7)', fadeStartRounded);
-                color2 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.3) : 'rgba(59,130,246,0.3)', fadeEndRounded);
+                color1 = applyFade(hexToRgba(noteColor, 0.8), fadeStartRounded);
+                color2 = applyFade(hexToRgba(noteColor, 0.3), fadeEndRounded);
               }
             } else if (n.isHoldFailed) {
               color1 = applyFade('rgba(100,116,139,0.3)', fadeStartRounded);
               color2 = applyFade('rgba(71,85,105,0.1)', fadeEndRounded);
             } else {
-              color1 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.6) : 'rgba(59,130,246,0.5)', fadeStartRounded);
-              color2 = applyFade(settingsSlice.skinId === 'custom' ? hexToRgba(customHoldColor, 0.2) : 'rgba(56,189,248,0.2)', fadeEndRounded);
+                color1 = applyFade(hexToRgba(noteColor, 0.6), fadeStartRounded);
+                color2 = applyFade(hexToRgba(noteColor, 0.2), fadeEndRounded);
             }
           }
 
@@ -183,8 +180,10 @@ export class HoldLayer extends Container {
           const notePadding = isFocusMode ? 1.5 : 6;
           const useNotePadding = settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode;
 
-          const rx = xPos + (useNotePadding ? notePadding : padding);
-          const rw = colW - (useNotePadding ? notePadding : padding) * 2;
+           const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
+           const basePadding = useNotePadding ? notePadding : padding;
+           const rw = (colW - basePadding * 2) * noteScale;
+           const rx = xPos + (colW - rw) / 2;
 
           let drawY = Math.min(visualStartY, n.endY);
           let drawH = Math.abs(clipHeight);
@@ -196,7 +195,8 @@ export class HoldLayer extends Container {
 
           const isRect = (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) ||
                          (settingsSlice.skinId === 'classic-bar' || settingsSlice.skinId === 'minimalist');
-          const radius = isCircleMode ? rw / 2 : 6;
+          // Match Canvas 2D's circular hold body: a capsule, not a fully-round blob.
+          const radius = isCircleMode ? Math.min(rw / 2, 12) : 6;
 
           const gradTexture = getHoldBodyTexture(color1, color2, rw, radius, isRect);
 
@@ -221,9 +221,7 @@ export class HoldLayer extends Container {
             const lineAlpha = n.isHit && !n.isReleased
               ? (n.releaseGraceUntil ? 0.6 : 0.8)
               : 0.4;
-            const lineColor = n.isHit && !n.isReleased
-              ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
-              : '#38bdf8';
+            const lineColor = getLaneColors(settingsSlice, columns.length, 'note')?.[n.column] || columns[n.column].color;
             this.holdG.moveTo(xPos + colW / 2, visualStartY)
                  .lineTo(xPos + colW / 2, n.endY)
                  .stroke({ color: lineColor, width: 2, alpha: lineAlpha * (fadeStart + fadeEnd) / 2 });
