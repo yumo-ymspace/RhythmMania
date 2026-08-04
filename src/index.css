@@ -80,14 +80,14 @@ body {
   --animate-phone-rotate: phone-rotate 3.5s ease-in-out infinite;
 
   @keyframes combo-pop {
-    0% { transform: translateY(-130px) scale(0.7); opacity: 0.5; }
-    50% { transform: translateY(-130px) scale(1.15); opacity: 1; }
-    100% { transform: translateY(-130px) scale(1.0); opacity: 1; }
+    0% { transform: scale(0.7); opacity: 0.5; }
+    50% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1.0); opacity: 1; }
   }
   @keyframes judgement-pulse {
-    0% { transform: translateY(-40px) scale(0.6); opacity: 0.2; }
-    25% { transform: translateY(-40px) scale(1.12); opacity: 1; }
-    100% { transform: translateY(-40px) scale(1.0); opacity: 0.85; }
+    0% { transform: scale(0.6); opacity: 0.2; }
+    25% { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1.0); opacity: 0.85; }
   }
   @keyframes phone-rotate {
     0%, 100% { transform: rotate(90deg); }

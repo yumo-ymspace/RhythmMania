@@ -3494,20 +3494,25 @@ export default function GameplayCanvas({
                 transform: `scale(${settings.judgementSize ?? 1.0})`,
               }}
             >
-              {/* Combo Visualizer */}
-              {comboBurst !== null && (
-                <div key={`burst-${comboBurst}`} className="absolute top-1/4 rounded-full border-2 border-amber-300/70 bg-amber-400/20 px-8 py-3 text-2xl font-black uppercase tracking-[0.35em] text-amber-200 shadow-[0_0_35px_rgba(251,191,36,0.65)] animate-combo-pop">
-                  {comboBurst}x
-                </div>
-              )}
+              {/* Keep the combo stack attached to the judgement instead of the playfield top. */}
               {uiCombo > 4 && (
-                <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">
-                  <span className="text-6xl font-[900] tracking-tighter text-slate-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
-                    {uiCombo}
-                  </span>
-                  <span className="text-[10px] font-black tracking-[0.25em] text-cyan-400 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] uppercase mt-1">
-                    COMBO
-                  </span>
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 -translate-y-full pb-2 flex flex-col items-center justify-end gap-1 whitespace-nowrap"
+                  style={{ top: `${settings.judgementPositionY ?? 50}%` }}
+                >
+                  {comboBurst !== null && (
+                    <div key={`burst-${comboBurst}`} className="rounded-full border-2 border-amber-300/70 bg-amber-400/20 px-8 py-3 text-2xl font-black uppercase tracking-[0.35em] text-amber-200 shadow-[0_0_35px_rgba(251,191,36,0.65)] animate-combo-pop">
+                      {comboBurst}x
+                    </div>
+                  )}
+                  <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">
+                    <span className="text-6xl font-[900] tracking-tighter text-slate-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
+                      {uiCombo}
+                    </span>
+                    <span className="text-[10px] font-black tracking-[0.25em] text-cyan-400 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] uppercase mt-1">
+                      COMBO
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -3515,7 +3520,7 @@ export default function GameplayCanvas({
               {uiJudgement && (
                 <div 
                   key={`judg-${uiJudgement.time}`}
-                  className="absolute text-5xl font-[900] tracking-widest uppercase drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] animate-judgement-pulse"
+                   className="absolute inset-x-0 text-center text-5xl font-[900] tracking-widest uppercase drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] animate-judgement-pulse"
                   style={{ 
                     color: uiJudgement.color,
                     textShadow: `0 0 15px currentColor`,
