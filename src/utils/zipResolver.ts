@@ -12,6 +12,8 @@
 
 import JSZip from 'jszip';
 
+type ZipObjectWithData = JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
+
 export class RobustZipResolver {
   constructor(private zip: JSZip) {}
 
@@ -63,7 +65,7 @@ export class RobustZipResolver {
     let maxBytes = -1;
 
     for (const cand of candidates) {
-      const fileObj = cand.file as any;
+      const fileObj = cand.file as ZipObjectWithData;
       const size = fileObj._data?.uncompressedSize ?? 0;
       if (size > maxBytes) {
         maxBytes = size;

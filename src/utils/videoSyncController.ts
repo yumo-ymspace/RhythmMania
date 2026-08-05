@@ -85,8 +85,8 @@ export class VideoSyncController {
     try {
       const driftMs = Math.abs(this.videoEl.currentTime - target) * 1000;
       if (driftMs > 12 || this.videoEl.seeking) {
-        if (typeof (this.videoEl as any).fastSeek === 'function') {
-          try { (this.videoEl as any).fastSeek(target); } catch (_e) {
+        if (typeof this.videoEl.fastSeek === 'function') {
+          try { this.videoEl.fastSeek(target); } catch (_e) {
             this.videoEl.currentTime = target;
           }
         } else {
@@ -172,8 +172,8 @@ export class VideoSyncController {
 
   private seekTo(targetSec: number, baseRate: number) {
     try {
-      if (typeof (this.videoEl as any).fastSeek === 'function') {
-        try { (this.videoEl as any).fastSeek(targetSec); } catch (_e) {
+      if (typeof this.videoEl.fastSeek === 'function') {
+        try { this.videoEl.fastSeek(targetSec); } catch (_e) {
           this.videoEl.currentTime = targetSec;
         }
       } else {

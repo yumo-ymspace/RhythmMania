@@ -31,6 +31,7 @@ export interface SavedBeatmap extends Beatmap {
   checksum?: string;
   checksumAlgorithm?: 'md5' | 'sha256';
   importedAt?: number; // epoch ms when first saved locally; used by "Date Added" sort
+  isCached?: boolean;
 }
 
 export interface PackageRecord {

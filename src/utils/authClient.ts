@@ -144,8 +144,8 @@ export async function initiateGoogleSignIn(
       cleanup();
       onError('Google sign-in timed out. Please try again.');
     }, 5 * 60 * 1000);
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Google Sign-In initialization error:', e);
-    onError(e?.message || 'Failed to start Google Sign-In');
+    onError(e instanceof Error ? e.message : 'Failed to start Google Sign-In');
   }
 }

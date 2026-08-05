@@ -34,9 +34,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await query('SELECT 1 as health_check');
       dbConnected = true;
       dbLatencyMs = Date.now() - start;
-    } catch (e: any) {
+    } catch (e: unknown) {
       dbConnected = false;
-      dbError = e?.message || 'Database query failed';
+      dbError = e instanceof Error ? e.message : 'Database query failed';
     }
   } else {
     dbError = envCheck.reason || 'Database environment variables not configured';

@@ -56,8 +56,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: true,
       data: { handle, available, reason: available ? 'ok' : 'taken' },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error in /api/profile/handle-check:', e);
-    return sendError(res, 500, e?.message || 'Internal server error');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
   }
 }

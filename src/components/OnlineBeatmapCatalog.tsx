@@ -199,7 +199,11 @@ export default function OnlineBeatmapCatalog({
 
       setImportStatus({ type: 'ok', msg: 'Storing package and cache...' });
 
-      const blob = new Blob(chunks, { type: 'application/octet-stream' });
+      const blob = new Blob(chunks.map((chunk) => {
+        const copy = new Uint8Array(chunk.byteLength);
+        copy.set(chunk);
+        return copy.buffer;
+      }), { type: 'application/octet-stream' });
       const packageId = mirrorSetId;
 
       // Preserve the verified archive byte-for-byte; media is validated when unpacked.
@@ -300,14 +304,14 @@ export default function OnlineBeatmapCatalog({
         throw new Error('No valid playable difficulties found inside.');
       }
 
-    } catch (err: any) {
-      console.error('Downloader error:', err?.message || String(err));
+    } catch (err: unknown) {
+      console.error('Downloader error:', err instanceof Error ? err.message : String(err));
       try {
         await storageManager.deletePackageAndAllBeatmaps(mirrorSetId);
       } catch {
         // Ignore clean error
       }
-      setImportStatus({ type: 'err', msg: err?.message || 'Download error. Check network connection.' });
+      setImportStatus({ type: 'err', msg: err instanceof Error ? err.message : 'Download error. Check network connection.' });
     } finally {
       setDownloadingMapId(null);
       setDownloadProgress(null);

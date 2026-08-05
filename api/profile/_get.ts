@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       display_name: string;
       handle: string;
       bio: string;
-      social_links: any;
+      social_links: unknown;
       activity_status: string | null;
       activity_message: string | null;
     }>(

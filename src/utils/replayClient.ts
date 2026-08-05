@@ -48,12 +48,12 @@ export async function uploadReplayRecord(
         error: json.error || 'Upload failed',
       };
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.warn('Network error while uploading replay:', e);
     return {
       success: false,
       uploadStatus: 'failed',
-      error: e?.message || 'Network error',
+      error: e instanceof Error ? e.message : 'Network error',
     };
   }
 }
@@ -113,12 +113,12 @@ export async function fetchLeaderboardReplays(
         error: json.error || 'Failed to load leaderboard replays',
       };
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.warn('Error fetching leaderboard replays:', e);
     return {
       success: false,
       replays: [],
-      error: e?.message || 'Network error',
+      error: e instanceof Error ? e.message : 'Network error',
     };
   }
 }
@@ -152,11 +152,11 @@ export async function fetchReplayDetail(
         error: json.error || 'Failed to fetch replay detail',
       };
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.warn('Error fetching replay detail:', e);
     return {
       success: false,
-      error: e?.message || 'Network error',
+      error: e instanceof Error ? e.message : 'Network error',
     };
   }
 }

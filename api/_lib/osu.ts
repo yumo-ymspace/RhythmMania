@@ -1,5 +1,31 @@
 interface OsuChart { id: number; filename: string; version: string; keyCount: number; checksum: string; }
 interface EligibleOsuSet { title: string; artist: string; creator: string; status: string; coverUrl?: string; charts: OsuChart[]; }
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asRecords(value: unknown): UnknownRecord[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function toChart(value: UnknownRecord, filename: string): OsuChart | null {
+  const id = Number(value.id);
+  const keyCount = Number(value.cs);
+  const checksum = typeof value.checksum === 'string' ? value.checksum : '';
+  if (!Number.isInteger(id) || id < 1 || !checksum || keyCount < 2 || keyCount > 8) return null;
+
+  const osuFile = isRecord(value.osu_file) ? value.osu_file : undefined;
+  return {
+    id,
+    filename: typeof osuFile?.filename === 'string' ? osuFile.filename : filename,
+    version: typeof value.version === 'string' ? value.version : 'Normal',
+    keyCount,
+    checksum,
+  };
+}
+
 let cached: { token: string; expiresAt: number } | null = null;
 const eligibleStatuses = new Set(['ranked', 'loved']);
 
@@ -10,33 +36,40 @@ async function accessToken(): Promise<string> {
   if (!id || !secret) throw new Error('osu! API credentials are not configured');
   const response = await fetch('https://osu.ppy.sh/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: Number(id), client_secret: secret, grant_type: 'client_credentials', scope: 'public' }) });
   if (!response.ok) throw new Error('osu! authorization failed');
-  const data = await response.json() as { access_token?: string; expires_in?: number };
-  if (!data.access_token) throw new Error('osu! authorization returned no token');
-  cached = { token: data.access_token, expiresAt: Date.now() + (data.expires_in || 3600) * 1000 };
+  const data: unknown = await response.json();
+  if (!isRecord(data)) throw new Error('osu! authorization returned an invalid response');
+  if (typeof data.access_token !== 'string' || !data.access_token) throw new Error('osu! authorization returned no token');
+  const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
+  cached = { token: data.access_token, expiresAt: Date.now() + expiresIn * 1000 };
   return data.access_token;
 }
 
-export async function osuApi<T>(path: string): Promise<T> {
+export async function osuApi(path: string): Promise<unknown> {
   const response = await fetch(`https://osu.ppy.sh/api/v2${path}`, { headers: { Authorization: `Bearer ${await accessToken()}`, Accept: 'application/json' } });
   if (!response.ok) throw new Error('osu! API request failed');
-  return response.json() as Promise<T>;
+  return response.json();
 }
 
 export async function fetchEligibleOsuSet(setId: number): Promise<EligibleOsuSet | null> {
-  const set = await osuApi<any>(`/beatmapsets/${setId}`);
-  if (!eligibleStatuses.has(String(set.status))) return null;
-  const charts: OsuChart[] = (Array.isArray(set.beatmaps) ? set.beatmaps : []).filter((b: any) => b.mode_int === 3 && Number.isInteger(b.difficulty_rating) || b.mode_int === 3).map((b: any) => ({ id: b.id, filename: b.osu_file?.filename || `${b.id}.osu`, version: String(b.version || 'Normal'), keyCount: Number(b.cs), checksum: String(b.checksum || '') })).filter((b: OsuChart) => b.id > 0 && b.checksum && b.keyCount >= 2 && b.keyCount <= 8);
+  const rawSet = await osuApi(`/beatmapsets/${setId}`);
+  if (!isRecord(rawSet) || !eligibleStatuses.has(String(rawSet.status))) return null;
+  const charts = asRecords(rawSet.beatmaps)
+    .filter(beatmap => beatmap.mode_int === 3)
+    .map(beatmap => toChart(beatmap, `${beatmap.id}.osu`))
+    .filter((chart): chart is OsuChart => chart !== null);
   if (!charts.length) return null;
-  return { title: String(set.title || 'Unknown Title'), artist: String(set.artist || 'Unknown Artist'), creator: String(set.creator || 'Unknown Mapper'), status: String(set.status), coverUrl: typeof set.cover?.url === 'string' ? set.cover.url : undefined, charts };
+  const cover = isRecord(rawSet.cover) && typeof rawSet.cover.url === 'string' ? rawSet.cover.url : undefined;
+  return { title: String(rawSet.title || 'Unknown Title'), artist: String(rawSet.artist || 'Unknown Artist'), creator: String(rawSet.creator || 'Unknown Mapper'), status: String(rawSet.status), coverUrl: cover, charts };
 }
 
 export async function searchEligibleOsuSets(text: string, cursor?: string): Promise<{ sets: Array<EligibleOsuSet & { sourceSetId: number }>; cursor?: string }> {
   const params = new URLSearchParams({ q: text, limit: '50', mode: 'mania' });
   if (cursor) params.set('cursor_string', cursor);
-  const response = await osuApi<any>(`/beatmapsets/search?${params.toString()}`);
-  const sets = (Array.isArray(response.beatmapsets) ? response.beatmapsets : []).filter((set: any) => eligibleStatuses.has(String(set.status))).map((set: any) => ({
-    sourceSetId: Number(set.id), title: String(set.title || 'Unknown Title'), artist: String(set.artist || 'Unknown Artist'), creator: String(set.creator || 'Unknown Mapper'), status: String(set.status), coverUrl: typeof set.covers?.card === 'string' ? set.covers.card : undefined,
-    charts: (Array.isArray(set.beatmaps) ? set.beatmaps : []).filter((b: any) => b.mode_int === 3 && b.checksum && Number(b.cs) >= 2 && Number(b.cs) <= 8).map((b: any) => ({ id: Number(b.id), filename: `${b.id}.osu`, version: String(b.version || 'Normal'), keyCount: Number(b.cs), checksum: String(b.checksum) })),
-  })).filter((set: EligibleOsuSet) => set.charts.length > 0);
-  return { sets, cursor: typeof response.cursor_string === 'string' ? response.cursor_string : undefined };
+  const rawResponse = await osuApi(`/beatmapsets/search?${params.toString()}`);
+  if (!isRecord(rawResponse)) return { sets: [], cursor: undefined };
+  const sets = asRecords(rawResponse.beatmapsets).filter(set => eligibleStatuses.has(String(set.status))).map((set) => ({
+    sourceSetId: Number(set.id), title: String(set.title || 'Unknown Title'), artist: String(set.artist || 'Unknown Artist'), creator: String(set.creator || 'Unknown Mapper'), status: String(set.status), coverUrl: isRecord(set.covers) && typeof set.covers.card === 'string' ? set.covers.card : undefined,
+    charts: asRecords(set.beatmaps).filter(beatmap => beatmap.mode_int === 3).map(beatmap => toChart(beatmap, `${beatmap.id}.osu`)).filter((chart): chart is OsuChart => chart !== null),
+  })).filter((set) => set.charts.length > 0);
+  return { sets, cursor: typeof rawResponse.cursor_string === 'string' ? rawResponse.cursor_string : undefined };
 }

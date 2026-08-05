@@ -36,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: true,
       message: 'Successfully logged out',
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Logout error:', e);
     clearSessionCookie(res, isSecureRequest(req));
     return sendJson(res, 200, {

@@ -48,8 +48,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.warn('[replays-router] no handler for route:', route);
         return sendJson(res, 404, { success: false, error: 'Not found' });
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error in replays-router:', e);
-    return sendJson(res, 500, { success: false, error: e?.message || 'Internal server error' });
+    return sendJson(res, 500, { success: false, error: e instanceof Error ? e.message : 'Internal server error' });
   }
 }

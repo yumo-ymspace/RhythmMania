@@ -11,7 +11,18 @@
  */
 
 import JSZip from 'jszip';
-import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
+import type {
+  Beatmap,
+  ColumnJudgementCounts,
+  GameSettings,
+  KeyBindings,
+  PlayHistoryRecord,
+  ReplayFrame,
+  ReplaySource,
+  ScoreState,
+  UploadEligibility,
+  UploadStatus,
+} from '../types';
 import { migrateHistoryRecord } from './replayManager';
 import {
   BABYLON_PLAYFIELD_WIDTH_MAX,
@@ -28,6 +39,36 @@ export const MAX_SINGLE_ENTRY_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB max size f
 export const MAX_BEATMAP_NOTES = 20000; // 20k notes max to prevent infinite loops / memory exhaustion
 export const MAX_BEATMAP_TIMING_POINTS = 5000; // 5k timing points max
 export const MAX_OSU_TEXT_BYTES = 2 * 1024 * 1024; // 2 MB max size for the .osu text content
+
+type UnknownRecord = Record<string, unknown>;
+type ZipObjectWithData = JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getZipUncompressedSize(file: JSZip.JSZipObject): number {
+  return (file as ZipObjectWithData)._data?.uncompressedSize ?? 0;
+}
+
+function isReplaySource(value: unknown): value is ReplaySource {
+  return value === 'guest-local' || value === 'account-local' || value === 'server-remote' || value === 'imported';
+}
+
+function isUploadEligibility(value: unknown): value is UploadEligibility {
+  return typeof value === 'string' && [
+    'eligible',
+    'ineligible_local_map',
+    'ineligible_autoplay',
+    'ineligible_failed',
+    'ineligible_mode',
+    'ineligible_no_replay_frames',
+  ].includes(value);
+}
+
+function isUploadStatus(value: unknown): value is UploadStatus {
+  return value === 'local_only' || value === 'pending' || value === 'uploaded' || value === 'failed';
+}
 
 /**
  * Checks if a URL is safe to fetch or load.
@@ -96,7 +137,7 @@ export function validateZipLimits(zip: JSZip): void {
     if (fileObj.dir) continue;
     
     // Read uncompressed size from the zip header if available
-    const uncompressedSize = (fileObj as any)._data?.uncompressedSize ?? 0;
+    const uncompressedSize = getZipUncompressedSize(fileObj);
     
     if (uncompressedSize > MAX_SINGLE_ENTRY_SIZE_BYTES) {
       throw new Error(`Security Exception: File "${key}" exceeds single entry size limit (${(uncompressedSize / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_SINGLE_ENTRY_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
@@ -115,7 +156,7 @@ export function validateZipLimits(zip: JSZip): void {
  * Validates individual entry contents size before loading async.
  */
 export function validateZipEntrySize(fileObj: JSZip.JSZipObject, name: string): void {
-  const uncompressedSize = (fileObj as any)._data?.uncompressedSize ?? 0;
+  const uncompressedSize = getZipUncompressedSize(fileObj);
   if (uncompressedSize > MAX_SINGLE_ENTRY_SIZE_BYTES) {
     throw new Error(`Security Exception: File "${name}" exceeds single entry size limit (${(uncompressedSize / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_SINGLE_ENTRY_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
   }
@@ -124,7 +165,7 @@ export function validateZipEntrySize(fileObj: JSZip.JSZipObject, name: string): 
 /**
  * Validates a color string to prevent script or HTML injection.
  */
-export function validateStringColor(color: any, defaultColor: string): string {
+export function validateStringColor(color: unknown, defaultColor: string): string {
   if (typeof color !== 'string') return defaultColor;
   const hexRegex = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
   if (hexRegex.test(color)) return color;
@@ -142,36 +183,37 @@ export function validateStringColor(color: any, defaultColor: string): string {
  * Whitelist/clamp validate critical settings fields.
  * Safe fallback is returned on validation failure.
  */
-export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): GameSettings {
-  if (!parsed || typeof parsed !== 'object') return defaultSettings;
+export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings): GameSettings {
+  if (!isRecord(parsed)) return defaultSettings;
+  const settings = parsed;
   
-  const clamp = (val: any, min: number, max: number, fallback: number): number => {
+  const clamp = (val: unknown, min: number, max: number, fallback: number): number => {
     const num = Number(val);
     if (isNaN(num)) return fallback;
     return Math.max(min, Math.min(max, num));
   };
 
-  const sanitizeString = (val: any, fallback: string, maxLength = 50): string => {
+  const sanitizeString = (val: unknown, fallback: string, maxLength = 50): string => {
     if (typeof val !== 'string') return fallback;
     const cleaned = val.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
     if (cleaned.length > maxLength) return cleaned.slice(0, maxLength);
     return cleaned || fallback;
   };
 
-  const bindings: any = {};
-  if (parsed.bindings && typeof parsed.bindings === 'object') {
-    for (const k of Object.keys(parsed.bindings)) {
+  const bindings: KeyBindings = {};
+  const rawBindings = isRecord(settings.bindings) ? settings.bindings : {};
+  for (const k of Object.keys(rawBindings)) {
       const numKey = Number(k);
-      if (!isNaN(numKey) && numKey >= 2 && numKey <= 8 && Array.isArray(parsed.bindings[numKey])) {
-        bindings[numKey] = parsed.bindings[numKey]
+      const rawBinding = rawBindings[k] ?? rawBindings[String(numKey)];
+      if (!isNaN(numKey) && numKey >= 2 && numKey <= 8 && Array.isArray(rawBinding)) {
+        bindings[numKey] = rawBinding
           .slice(0, numKey)
-          .map((b: any) => {
+          .map((b: unknown) => {
             if (typeof b !== 'string') return '';
             const clean = b.trim();
             if (clean.length > 10) return clean.slice(0, 10);
             return clean;
           });
-      }
     }
   }
 
@@ -182,8 +224,8 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
   }
 
   const selectedMods: string[] = [];
-  if (Array.isArray(parsed.selectedMods)) {
-    for (const mod of parsed.selectedMods) {
+  if (Array.isArray(settings.selectedMods)) {
+    for (const mod of settings.selectedMods) {
       if (typeof mod === 'string' && /^[a-zA-Z0-9]{2,4}$/.test(mod)) {
         selectedMods.push(mod.toUpperCase());
       }
@@ -191,8 +233,8 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
   }
 
   const customSkinColors: string[] = [];
-  if (Array.isArray(parsed.customSkinColors)) {
-    for (const col of parsed.customSkinColors) {
+  if (Array.isArray(settings.customSkinColors)) {
+    for (const col of settings.customSkinColors) {
       customSkinColors.push(validateStringColor(col, '#ffffff'));
     }
   } else {
@@ -212,65 +254,65 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     return result;
   };
 
-  const renderEngine = parsed.renderEngine === 'pixi' ? 'pixi' : parsed.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+  const renderEngine = settings.renderEngine === 'pixi' ? 'pixi' : settings.renderEngine === 'babylon' ? 'babylon' : 'canvas';
   const sizeMax = renderEngine === 'babylon'
     ? 1.2
-    : parsed.playfieldStyle === 'circle'
+    : settings.playfieldStyle === 'circle'
       ? 1.5
-      : parsed.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
+      : settings.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
   const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
   const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
 
   return {
-    scrollSpeed: clamp(parsed.scrollSpeed, 1, 40, defaultSettings.scrollSpeed),
-    audioOffset: clamp(parsed.audioOffset, -1000, 1000, defaultSettings.audioOffset),
-    visualOffset: clamp(parsed.visualOffset, -1000, 1000, defaultSettings.visualOffset),
-    hitsoundVolume: clamp(parsed.hitsoundVolume, 0, 1, defaultSettings.hitsoundVolume),
-    musicVolume: clamp(parsed.musicVolume, 0, 1, defaultSettings.musicVolume),
-    previewVolume: clamp(parsed.previewVolume, 0, 1, defaultSettings.previewVolume),
-    masterVolume: clamp(parsed.masterVolume, 0, 1, defaultSettings.masterVolume),
-    keyMode: clamp(parsed.keyMode, 2, 8, defaultSettings.keyMode),
+    scrollSpeed: clamp(settings.scrollSpeed, 1, 40, defaultSettings.scrollSpeed),
+    audioOffset: clamp(settings.audioOffset, -1000, 1000, defaultSettings.audioOffset),
+    visualOffset: clamp(settings.visualOffset, -1000, 1000, defaultSettings.visualOffset),
+    hitsoundVolume: clamp(settings.hitsoundVolume, 0, 1, defaultSettings.hitsoundVolume),
+    musicVolume: clamp(settings.musicVolume, 0, 1, defaultSettings.musicVolume),
+    previewVolume: clamp(settings.previewVolume, 0, 1, defaultSettings.previewVolume),
+    masterVolume: clamp(settings.masterVolume, 0, 1, defaultSettings.masterVolume),
+    keyMode: clamp(settings.keyMode, 2, 8, defaultSettings.keyMode),
     bindings: bindings,
-    upsurfaceNoteMode: (parsed.renderEngine === 'babylon' || String(parsed.renderEngine) === 'babylon')
+    upsurfaceNoteMode: (settings.renderEngine === 'babylon' || String(settings.renderEngine) === 'babylon')
       ? false
-      : Boolean(parsed.upsurfaceNoteMode),
+      : Boolean(settings.upsurfaceNoteMode),
     videoOpacity: 1.0,
-    backgroundDim: clamp(parsed.backgroundDim, 0, 1, defaultSettings.backgroundDim),
-    menuBackgroundDim: clamp(parsed.menuBackgroundDim, 0, 1, defaultSettings.menuBackgroundDim ?? 0.3),
-    disableVideo: Boolean(parsed.disableVideo),
-    videoOffset: clamp(parsed.videoOffset, -10000, 10000, defaultSettings.videoOffset || 0),
-    disableParticles: Boolean(parsed.disableParticles),
-    disableLaneShake: Boolean(parsed.disableLaneShake),
+    backgroundDim: clamp(settings.backgroundDim, 0, 1, defaultSettings.backgroundDim),
+    menuBackgroundDim: clamp(settings.menuBackgroundDim, 0, 1, defaultSettings.menuBackgroundDim ?? 0.3),
+    disableVideo: Boolean(settings.disableVideo),
+    videoOffset: clamp(settings.videoOffset, -10000, 10000, defaultSettings.videoOffset || 0),
+    disableParticles: Boolean(settings.disableParticles),
+    disableLaneShake: Boolean(settings.disableLaneShake),
     limitDprToOne: false,
-    skinId: sanitizeString(parsed.skinId, defaultSettings.skinId || 'custom'),
+    skinId: sanitizeString(settings.skinId, defaultSettings.skinId || 'custom'),
     customSkinColors: customSkinColors,
-    customSkinName: parsed.customSkinName ? sanitizeString(parsed.customSkinName, 'custom', 30) : undefined,
-    squareRenderStyle: parsed.squareRenderStyle === 'rhythmplus' ? 'rhythmplus' : 'rhythmmania',
-    receptorColorsByKeyCount: sanitizeLanePalettes(parsed.receptorColorsByKeyCount, defaultSettings.receptorColorsByKeyCount),
-    noteOpacity: clamp(parsed.noteOpacity, 0, 1, defaultSettings.noteOpacity || 1.0),
-    receptorOpacity: clamp(parsed.receptorOpacity, 0, 1, defaultSettings.receptorOpacity || 1.0),
-    judgementOpacity: clamp(parsed.judgementOpacity, 0, 1, defaultSettings.judgementOpacity || 1.0),
-    judgementSize: clamp(parsed.judgementSize, 0.5, 2, defaultSettings.judgementSize || 1.0),
-    judgementPositionY: clamp(parsed.judgementPositionY, 20, 85, defaultSettings.judgementPositionY || 50),
-    laneSeparatorOpacity: clamp(parsed.laneSeparatorOpacity, 0, 1, defaultSettings.laneSeparatorOpacity || 0.30),
-    circleSize: clamp(parsed.circleSize, 0.5, 2, defaultSettings.circleSize || 1.0),
-    noteSizeMultiplier: clamp(parsed.noteSizeMultiplier, 0.85, sizeMax, defaultSettings.noteSizeMultiplier || 1.0),
-    receptorSizeMultiplier: clamp(parsed.receptorSizeMultiplier ?? parsed.circleSize, 0.85, sizeMax, defaultSettings.receptorSizeMultiplier || 1.0),
-    playfieldStyle: parsed.playfieldStyle === 'circle' ? 'circle' : 'square',
-     playfieldWidthPercent: clamp(parsed.playfieldWidthPercent, widthMin, widthMax, Math.max(widthMin, Math.min(widthMax, defaultSettings.playfieldWidthPercent || 40))),
-    progressBarTop: Boolean(parsed.progressBarTop),
+    customSkinName: settings.customSkinName ? sanitizeString(settings.customSkinName, 'custom', 30) : undefined,
+    squareRenderStyle: settings.squareRenderStyle === 'rhythmplus' ? 'rhythmplus' : 'rhythmmania',
+    receptorColorsByKeyCount: sanitizeLanePalettes(settings.receptorColorsByKeyCount, defaultSettings.receptorColorsByKeyCount),
+    noteOpacity: clamp(settings.noteOpacity, 0, 1, defaultSettings.noteOpacity || 1.0),
+    receptorOpacity: clamp(settings.receptorOpacity, 0, 1, defaultSettings.receptorOpacity || 1.0),
+    judgementOpacity: clamp(settings.judgementOpacity, 0, 1, defaultSettings.judgementOpacity || 1.0),
+    judgementSize: clamp(settings.judgementSize, 0.5, 2, defaultSettings.judgementSize || 1.0),
+    judgementPositionY: clamp(settings.judgementPositionY, 20, 85, defaultSettings.judgementPositionY || 50),
+    laneSeparatorOpacity: clamp(settings.laneSeparatorOpacity, 0, 1, defaultSettings.laneSeparatorOpacity || 0.30),
+    circleSize: clamp(settings.circleSize, 0.5, 2, defaultSettings.circleSize || 1.0),
+    noteSizeMultiplier: clamp(settings.noteSizeMultiplier, 0.85, sizeMax, defaultSettings.noteSizeMultiplier || 1.0),
+    receptorSizeMultiplier: clamp(settings.receptorSizeMultiplier ?? settings.circleSize, 0.85, sizeMax, defaultSettings.receptorSizeMultiplier || 1.0),
+    playfieldStyle: settings.playfieldStyle === 'circle' ? 'circle' : 'square',
+     playfieldWidthPercent: clamp(settings.playfieldWidthPercent, widthMin, widthMax, Math.max(widthMin, Math.min(widthMax, defaultSettings.playfieldWidthPercent || 40))),
+    progressBarTop: Boolean(settings.progressBarTop),
     selectedMods: selectedMods,
-    bindPause: sanitizeString(parsed.bindPause, defaultSettings.bindPause || 'escape', 15),
-    bindRetry: sanitizeString(parsed.bindRetry, defaultSettings.bindRetry || 'r', 15),
+    bindPause: sanitizeString(settings.bindPause, defaultSettings.bindPause || 'escape', 15),
+    bindRetry: sanitizeString(settings.bindRetry, defaultSettings.bindRetry || 'r', 15),
      renderEngine,
-    babylonFloor: parsed.babylonFloor !== undefined ? Boolean(parsed.babylonFloor) : (defaultSettings.babylonFloor ?? true),
+     babylonFloor: settings.babylonFloor !== undefined ? Boolean(settings.babylonFloor) : (defaultSettings.babylonFloor ?? true),
     babylonQuality:
-      parsed.babylonQuality === 'low' ? 'low'
-      : parsed.babylonQuality === 'medium' ? 'medium'
+       settings.babylonQuality === 'low' ? 'low'
+       : settings.babylonQuality === 'medium' ? 'medium'
       : (defaultSettings.babylonQuality ?? 'high'),
-    enableMapSV: parsed.enableMapSV !== undefined ? Boolean(parsed.enableMapSV) : true,
-    enableSongPreview: parsed.enableSongPreview !== undefined ? Boolean(parsed.enableSongPreview) : true,
-    showFpsCounter: Boolean(parsed.showFpsCounter),
+    enableMapSV: settings.enableMapSV !== undefined ? Boolean(settings.enableMapSV) : true,
+    enableSongPreview: settings.enableSongPreview !== undefined ? Boolean(settings.enableSongPreview) : true,
+    showFpsCounter: Boolean(settings.showFpsCounter),
   };
 }
 
@@ -278,16 +320,17 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
  * Validates and sanitizes a history record loaded from local storage.
  * Ensures strip/clamp of values and removes potential dangerous blob URLs.
  */
-export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
-  if (!record || typeof record !== 'object') return null;
+export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameSettings, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
+  if (!isRecord(rawRecord)) return null;
+  const record = rawRecord;
 
-  const clamp = (val: any, min: number, max: number, fallback: number): number => {
+  const clamp = (val: unknown, min: number, max: number, fallback: number): number => {
     const num = Number(val);
     if (isNaN(num)) return fallback;
     return Math.max(min, Math.min(max, num));
   };
 
-  const sanitizeString = (val: any, maxLength = 100): string => {
+  const sanitizeString = (val: unknown, maxLength = 100): string => {
     if (typeof val !== 'string') return '';
     // Strip HTML, blob URLs, or other dangerous content
     let cleaned = val.replace(/blob:/gi, '').replace(/javascript:/gi, '');
@@ -297,40 +340,41 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
   };
 
   // Validate ScoreState
-  const scoreState: any = {};
-  if (record.scoreState && typeof record.scoreState === 'object') {
-    scoreState.score = clamp(record.scoreState.score, 0, 1000000000, 0);
-    scoreState.combo = clamp(record.scoreState.combo, 0, 100000, 0);
-    scoreState.maxCombo = clamp(record.scoreState.maxCombo, 0, 100000, 0);
-    scoreState.hp = clamp(record.scoreState.hp, 0, 100, 0);
-    scoreState.perfectCount = clamp(record.scoreState.perfectCount, 0, 100000, 0);
-    scoreState.marvelousCount = clamp(record.scoreState.marvelousCount, 0, 100000, 0);
-    scoreState.greatCount = clamp(record.scoreState.greatCount, 0, 100000, 0);
-    scoreState.goodCount = clamp(record.scoreState.goodCount, 0, 100000, 0);
-    scoreState.badCount = clamp(record.scoreState.badCount, 0, 100000, 0);
-    scoreState.missCount = clamp(record.scoreState.missCount, 0, 100000, 0);
-    scoreState.accuracy = clamp(record.scoreState.accuracy, 0, 100, 0);
-    scoreState.completed = Boolean(record.scoreState.completed);
-    scoreState.failed = Boolean(record.scoreState.failed);
-    scoreState.recordId = sanitizeString(record.scoreState.recordId, 50);
+  const scoreInput = isRecord(record.scoreState) ? record.scoreState : null;
+  if (!scoreInput) return null;
 
-    // Sanitize precision metric fields
-    if (typeof record.scoreState.unstableRate === 'number' && Number.isFinite(record.scoreState.unstableRate) && record.scoreState.unstableRate >= 0) {
-      scoreState.unstableRate = clamp(record.scoreState.unstableRate, 0, 10000, 0);
-    } else {
-      scoreState.unstableRate = null;
-    }
+  const scoreState: ScoreState = {
+    score: clamp(scoreInput.score, 0, 1000000000, 0),
+    combo: clamp(scoreInput.combo, 0, 100000, 0),
+    maxCombo: clamp(scoreInput.maxCombo, 0, 100000, 0),
+    hp: clamp(scoreInput.hp, 0, 100, 0),
+    perfectCount: clamp(scoreInput.perfectCount, 0, 100000, 0),
+    marvelousCount: clamp(scoreInput.marvelousCount, 0, 100000, 0),
+    greatCount: clamp(scoreInput.greatCount, 0, 100000, 0),
+    goodCount: clamp(scoreInput.goodCount, 0, 100000, 0),
+    badCount: clamp(scoreInput.badCount, 0, 100000, 0),
+    missCount: clamp(scoreInput.missCount, 0, 100000, 0),
+    accuracy: clamp(scoreInput.accuracy, 0, 100, 0),
+    completed: Boolean(scoreInput.completed),
+    failed: Boolean(scoreInput.failed),
+    recordId: sanitizeString(scoreInput.recordId, 50),
+    unstableRate: null,
+    hitErrorSampleCount: clamp(scoreInput.hitErrorSampleCount, 0, 100000, 0),
+    columnJudgements: [],
+  };
 
-    scoreState.hitErrorSampleCount = clamp(record.scoreState.hitErrorSampleCount, 0, 100000, 0);
+  if (typeof scoreInput.unstableRate === 'number' && Number.isFinite(scoreInput.unstableRate) && scoreInput.unstableRate >= 0) {
+    scoreState.unstableRate = clamp(scoreInput.unstableRate, 0, 10000, 0);
+  }
 
-    const keyCount = clamp(record.keyCount, 2, 8, 4);
-    const columnJudgements: any[] = [];
-    if (Array.isArray(record.scoreState.columnJudgements)) {
-      for (const item of record.scoreState.columnJudgements) {
-        if (item && typeof item === 'object') {
-          const colIndex = clamp(item.column, 0, keyCount - 1, -1);
-          if (colIndex >= 0) {
-            columnJudgements.push({
+  const keyCount = clamp(record.keyCount, 2, 8, 4);
+  const columnJudgements: ColumnJudgementCounts[] = [];
+  if (Array.isArray(scoreInput.columnJudgements)) {
+    for (const item of scoreInput.columnJudgements) {
+      if (isRecord(item)) {
+        const colIndex = clamp(item.column, 0, keyCount - 1, -1);
+        if (colIndex >= 0) {
+          columnJudgements.push({
               column: colIndex,
               marvelousCount: clamp(item.marvelousCount, 0, 100000, 0),
               perfectCount: clamp(item.perfectCount, 0, 100000, 0),
@@ -338,25 +382,22 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
               goodCount: clamp(item.goodCount, 0, 100000, 0),
               badCount: clamp(item.badCount, 0, 100000, 0),
               missCount: clamp(item.missCount, 0, 100000, 0),
-            });
-          }
+          });
         }
       }
     }
-    scoreState.columnJudgements = columnJudgements;
+  }
+  scoreState.columnJudgements = columnJudgements;
 
-    if (record.scoreState.isAutoplay !== undefined) {
-      scoreState.isAutoplay = Boolean(record.scoreState.isAutoplay);
-    }
-  } else {
-    return null;
+  if (scoreInput.isAutoplay !== undefined) {
+    scoreState.isAutoplay = Boolean(scoreInput.isAutoplay);
   }
 
   // Validate replayFrames
-  const replayFrames: any[] = [];
+  const replayFrames: ReplayFrame[] = [];
   if (Array.isArray(record.replayFrames)) {
     for (const frame of record.replayFrames) {
-      if (frame && typeof frame === 'object') {
+      if (isRecord(frame)) {
         replayFrames.push({
           time: clamp(frame.time, 0, 10000000, 0),
           keysPressed: Array.isArray(frame.keysPressed) ? frame.keysPressed.map(Boolean) : []
@@ -407,14 +448,14 @@ export function sanitizeHistoryRecord(record: any, defaultSettings: GameSettings
     recordedSettings,
     mods,
     // Preserve existing v2 fields if already populated
-    schemaVersion: record.schemaVersion,
-    replaySource: record.replaySource,
-    catalogSetId: record.catalogSetId,
-    catalogMapId: record.catalogMapId,
-    beatmapHash: record.beatmapHash,
-    uploadEligibility: record.uploadEligibility,
-    uploadStatus: record.uploadStatus,
-    isServerCatalogMap: record.isServerCatalogMap,
+    schemaVersion: typeof record.schemaVersion === 'number' ? record.schemaVersion : undefined,
+    replaySource: isReplaySource(record.replaySource) ? record.replaySource : undefined,
+    catalogSetId: typeof record.catalogSetId === 'string' || record.catalogSetId === null ? record.catalogSetId : undefined,
+    catalogMapId: typeof record.catalogMapId === 'string' || record.catalogMapId === null ? record.catalogMapId : undefined,
+    beatmapHash: typeof record.beatmapHash === 'string' ? record.beatmapHash : undefined,
+    uploadEligibility: isUploadEligibility(record.uploadEligibility) ? record.uploadEligibility : undefined,
+    uploadStatus: isUploadStatus(record.uploadStatus) ? record.uploadStatus : undefined,
+    isServerCatalogMap: typeof record.isServerCatalogMap === 'boolean' ? record.isServerCatalogMap : undefined,
   };
 
   return migrateHistoryRecord(baseCleaned, availableBeatmaps);

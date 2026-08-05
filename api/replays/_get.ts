@@ -45,10 +45,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       max_combo: number;
       grade: string;
       is_failed: boolean;
-      score_state: any;
-      replay_frames: any;
-      recorded_settings: any;
-      mods: any;
+      score_state: unknown;
+      replay_frames: unknown;
+      recorded_settings: unknown;
+      mods: unknown;
       replay_source: string;
       upload_status: string;
       created_at: Date;
@@ -81,7 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const row = dbRes.rows[0];
-    const scoreState = typeof row.score_state === 'string' ? JSON.parse(row.score_state) : row.score_state || {};
+    const scoreState: Record<string, unknown> = parseJsonRecord(row.score_state);
     const mods = Array.isArray(row.mods) ? row.mods : [];
     const isNoFail = mods.some((mod: unknown) => typeof mod === 'string' && mod.toUpperCase() === 'NF');
     if (isNoFail) scoreState.failed = false;
@@ -94,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       beatmapTitle: row.beatmap_title || 'Unknown Title',
       beatmapArtist: row.beatmap_artist || 'Unknown Artist',
       beatmapDifficulty: row.beatmap_difficulty || 'Normal',
-      keyCount: row.score_state?.keyCount || 4,
+      keyCount: typeof scoreState.keyCount === 'number' ? scoreState.keyCount : 4,
       score: row.score,
       accuracy: row.accuracy,
       maxCombo: row.max_combo,
@@ -127,8 +127,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         record,
       },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error fetching replay detail:', e);
-    return sendError(res, 500, e?.message || 'Failed to fetch replay details');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Failed to fetch replay details');
   }
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -107,7 +107,7 @@ export function createPlayHistoryRecord(params: {
   const { id, timestamp, beatmap, scoreState, replayFrames, recordedSettings, mods, replaySource = 'guest-local' } = params;
   
   const catalogInfo = determineCatalogIdentity(beatmap, beatmap.id);
-  const hash = (beatmap as any).beatmapHash || computeBeatmapHash(beatmap);
+  const hash = beatmap.beatmapHash || computeBeatmapHash(beatmap);
 
   let gradeChar = 'D';
   const acc = scoreState.accuracy;

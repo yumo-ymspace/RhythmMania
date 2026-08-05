@@ -12,12 +12,12 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
   message?: string;
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
 }
 
 export function getRequestOrigin(req: VercelRequest): string {

@@ -11,10 +11,10 @@
  */
 
 import JSZip from 'jszip';
-import { Beatmap } from '../types';
+import type { Beatmap } from '../types';
 import { RobustZipResolver } from './zipResolver';
 import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from './assetLifecycle';
-import { storageManager } from './storageManager';
+import { storageManager, type SavedBeatmap } from './storageManager';
 import { TempMemoryCache } from './tempMemoryCache';
 import { validateZipLimits, validateZipEntrySize } from './securityLimits';
 
@@ -28,7 +28,7 @@ async function registerZipFile(
 }
 
 export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> {
-  const mapWithPkg = map as any;
+  const mapWithPkg = map as SavedBeatmap;
   if (mapWithPkg.isServerMap && !mapWithPkg.isCached) {
     return;
   }

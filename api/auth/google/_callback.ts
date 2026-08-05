@@ -67,8 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
     });
 
-    const tokenData = await tokenRes.json();
-    if (!tokenRes.ok || !tokenData.access_token) {
+    const tokenData: unknown = await tokenRes.json();
+    if (!isRecord(tokenData) || !tokenRes.ok || typeof tokenData.access_token !== 'string' || !tokenData.access_token) {
       console.error('Google token exchange error:', tokenData);
       return sendHtmlResult(res, requestOrigin, false, 'Failed to exchange the Google authorization code.');
     }
@@ -78,15 +78,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
 
-    const profile = await profileRes.json();
-    if (!profileRes.ok || !profile.sub) {
+    const profile: unknown = await profileRes.json();
+    if (!isRecord(profile) || !profileRes.ok || typeof profile.sub !== 'string' || !profile.sub) {
       return sendHtmlResult(res, requestOrigin, false, 'Failed to retrieve your Google profile.');
     }
 
-    const googleId = profile.sub as string;
-    const email = (profile.email as string) || null;
-    const name = (profile.name || profile.given_name || 'Rhythm Player') as string;
-    const avatarUrl = (profile.picture as string) || null;
+    const googleId = profile.sub;
+    const email = typeof profile.email === 'string' && profile.email ? profile.email : null;
+    const name = typeof profile.name === 'string' && profile.name
+      ? profile.name
+      : typeof profile.given_name === 'string' && profile.given_name
+        ? profile.given_name
+        : 'Rhythm Player';
+    const avatarUrl = typeof profile.picture === 'string' && profile.picture ? profile.picture : null;
 
     // 3. Find or create user in Postgres
     let userId: string;
@@ -115,9 +119,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             [candidateId, googleId, sanitizedUsername, email, avatarUrl]
           );
           break;
-        } catch (insertErr: any) {
+        } catch (insertErr: unknown) {
           // Retry only on primary-key collision; other errors bubble up.
-          if (insertErr?.code !== '23505' || !String(insertErr?.constraint || '').includes('users_pkey')) {
+          if (!isRecord(insertErr) || insertErr.code !== '23505' || !String(insertErr.constraint || '').includes('users_pkey')) {
             throw insertErr;
           }
         }
@@ -141,14 +145,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     setSessionCookie(res, sessionId, secure);
 
     return sendHtmlResult(res, requestOrigin, true, 'Authentication successful.');
-  } catch (e: any) {
-    console.error('Error during Google OAuth callback:', e);
+  } catch (error: unknown) {
+    console.error('Error during Google OAuth callback:', error);
     return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while signing in.');
   }
 }
 
 function getSingleQueryValue(value: string | string[] | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function escapeHtml(value: string): string {

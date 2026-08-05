@@ -167,8 +167,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         message: 'Replay uploaded successfully to server',
       },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error in replay upload handler:', e);
-    return sendError(res, 500, e?.message || 'Internal server error while uploading replay');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error while uploading replay');
   }
 }

@@ -33,9 +33,10 @@ const ALLOWED_SOCIAL_KEYS = new Set(['youtube', 'twitter', 'discord', 'website']
 
 export function sanitizeSocialLinks(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const links = raw as Record<string, unknown>;
   const result: Record<string, string> = {};
   for (const key of ALLOWED_SOCIAL_KEYS) {
-    const val = (raw as any)[key];
+    const val = links[key];
     if (typeof val === 'string' && val.length > 0 && val.length <= 256) {
       result[key] = val;
     }

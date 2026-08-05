@@ -14,7 +14,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings as SettingsIcon, Keyboard, History, Compass, UserRound, Loader2 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
 import SongSelect from './components/SongSelect';
 import GameplayCanvas from './components/GameplayCanvas';
 import ResultsScreen from './components/ResultsScreen';
@@ -37,9 +37,9 @@ import { AuthUser, fetchCurrentUser, logoutUser, initiateGoogleSignIn } from './
 
 const PAGE_TRANSITION_VARIANTS = {
   initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 1, 0.5, 1] } },
-  exit: { opacity: 0, y: -12, transition: { duration: 0.2, ease: [0.25, 1, 0.5, 1] } }
-};
+  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
+  exit: { opacity: 0, y: -12, transition: { duration: 0.2, ease: 'easeOut' } }
+} satisfies Variants;
 
 const LOCAL_STORAGE_SETTINGS_KEY = 'rhythm_mania_v1_settings';
 const LOCAL_STORAGE_CUSTOM_MAPS_KEY = 'rhythm_mania_v1_custom_maps';
@@ -565,11 +565,11 @@ export default function App() {
       setActiveReplayRecord(record);
       setCurrentScreen('play');
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Failed to auto-download mirror beatmap for replay:', e);
       return {
         success: false,
-        error: e?.message || 'Failed to auto-download mirror beatmap for replay playback'
+        error: e instanceof Error ? e.message : 'Failed to auto-download mirror beatmap for replay playback'
       };
     }
   };

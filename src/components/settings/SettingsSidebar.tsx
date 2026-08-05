@@ -11,7 +11,7 @@
  */
 
 import React from 'react';
-import * as LucideIcons from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { SECTIONS, SectionId } from './settingsRegistry';
 import type { GameSettings } from '../../types';
 import metadata from '../../../metadata.json';
@@ -28,14 +28,14 @@ export default function SettingsSidebar({ activeSection, onSelect, onRestoreAll,
     <div className="w-full md:w-[240px] flex-none border-r border-[var(--settings-border)]/5 bg-black/20 flex flex-col h-[200px] md:h-auto shrink-0 md:shrink">
       <div className="p-6 pb-4">
         <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-          <LucideIcons.Settings className="w-5 h-5 text-slate-400" />
+          <Settings className="w-5 h-5 text-slate-400" />
           Settings
         </h1>
       </div>
       
       <div className="flex-1 overflow-y-auto px-3 flex flex-col gap-1 pb-4">
         {SECTIONS.filter((s) => !s.showWhen || s.showWhen(settings)).map((s) => {
-          const Icon = (LucideIcons as any)[s.icon] || LucideIcons.Circle;
+          const Icon = s.icon;
           const isActive = s.id === activeSection;
           
           return (

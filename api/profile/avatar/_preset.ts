@@ -50,8 +50,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       success: true,
       data: { avatarUrl },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error in /api/profile/avatar/preset:', e);
-    return sendError(res, 500, e?.message || 'Internal server error');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
   }
 }

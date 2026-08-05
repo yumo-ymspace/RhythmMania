@@ -11,6 +11,16 @@
  */
 
 import type { ReactNode } from 'react';
+import {
+  Gamepad2,
+  Keyboard,
+  Monitor,
+  Palette,
+  SlidersHorizontal,
+  Volume2,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
 import type { GameSettings } from '../../types';
 import {
   DEFAULT_SETTINGS,
@@ -27,18 +37,18 @@ export interface SectionDef {
   id: SectionId;
   label: string;
   description: string;
-  icon: string;   // Lucide icon name resolved by SettingsSidebar
+  icon: LucideIcon;
   showWhen?: (s: GameSettings) => boolean;
 }
 
 export const SECTIONS: SectionDef[] = [
-  { id: 'general',     label: 'General',     description: 'Account-agnostic preferences for the client.', icon: 'SlidersHorizontal' },
-  { id: 'graphics',    label: 'Graphics',    description: 'Rendering, video, particles, and pixel ratio.',     icon: 'Monitor' },
-  { id: 'gameplay',    label: 'Gameplay',    description: 'Scroll speed, scroll direction, and timing.',      icon: 'Gamepad2' },
-  { id: 'audio',       label: 'Audio',       description: 'Volumes and the universal audio offset.',          icon: 'Volume2' },
-  { id: 'skin',        label: 'Skin',        description: 'Lane colors, note sizing, receptors, and judgement display.',  icon: 'Palette' },
-  { id: 'input',       label: 'Input',       description: 'Keyboard bindings per key count.',                 icon: 'Keyboard' },
-  { id: 'maintenance', label: 'Maintenance', description: 'Reset to defaults and other global actions.',      icon: 'Wrench' },
+  { id: 'general',     label: 'General',     description: 'Account-agnostic preferences for the client.', icon: SlidersHorizontal },
+  { id: 'graphics',    label: 'Graphics',    description: 'Rendering, video, particles, and pixel ratio.',     icon: Monitor },
+  { id: 'gameplay',    label: 'Gameplay',    description: 'Scroll speed, scroll direction, and timing.',      icon: Gamepad2 },
+  { id: 'audio',       label: 'Audio',       description: 'Volumes and the universal audio offset.',          icon: Volume2 },
+  { id: 'skin',        label: 'Skin',        description: 'Lane colors, note sizing, receptors, and judgement display.',  icon: Palette },
+  { id: 'input',       label: 'Input',       description: 'Keyboard bindings per key count.',                 icon: Keyboard },
+  { id: 'maintenance', label: 'Maintenance', description: 'Reset to defaults and other global actions.',      icon: Wrench },
 ];
 
 export type Control =
@@ -58,7 +68,7 @@ export interface RowApi {
 }
 
 export interface RowDef {
-  id: string;                     // stable id, also keyof GameSettings for value rows
+  id: string;
   section: SectionId;
   label: string;
   description: string;

@@ -886,8 +886,8 @@ export default function SongSelect({
           throw new Error('No playable difficulties found in package.');
         }
       }
-    } catch (err: any) {
-      setImportStatus({ type: 'err', msg: err?.message || 'Failure processing package structure.' });
+    } catch (err: unknown) {
+      setImportStatus({ type: 'err', msg: err instanceof Error ? err.message : 'Failure processing package structure.' });
     } finally {
       setTimeout(() => setImportStatus(null), 5000);
     }

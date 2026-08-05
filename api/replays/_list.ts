@@ -37,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       accuracy: number;
       max_combo: number;
       grade: string;
-      mods: any;
+      mods: unknown;
       created_at: Date;
       beatmap_set_id: string;
        beatmap_difficulty_id: string | null;
@@ -105,8 +105,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         total: replays.length,
       },
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error fetching replay list:', e);
-    return sendError(res, 500, e?.message || 'Failed to fetch leaderboard replays');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Failed to fetch leaderboard replays');
   }
 }

@@ -75,7 +75,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
 
   const resetRow = (id: string) => {
     // If it's a complex object like bindings, we need to deep copy from DEFAULT_SETTINGS
-    const dv = (DEFAULT_SETTINGS as any)[id];
+    const dv = id in DEFAULT_SETTINGS ? DEFAULT_SETTINGS[id as keyof GameSettings] : undefined;
     let val = dv;
     if (dv && typeof dv === 'object') {
       val = JSON.parse(JSON.stringify(dv));
@@ -131,7 +131,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
               {/* Category selector */}
               <div className="flex-none bg-slate-950/40 border-b border-white/5 flex flex-wrap gap-2 px-4 py-3 justify-center">
                 {SECTIONS.filter(s => s.id !== 'input' && (!s.showWhen || s.showWhen(settings))).map((s) => {
-                  const Icon = (LucideIcons as any)[s.icon] || LucideIcons.Circle;
+                  const Icon = s.icon;
                   const isActive = s.id === activeSection;
 
                   return (
@@ -163,7 +163,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                 <div className="flex flex-col gap-3">
                   {rows.map((row) => {
                     const currentValue = settings[row.id as keyof GameSettings];
-                    const isChanged = !isAtDefault(row.id as keyof GameSettings, currentValue);
+                    const isChanged = !isAtDefault(row.id, currentValue);
 
                     let controlNode = null;
                     if (row.control.kind === 'toggle') {

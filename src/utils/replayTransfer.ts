@@ -58,20 +58,21 @@ export function parseReplayImport(
   defaultSettings: GameSettings,
   availableBeatmaps: Beatmap[] = []
 ): { records: PlayHistoryRecord[]; rejectedCount: number } {
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     return { records: [], rejectedCount: 1 };
   }
 
-  let rawRecords: any[] = [];
+  let rawRecords: unknown[] = [];
   if (Array.isArray(parsed)) {
     rawRecords = parsed;
   } else if (parsed && typeof parsed === 'object') {
-    if (Array.isArray(parsed.records)) {
-      rawRecords = parsed.records;
-    } else if (parsed.scoreState && typeof parsed.scoreState === 'object') {
+    const envelope = parsed as { records?: unknown; scoreState?: unknown };
+    if (Array.isArray(envelope.records)) {
+      rawRecords = envelope.records;
+    } else if (envelope.scoreState && typeof envelope.scoreState === 'object') {
       rawRecords = [parsed];
     }
   }

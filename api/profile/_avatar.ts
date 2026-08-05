@@ -37,9 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return sendError(res, 405, 'Method Not Allowed');
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error in /api/profile/avatar:', e);
-    return sendError(res, 500, e?.message || 'Internal server error');
+    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
   }
 }
 

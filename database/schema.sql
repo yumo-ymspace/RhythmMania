@@ -1,4 +1,4 @@
--- RhythmMania PostgreSQL Database Schema for Standard PostgreSQL
+-- RhythmMania PostgreSQL Database Schema for aaPanel / Standard PostgreSQL
 -- Execute this script on your target PostgreSQL instance to set up all tables and indexes.
 --
 -- Public profile id is users.id (VARCHAR(16) alphanumeric). There is no separate userid column.

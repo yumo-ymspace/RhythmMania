@@ -55,9 +55,9 @@ export function getDbPool(): pg.Pool {
   return poolInstance;
 }
 
-export async function query<T extends pg.QueryResultRow = any>(
+export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
-  params?: any[]
+  params?: unknown[]
 ): Promise<pg.QueryResult<T>> {
   const pool = getDbPool();
   return pool.query<T>(text, params);

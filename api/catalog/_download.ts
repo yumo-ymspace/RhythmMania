@@ -13,12 +13,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const cloudSetId = typeof req.query.cloudSetId === 'string' ? req.query.cloudSetId : '';
   if (!/^osuapi_\d+$/.test(cloudSetId)) return sendError(res, 400, 'Invalid cloud set id');
 
-  const result = await query<{ source_set_id: number; source_metadata: any; catalog_state: string }>(
+  const result = await query<{ source_set_id: number; source_metadata: unknown; catalog_state: string }>(
     "SELECT source_set_id, source_metadata, catalog_state FROM beatmap_sets WHERE id = $1 AND source = 'osuapi'",
     [cloudSetId],
   );
   const row = result.rows[0];
-  if (!row || (row.catalog_state !== 'active' && row.source_metadata?.userId !== session.userId)) {
+  const metadata = isRecord(row?.source_metadata) ? row.source_metadata : null;
+  if (!row || (row.catalog_state !== 'active' && metadata?.userId !== session.userId)) {
     return sendError(res, 404, 'Cloud download not found');
   }
 
@@ -44,4 +45,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     reader.cancel().catch(() => {});
     if (!res.writableEnded) res.destroy(error instanceof Error ? error : undefined);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

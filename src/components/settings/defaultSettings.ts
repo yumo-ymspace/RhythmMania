@@ -17,7 +17,7 @@ export const PLAYFIELD_WIDTH_MAX = 50;
 export const BABYLON_PLAYFIELD_WIDTH_MIN = 40;
 export const BABYLON_PLAYFIELD_WIDTH_MAX = 90;
 
-export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
   scrollSpeed: 21,
   audioOffset: 0,
   visualOffset: 0,
@@ -77,11 +77,12 @@ export const DEFAULT_SETTINGS: GameSettings = Object.freeze({
   disableLaneShake: false,
   enableSongPreview: true,
   showFpsCounter: false,
-} as GameSettings);
+}) satisfies GameSettings;
 
 /** True when a setting's value differs from its default. */
-export function isAtDefault(id: keyof GameSettings, value: unknown, defaults = DEFAULT_SETTINGS): boolean {
-  const dv = (defaults as any)[id];
+export function isAtDefault(id: string, value: unknown, defaults: Readonly<GameSettings> = DEFAULT_SETTINGS): boolean {
+  if (!(id in defaults)) return false;
+  const dv = defaults[id as keyof GameSettings];
   if (Array.isArray(dv) && Array.isArray(value)) {
     if (dv.length !== value.length) return false;
     return dv.every((v, i) => v === value[i]);
