@@ -10,29 +10,10 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Application, Texture } from 'pixi.js';
+import { Texture } from 'pixi.js';
 import { PlayfieldVisualSettings, ColumnLayout } from '../../types';
-import { resolveSkinTheme, isCircleSkinMode, getLaneColors } from '../../skinTheme';
+import { isCircleSkinMode, getLaneColors } from '../../skinTheme';
 import { hexToRgba } from '../../../components/GameplayCanvas';
-
-function applyFade(colorStr: string, stopOpacity: number) {
-  if (colorStr.startsWith('#')) {
-    return hexToRgba(colorStr, stopOpacity);
-  }
-  if (colorStr.startsWith('rgba(')) {
-    const parts = colorStr.substring(5, colorStr.length - 1).split(',');
-    if (parts.length === 4) {
-      const existingAlpha = parseFloat(parts[3]);
-      parts[3] = (existingAlpha * stopOpacity).toFixed(3);
-      return `rgba(${parts.join(',')})`;
-    }
-  }
-  if (colorStr.startsWith('rgb(')) {
-    const parts = colorStr.substring(4, colorStr.length - 1).split(',');
-    return `rgba(${parts.join(',')},${stopOpacity})`;
-  }
-  return colorStr;
-}
 
 export interface BakedSkinTextures {
   noteHeads: Texture[];
@@ -44,7 +25,6 @@ export interface BakedSkinTextures {
 
 export class TextureAtlasBuilder {
   static buildTextures(
-    app: Application,
     columns: ColumnLayout[],
     settings: PlayfieldVisualSettings,
     isFocusMode: boolean
@@ -56,8 +36,7 @@ export class TextureAtlasBuilder {
     const laneGlows: Texture[] = [];
 
     const isCircle = isCircleSkinMode(settings);
-    const theme = resolveSkinTheme(settings);
-    const lanePalette = getLaneColors(settings, columns.length, 'receptor');
+    const lanePalette = getLaneColors(settings, columns.length);
     const laneColor = (column: number) => lanePalette?.[column] || columns[column].color;
 
     columns.forEach((col, colIdx) => {

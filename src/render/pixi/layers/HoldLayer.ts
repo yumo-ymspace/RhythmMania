@@ -83,7 +83,7 @@ export class HoldLayer extends Container {
   }
 
   update(frame: PlayfieldFrame): void {
-    const { height, notes, columns, settingsSlice, isFocusMode } = frame;
+    const { notes, columns, settingsSlice, isFocusMode } = frame;
     const receptorY = frame.receptorY;
     const isCircleMode = isCircleSkinMode(settingsSlice);
 
@@ -120,7 +120,7 @@ export class HoldLayer extends Container {
           let color2 = '';
 
           if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-            const rpColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
+            const rpColor = getLaneColors(settingsSlice, columns.length)?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
@@ -139,7 +139,7 @@ export class HoldLayer extends Container {
               color2 = applyFade(rpColor, fadeEndRounded);
             }
           } else if (settingsSlice.playfieldStyle !== 'circle') {
-            const rmColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
+            const rmColor = getLaneColors(settingsSlice, columns.length)?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
@@ -157,7 +157,7 @@ export class HoldLayer extends Container {
               color2 = applyFade(hexToRgba(rmColor, 0.2), fadeEndRounded);
             }
           } else {
-            const noteColor = getLaneColors(settingsSlice, columns.length, 'receptor')?.[n.column] || columns[n.column].color;
+            const noteColor = getLaneColors(settingsSlice, columns.length)?.[n.column] || columns[n.column].color;
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
                 const flicker = (Math.floor(frame.timeMs / 40) % 2 === 0);
@@ -221,7 +221,7 @@ export class HoldLayer extends Container {
             const lineAlpha = n.isHit && !n.isReleased
               ? (n.releaseGraceUntil ? 0.6 : 0.8)
               : 0.4;
-            const lineColor = getLaneColors(settingsSlice, columns.length, 'note')?.[n.column] || columns[n.column].color;
+            const lineColor = getLaneColors(settingsSlice, columns.length)?.[n.column] || columns[n.column].color;
             this.holdG.moveTo(xPos + colW / 2, visualStartY)
                  .lineTo(xPos + colW / 2, n.endY)
                  .stroke({ color: lineColor, width: 2, alpha: lineAlpha * (fadeStart + fadeEnd) / 2 });
@@ -241,7 +241,7 @@ export class HoldLayer extends Container {
   }
 
   destroy(options?: any): void {
-    for (const [key, sp] of this.activeSprites.entries()) {
+    for (const sp of this.activeSprites.values()) {
       if (sp.parent) {
         sp.parent.removeChild(sp);
       }

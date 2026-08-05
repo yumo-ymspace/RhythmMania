@@ -10,7 +10,6 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Application, Texture } from 'pixi.js';
 import { PlayfieldVisualSettings, ColumnLayout } from '../../types';
 import { TextureAtlasBuilder, BakedSkinTextures } from './TextureAtlasBuilder';
 
@@ -19,7 +18,6 @@ export class SkinTextureCache {
   private settingsHash: string = '';
 
   getTextures(
-    app: Application,
     columns: ColumnLayout[],
     settings: PlayfieldVisualSettings,
     isFocusMode: boolean
@@ -27,7 +25,7 @@ export class SkinTextureCache {
     const hash = this.calculateHash(columns, settings, isFocusMode);
     if (!this.textures || hash !== this.settingsHash) {
       this.destroy();
-      this.textures = TextureAtlasBuilder.buildTextures(app, columns, settings, isFocusMode);
+      this.textures = TextureAtlasBuilder.buildTextures(columns, settings, isFocusMode);
       this.settingsHash = hash;
     }
     return this.textures;

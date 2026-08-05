@@ -42,7 +42,7 @@ export class BackgroundLayer {
     this.floor.material = this.floorMat;
   }
 
-  update(frame: PlayfieldFrame, ctx: RunwayContext): void {
+  update(_frame: PlayfieldFrame, ctx: RunwayContext): void {
     if (ctx.floor) {
       this.ensureFloor();
       if (this.floor) {

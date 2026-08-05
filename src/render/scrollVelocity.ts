@@ -184,38 +184,3 @@ export function getScrollPosition(model: ScrollModel, timeMs: number): number {
 export function getScrollDelta(model: ScrollModel, fromMs: number, toMs: number): number {
   return getScrollPosition(model, toMs) - getScrollPosition(model, fromMs);
 }
-
-/**
- * Gets current multiplier at a given time
- */
-export function getMultiplierAt(model: ScrollModel, timeMs: number): number {
-  if (!model.isEnabled || model.segments.length === 0) {
-    return 1.0;
-  }
-
-  const segments = model.segments;
-  if (timeMs < segments[0].timeMs) {
-    return segments[0].multiplier;
-  }
-
-  const last = segments[segments.length - 1];
-  if (timeMs >= last.timeMs) {
-    return last.multiplier;
-  }
-
-  let low = 0;
-  let high = segments.length - 2;
-  let ans = 0;
-
-  while (low <= high) {
-    const mid = (low + high) >> 1;
-    if (segments[mid].timeMs <= timeMs) {
-      ans = mid;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-
-  return segments[ans].multiplier;
-}

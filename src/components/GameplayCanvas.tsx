@@ -11,12 +11,11 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, ChevronLeft, RotateCcw, Volume2, ShieldAlert, Maximize, Minimize, Settings, Info, Home, Sliders, X } from 'lucide-react';
+import { Play, Pause, RotateCcw, Volume2, ShieldAlert, Maximize, Settings, Info, Home, Sliders, X } from 'lucide-react';
 import { mainAudio } from '../audio/AudioEngine';
-import { Beatmap, GameSettings, HitObject, JudgementType, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
+import { Beatmap, GameSettings, HitObject, JudgementWindow, ScoreState, ReplayFrame, PlayHistoryRecord } from '../types';
 import { initializeColumnJudgements, incrementColumnJudgement, calculateUnstableRate } from '../utils/performanceMetrics';
 import { VideoSyncController, computeTargetVideoTimeSec } from '../utils/videoSyncController';
-import { PlayZoneOverlay } from './PlayZoneOverlay';
 import { executeTeardown } from '../utils/gameplayTeardown';
 import { TouchInputAdapter } from '../utils/touchInputAdapter';
 import { FullscreenManager } from '../utils/fullscreenManager';
@@ -31,7 +30,7 @@ import metadata from '../../metadata.json';
 import { IPlayfieldRenderer, ColumnLayout } from '../render/types';
 import { Canvas2DRenderer } from '../render/Canvas2DRenderer';
 import { getLaneColors } from '../render/skinTheme';
-import { calculateColumnsLayout, calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
+import { calculateScrollSpeedFactor, updateColumnsLayout } from '../render/playfieldLayout';
 import { getVisibleNotes } from '../render/noteVisibility';
 import { createScrollModel, ScrollModel } from '../render/scrollVelocity';
 import { parseBeatmap } from '../utils/beatmapParser';
@@ -358,7 +357,6 @@ export default function GameplayCanvas({
   }, [firstNoteTime]);
 
   const replayData = replayRecord?.replayFrames || null;
-  const replayMods = replayRecord?.mods || [];
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hitErrorCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -542,7 +540,6 @@ export default function GameplayCanvas({
   });
 
   const hitErrorSamplesRef = useRef<number[]>([]);
-  const [uiUr, setUiUr] = useState<number | null>(null);
 
   const recordHitErrorSample = (error: number) => {
     if (typeof error !== 'number' || !Number.isFinite(error)) return;
@@ -550,7 +547,6 @@ export default function GameplayCanvas({
     const ur = calculateUnstableRate(hitErrorSamplesRef.current);
     scoreStateRef.current.unstableRate = ur;
     scoreStateRef.current.hitErrorSampleCount = hitErrorSamplesRef.current.length;
-    setUiUr(ur);
   };
 
   const maxRawScoreRef = useRef<number>(1);
@@ -643,7 +639,6 @@ export default function GameplayCanvas({
   /** Soft notice for AVI/MKV/etc — not a hard error; static bg is used. */
   const [videoFormatWarning, setVideoFormatWarning] = useState<string | null>(null);
   const [showVideoFormatWarning, setShowVideoFormatWarning] = useState(true);
-  const [diagnosticsErrorLog, setDiagnosticsErrorLog] = useState<string[]>([]);
   // Resolved media URLs must live in React state — mutating beatmap.videoUrl does not re-render <video>
   const [mediaUrls, setMediaUrls] = useState({
     audioUrl: originalBeatmap.audioUrl || '',
@@ -800,10 +795,8 @@ export default function GameplayCanvas({
   }
   const judgementWindows = getJudgementWindows(effectiveOD);
   const marvelousJudg = judgementWindows.find(w => w.type === 'marvelous') || judgementWindows[0];
-  const perfectJudg = judgementWindows.find(w => w.type === 'perfect') || judgementWindows[1];
   const greatJudg = judgementWindows.find(w => w.type === 'great') || judgementWindows[2];
   const goodJudg = judgementWindows.find(w => w.type === 'good') || judgementWindows[3];
-  const badJudg = judgementWindows.find(w => w.type === 'bad') || judgementWindows[4];
   const missJudg = judgementWindows.find(w => w.type === 'miss') || judgementWindows[judgementWindows.length - 1];
 
   const initializeGameplay = (runCountdown: boolean = false) => {
@@ -826,7 +819,6 @@ export default function GameplayCanvas({
     hasKeyPressedOnceRef.current = new Array(beatmap.keyCount).fill(false);
     
     hitErrorSamplesRef.current = [];
-    setUiUr(null);
     
     // Reset score tracking
     scoreStateRef.current = {
@@ -962,11 +954,6 @@ export default function GameplayCanvas({
       setIsReadyToTransition(true);
       if (!success) {
         setIsPlayingFallback(true);
-        const declaredAudio = mapWithPkg.audioFilename || 'audio.mp3';
-        setDiagnosticsErrorLog(prev => [
-          ...prev,
-          `Audio file "${declaredAudio}" failed to decode. Falling back to Procedural Synth.`
-        ]);
       }
 
       const declaredVideo = mapWithPkg.videoFilename as string | undefined;
@@ -977,10 +964,6 @@ export default function GameplayCanvas({
           setShowVideoFormatWarning(true);
         } else {
           setIsVideoMissing(true);
-          setDiagnosticsErrorLog(prev => [
-            ...prev,
-            `Video track "${declaredVideo}" declared in beatmap but not present in the package.`
-          ]);
         }
       }
 
@@ -1568,7 +1551,7 @@ export default function GameplayCanvas({
     const logicalWidth = canvas.width / dpr;
     const logicalHeight = canvas.height / dpr;
     const baseWidth = logicalWidth / totalWeight;
-      const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors, getLaneColors(settings, keyCount, 'note'));
+      const styles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors, getLaneColors(settings, keyCount));
     
     let spawnX = 0;
     for (let i = 0; i < colIndex; i++) {
@@ -1812,8 +1795,6 @@ export default function GameplayCanvas({
 
         checkAutonomousMisses(songTime);
         
-        const currentSettings = settingsRef.current;
-        
         // Continuous Video-Audio phase lock (PI PLL + transport snaps elsewhere)
         if (videoRef.current) {
           if (!syncControllerRef.current) {
@@ -1864,7 +1845,6 @@ export default function GameplayCanvas({
         const visibleNotes = getVisibleNotes(
           notesRef.current,
           currentSettings,
-          colsLayout,
           height,
           receptorY,
           visualTime,
@@ -3410,10 +3390,6 @@ export default function GameplayCanvas({
                       : mediaErr?.message || `media error code ${code ?? '?'}`;
                 console.warn('Video failed to render or decode:', detail, mediaUrls.videoUrl);
                 setIsVideoError(true);
-                setDiagnosticsErrorLog(prev => [
-                  ...prev,
-                  `Video decoding failed (${detail}).`
-                ]);
               }}
               className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
               style={{ 

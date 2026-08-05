@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { RotateCcw, ChevronLeft, Play, Calendar, Trophy, Percent, Flame, Video, ArrowLeft, Trash2, Download } from 'lucide-react';
+import { RotateCcw, ChevronLeft, Video, ArrowLeft, Trash2, Download } from 'lucide-react';
 import { Beatmap, ScoreState, PlayHistoryRecord } from '../types';
 import { sanitizeCssUrl } from '../utils/securityLimits';
 import { downloadReplayExport } from '../utils/replayTransfer';

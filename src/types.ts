@@ -13,7 +13,7 @@
 export type NoteType = 'normal' | 'hold';
 
 export type CloudBeatmapSource = 'bundled' | 'osuapi';
-export type CloudCatalogState = 'pending' | 'active' | 'frozen';
+export type CloudCatalogState = 'pending' | 'active';
 
 export interface CloudChartRef {
   chartRevisionId: string;

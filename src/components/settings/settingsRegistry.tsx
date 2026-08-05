@@ -13,8 +13,6 @@
 import type { ReactNode } from 'react';
 import type { GameSettings } from '../../types';
 import {
-  BABYLON_PLAYFIELD_WIDTH_MAX,
-  BABYLON_PLAYFIELD_WIDTH_MIN,
   DEFAULT_SETTINGS,
   PLAYFIELD_WIDTH_MAX,
   PLAYFIELD_WIDTH_MIN,
@@ -47,7 +45,7 @@ export type Control =
   | { kind: 'slider';    min: number; max: number; step: number; suffix?: string; format?: (v: number) => string }
   | { kind: 'toggle' }
   | { kind: 'select';    options: { value: string; label: string }[] }
-  | { kind: 'button';    label: string; action: 'openWizard' | 'restoreAll' | 'openSkin' }
+  | { kind: 'button';    label: string; action: 'openWizard' | 'restoreAll' }
   | { kind: 'color-grid';keys: { index: number; label: string; desc: string }[] }
   | { kind: 'custom';    render: (api: RowApi) => ReactNode };
 
@@ -69,47 +67,6 @@ export interface RowDef {
   keywords?: string[];            // extra terms matched by search
   showWhen?: (s: GameSettings) => boolean;
 }
-
-// Reusable option lists
-const SKIN_OPTIONS = [
-  { value: 'neon',           label: 'Neon Cyber' },
-  { value: 'classic-bar',    label: 'DDR Retro Bar' },
-  { value: 'cyberpunk',      label: 'Vaporwave Neon' },
-  { value: 'emerald',        label: 'Acid Emerald' },
-  { value: 'minimalist',     label: 'Monochrome' },
-  { value: 'circles',        label: 'Circular Mode' },
-  { value: 'glassy-spheres', label: 'Glassy 3D Spheres' },
-  { value: 'hollow-rings',   label: 'Hollow Rings' },
-  { value: 'custom',         label: 'Custom Skin' },
-];
-
-const NOTE_STYLE_OPTIONS = [
-  { value: 'rounded', label: 'Rounded rectangle' },
-  { value: 'square',  label: 'Sharp square' },
-  { value: 'circle',  label: 'Classic circle' },
-  { value: 'pill',    label: 'Elastic pill' },
-];
-
-const RECEPTOR_STYLE_OPTIONS = [
-  { value: 'tactile',     label: 'Tactile glass' },
-  { value: 'square',      label: 'Sharp square' },
-  { value: 'minimal',     label: 'Piano segment' },
-  { value: 'translucent', label: 'Transparent glow' },
-];
-
-const CIRCLE_RENDER_OPTIONS = [
-  { value: 'circles',        label: 'Classic' },
-  { value: 'glassy-spheres', label: 'Glassy 3D' },
-  { value: 'hollow-rings',   label: 'Hollow rings' },
-];
-
-const CUSTOM_PALETTE_KEYS = [
-  { index: 0, label: 'Side keys',  desc: 'Outer lanes' },
-  { index: 1, label: 'Main keys',  desc: 'Standard lanes' },
-  { index: 2, label: 'Center key', desc: 'Middle column' },
-  { index: 3, label: 'Special key',desc: '8K unique lane' },
-  { index: 4, label: 'Hold trail', desc: 'Hold note body' },
-];
 
 const pct  = (v: number) => `${Math.round(v * 100)}%`;
 const num  = (v: number, s?: string) => `${v}${s ?? ''}`;

@@ -111,7 +111,7 @@ export class NoteLayer extends Container {
   }
 
   destroyLayer(): void {
-    for (const [key, sp] of this.activeSprites.entries()) {
+    for (const sp of this.activeSprites.values()) {
       this.removeChild(sp);
       this.pool.release(sp);
     }

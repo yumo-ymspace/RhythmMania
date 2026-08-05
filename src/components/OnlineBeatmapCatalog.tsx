@@ -15,11 +15,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import JSZip from 'jszip';
 import SparkMD5 from 'spark-md5';
 import { 
-  Search, X, Music, Check, Loader, Download, Info, SlidersHorizontal, ArrowUpDown 
+  Search, X, Music, Check, Loader, Download, Info, ArrowUpDown
 } from 'lucide-react';
 import { Beatmap } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
-import { RobustZipResolver } from '../utils/zipResolver';
 import { storageManager } from '../utils/storageManager';
 import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl } from '../utils/securityLimits';
 import { computeBeatmapHash } from '../utils/replayManager';
@@ -43,7 +42,6 @@ export default function OnlineBeatmapCatalog({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [submittedSearchTerm, setSubmittedSearchTerm] = useState<string>('');
   const [filterSearchTerm, setFilterSearchTerm] = useState<string>('');
-  const [selectedMode, setSelectedMode] = useState<string>('Any');
   const [sortBy, setSortBy] = useState<string>('Title');
   const [downloadingMapId, setDownloadingMapId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null);
@@ -145,33 +143,6 @@ export default function OnlineBeatmapCatalog({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // Star rating mapping
-  const getStarRating = (map: any) => {
-    if (map.starRating !== undefined) return map.starRating;
-    const diffName = (map.difficulty || '').toLowerCase();
-    if (diffName.includes('easy') || diffName.includes('beginner')) return 1.5;
-    if (diffName.includes('doubtful')) return 2.33;
-    if (diffName.includes('normal')) return 2.1;
-    if (diffName.includes('hard') || diffName.includes('hyper')) return 3.65;
-    if (diffName.includes('insane') || diffName.includes('another')) return 4.8;
-    if (diffName.includes('expert') || diffName.includes('black')) return 5.85;
-    if (diffName.includes('extra') || diffName.includes('deluge')) return 6.4;
-    if (diffName.includes('master') || diffName.includes('zenith')) return 7.5;
-    
-    const hash = (map.id || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const calculated = 1.0 + (hash % 75) / 10; 
-    return Math.round(calculated * 100) / 100;
-  };
-
-  const getCircleColor = (rating: number) => {
-    if (rating < 2.0) return 'bg-emerald-500';
-    if (rating < 3.0) return 'bg-cyan-500';
-    if (rating < 4.0) return 'bg-amber-500';
-    if (rating < 5.0) return 'bg-orange-500';
-    if (rating < 6.5) return 'bg-rose-500';
-    return 'bg-purple-500';
-  };
-
   // Downloading and Unzipping logic
   const handleDownload = async (s: any) => {
     if (downloadingMapId) {
@@ -255,7 +226,6 @@ export default function OnlineBeatmapCatalog({
        await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
       await new Promise(resolve => setTimeout(resolve, 15));
 
-      const resolver = new RobustZipResolver(zip);
       const fileNames = Object.keys(zip.files);
        const beatmapFiles: { name: string; content: string; checksum: string }[] = [];
 
@@ -367,10 +337,6 @@ export default function OnlineBeatmapCatalog({
   };
 
   const filteredManifest = serverManifest.filter((s) => {
-    if (selectedMode !== 'Any') {
-      const requiredMode = selectedMode.toLowerCase().includes('mania') ? 3 : 0;
-      if (s.mode !== undefined && s.mode !== requiredMode) return false;
-    }
     if (filterSearchTerm) {
       const q = filterSearchTerm.toLowerCase();
       const match = (s.title || '').toLowerCase().includes(q) ||

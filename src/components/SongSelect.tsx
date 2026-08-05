@@ -14,19 +14,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Search, Upload, Sliders, Play, Settings, Compass, Info, Trash2, 
-  Loader, Cloud, CloudOff, Database, FileText, Sparkles, Music, 
-  ChevronDown, ChevronUp, Star, Check, SlidersHorizontal, Shuffle, 
-  Repeat, Layers, Eye, Volume2, User, Clock, Heart, Award, ArrowUpRight, X
+  Search, Upload, Sliders, Play, Compass, Info, Trash2,
+  Loader, Cloud, CloudOff, FileText, Music,
+  ChevronDown, Star, Check, SlidersHorizontal, Shuffle,
+  Clock, Heart, Award, X
 } from 'lucide-react';
 import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
-import { RobustZipResolver } from '../utils/zipResolver';
-import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
+import { isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
 import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
 import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
-import { TempMemoryCache } from '../utils/tempMemoryCache';
 import { unpackBeatmap } from '../utils/unpackHelper';
 import { computeBeatmapHash } from '../utils/replayManager';
 import { LeaderboardReplayItem, fetchLeaderboardReplays, fetchReplayDetail } from '../utils/replayClient';
@@ -40,7 +38,6 @@ interface SongSelectProps {
   onOpenSettings: () => void;
   customMaps: Beatmap[];
   onImportBeatmap: (map: Beatmap) => void;
-  onDeleteCustomMap?: (id: string) => void;
   onDeleteSongGroup?: (mapIds: string[]) => void;
   filterMode: number;
   setSongSelectBgUrl?: (url: string) => void;
@@ -61,7 +58,6 @@ export default function SongSelect({
   onOpenSettings,
   customMaps,
   onImportBeatmap,
-  onDeleteCustomMap,
   onDeleteSongGroup,
   filterMode,
   setSongSelectBgUrl,
@@ -114,16 +110,12 @@ export default function SongSelect({
   }, [onOpenSettings]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isDragActive, setIsDragActive] = useState<boolean>(false);
   const [importStatus, setImportStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [songDeleteConfirmKey, setSongDeleteConfirmKey] = useState<string | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
-  const [isLoadingMedia, setIsLoadingMedia] = useState<boolean>(false);
 
   const [serverManifest, setServerManifest] = useState<any[]>([]);
-  const [showServerPackages, setShowServerPackages] = useState<boolean>(true);
+  const showServerPackages = true;
   const [downloadingMapId, setDownloadingMapId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null);
 
@@ -134,7 +126,6 @@ export default function SongSelect({
   const [sortBy, setSortBy] = useState<string>('Title');
   const [collectionFilter, setCollectionFilter] = useState<string>('Downloaded');
   const [openFilterMenu, setOpenFilterMenu] = useState<'sort' | 'star' | null>(null);
-  const [selectedDetailTab, setSelectedDetailTab] = useState<'details' | 'ranking'>('details');
   const [localScores, setLocalScores] = useState<any[]>([]);
   const [showModsModal, setShowModsModal] = useState<boolean>(false);
 
@@ -261,15 +252,6 @@ export default function SongSelect({
     if (rating < 5.0) return 'text-orange-400 bg-orange-500/10 border border-orange-500/20';
     if (rating < 6.5) return 'text-rose-400 bg-rose-500/10 border border-rose-500/20';
     return 'text-purple-400 bg-purple-500/10 border border-purple-500/20';
-  };
-
-  const getCircleColor = (rating: number) => {
-    if (rating < 2.0) return 'bg-emerald-450';
-    if (rating < 3.0) return 'bg-cyan-455';
-    if (rating < 4.0) return 'bg-amber-450';
-    if (rating < 5.0) return 'bg-orange-450';
-    if (rating < 6.5) return 'bg-rose-450';
-    return 'bg-purple-450';
   };
 
   // Extract merged custom and virtual server/cloud maps
@@ -745,18 +727,6 @@ export default function SongSelect({
     return songGroups.find(g => g.songKey === songKey) || null;
   }, [selectedCustomMap, songGroups]);
 
-  const difficultiesList = React.useMemo(() => {
-    if (!selectedCustomMap) return [];
-    const metaDiffs = (selectedCustomMap as any).difficultiesSummary || selectedGroup?.difficultiesSummary;
-    if (metaDiffs && metaDiffs.length > 0) return metaDiffs;
-    
-    if (selectedGroup && selectedGroup.maps.length > 0) {
-      return Array.from(new Set(selectedGroup.maps.map(m => m.difficulty || 'Normal')));
-    }
-    
-    return [selectedCustomMap.difficulty || 'Normal'];
-  }, [selectedCustomMap, selectedGroup]);
-
   // Extract all compiled difficulties for the currently selected track regardless of star thresholds/filter bounds
   const currentSongMaps = React.useMemo(() => {
     if (!selectedCustomMap) return [];
@@ -785,14 +755,6 @@ export default function SongSelect({
   }, [availableKeyCounts, settings.selectedMods, updateSettings]);
 
 
-  const isSelectedMapReady = (() => {
-    if (!selectedCustomMap) return false;
-    if ((selectedCustomMap as any).isServerPackage || ((selectedCustomMap as any).isServerMap && !(selectedCustomMap as any).isCached)) {
-      return true; // Virtual cloud pack - button will say GET BEATMAP SET
-    }
-    return !!(selectedCustomMap as any).isCached;
-  })();
-
   // Core map asset extraction and mounting
   const handleSelectCustomMap = async (map: Beatmap, forceUnpack = false) => {
     const wantsVideo = isBrowserPlayableVideoFilename((map as any).videoFilename || '');
@@ -816,7 +778,6 @@ export default function SongSelect({
     
     const isVirtualPackage = (map as any).isServerPackage || ((map as any).isServerMap && !(map as any).isCached);
     if (!isVirtualPackage) {
-      setIsLoadingMedia(true);
       try {
         await unpackBeatmap(map, forceUnpack);
         const cached = storageManager.lruMediaCache.get(map.id);
@@ -828,8 +789,6 @@ export default function SongSelect({
         setUnpackTrigger(prev => prev + 1);
       } catch (err) {
         console.warn('Unpacker encountered an issue resolving map media channels:', err);
-      } finally {
-        setIsLoadingMedia(false);
       }
     }
   };
@@ -849,7 +808,7 @@ export default function SongSelect({
     const previewMs = (map.previewTime != null && map.previewTime >= 0)
       ? map.previewTime
       : (map.duration || 180) * 1000 * 0.4;
-    previewPlayer.play(map.audioUrl, previewMs, settings.musicVolume * settings.previewVolume * settings.masterVolume, getMapSongKey(map));
+    previewPlayer.play(map.audioUrl, previewMs, settings.musicVolume * settings.previewVolume * settings.masterVolume);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomMapId, unpackTrigger, mergedCustomMaps, settings.enableSongPreview, settings.previewVolume, settings.masterVolume]);
 
@@ -948,8 +907,7 @@ export default function SongSelect({
           await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
           await new Promise(resolve => setTimeout(resolve, 15));
 
-          const resolver = new RobustZipResolver(zip);
-          const fileNames = Object.keys(zip.files);
+           const fileNames = Object.keys(zip.files);
           const beatmapFiles: { name: string; content: string }[] = [];
 
           for (const name of fileNames) {
@@ -1048,13 +1006,10 @@ export default function SongSelect({
         return;
       }
 
-      setIsLoadingMedia(true);
       try {
         await handleSelectCustomMap(activeMap, true);
       } catch (e) {
         console.error('Failed unpacking media prior to gameplay:', e);
-      } finally {
-        setIsLoadingMedia(false);
       }
       onSelectMap(activeMap);
     }
@@ -1064,18 +1019,11 @@ export default function SongSelect({
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setIsDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setIsDragActive(false);
-    }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragActive(false);
-
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       await processImportedFile(file);
@@ -1130,9 +1078,7 @@ export default function SongSelect({
         const zip = await JSZip.loadAsync(file);
         validateZipLimits(zip);
         
-        const zipKeys = Object.keys(zip.files);
-
-        const fileNames = Object.keys(zip.files);
+         const fileNames = Object.keys(zip.files);
         const beatmapFiles: { name: string; content: string }[] = [];
 
         for (const name of fileNames) {
@@ -1217,8 +1163,6 @@ export default function SongSelect({
 
   // Extract selected beatmap statistics
   const currentStarRating = selectedCustomMap ? getStarRating(selectedCustomMap) : 0.0;
-  const filteredScores = localScores.filter(s => s.beatmapId === selectedCustomMapId);
-
   if (isMobile) {
     const playButtonText = downloadingMapId 
       ? 'DOWNLOADING' 

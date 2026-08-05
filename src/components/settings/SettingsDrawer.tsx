@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { GameSettings } from '../../types';
 import SettingsSidebar from './SettingsSidebar';
@@ -25,7 +25,6 @@ import {
   isAtDefault,
   DEFAULT_SETTINGS,
 } from './defaultSettings';
-import { loadSkinFile } from './skinParser';
 import * as LucideIcons from 'lucide-react';
 import metadata from '../../../metadata.json';
 import SettingsToggle from './controls/SettingsToggle';
@@ -57,8 +56,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (shaking) {
@@ -99,22 +96,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
       disableParticles: false,
       limitDprToOne: false,
     });
-  };
-
-  const handleFileUpload = async (file: File) => {
-    const res = await loadSkinFile(file);
-    if (res && res.colors) {
-      updateSettings({
-        skinId: 'custom',
-        customSkinColors: res.colors
-      });
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileUpload(file);
   };
 
   if (isMobile) {
@@ -254,7 +235,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                           onClick={() => {
                             if (action === 'openWizard') setWizardOpen(true);
                             if (action === 'restoreAll') handleRestoreRequest();
-                            if (action === 'openSkin') fileInputRef.current?.click();
                           }}
                         />
                       );
@@ -343,17 +323,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
           />
         )}
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          className="hidden"
-          accept=".ini,.osk,.zip"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFileUpload(file);
-            e.target.value = '';
-          }}
-        />
       </>
     );
   }
@@ -371,8 +340,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
               }}
               onClick={onClose} 
               aria-hidden 
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -381,8 +348,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
             <motion.aside 
               key="drawer"
               className="settings-shell fixed inset-y-0 left-0 z-50 w-full md:w-[860px] md:max-w-[90vw] flex flex-col md:flex-row"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
               initial={{ x: '-100%', opacity: 0.6 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '-100%', opacity: 0 }}
@@ -409,7 +374,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                   resetRow={resetRow}
                   onNoResults={() => setShaking(true)}
                   openWizard={() => setWizardOpen(true)} 
-                  openSkin={() => fileInputRef.current?.click()}
                   restoreAll={handleRestoreRequest}
                   isAtDefault={isAtDefault}
                 />
@@ -434,17 +398,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
         />
       )}
       
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        className="hidden" 
-        accept=".ini,.osk,.zip"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileUpload(file);
-          e.target.value = '';
-        }}
-      />
     </>
   );
 }

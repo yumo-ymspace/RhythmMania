@@ -10,7 +10,7 @@ export interface CloudChartRow {
   artist: string;
   creator: string;
   cover_url: string | null;
-  catalog_state: 'pending' | 'active' | 'frozen';
+  catalog_state: 'pending' | 'active';
   rank_status: string | null;
   download_url: string | null;
   original_osu_filename: string;

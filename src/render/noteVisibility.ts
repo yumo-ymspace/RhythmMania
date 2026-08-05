@@ -11,15 +11,13 @@
  */
 
 import { HitObject } from '../types';
-import { PlayfieldVisualSettings, VisibleNote, ColumnLayout } from './types';
+import { PlayfieldVisualSettings, VisibleNote } from './types';
 import { getScrollYPosition, getHiddenOpacityForY } from './playfieldLayout';
-import { isCircleSkinMode } from './skinTheme';
 import { ScrollModel } from './scrollVelocity';
 
 export function getVisibleNotes(
   notes: HitObject[],
   settings: PlayfieldVisualSettings,
-  columns: ColumnLayout[],
   height: number,
   receptorY: number,
   visualTime: number,
@@ -30,7 +28,6 @@ export function getVisibleNotes(
   const paddingLimit = 100; // Safe cushion to ensure holds / note animations don't pop off screen edge prematurely
   const up = settings.upsurfaceNoteMode;
   const isHD = settings.selectedMods?.includes('HD') || false;
-  const isCircle = isCircleSkinMode(settings);
   const noteOpacityVal = settings.noteOpacity ?? 1.0;
 
   notes.forEach((n) => {
@@ -53,8 +50,6 @@ export function getVisibleNotes(
     if (!isHoldBodyActive && !shouldDrawHead && !shouldDrawEnd) {
       return;
     }
-
-    const colW = columns[n.column]?.width || 50;
 
     // Head Y / End Y
     const y = getScrollYPosition(n.time, visualTime, receptorY, speedFactor, up, scrollModel);

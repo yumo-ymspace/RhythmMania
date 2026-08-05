@@ -30,7 +30,6 @@ interface SettingsPaneProps {
   resetRow: (id: string) => void;
   onNoResults: () => void;
   openWizard: () => void;
-  openSkin: () => void;
   restoreAll: () => void;
   isAtDefault: (id: string, value: unknown) => boolean;
 }
@@ -43,7 +42,6 @@ export default function SettingsPane({
   resetRow,
   onNoResults,
   openWizard,
-  openSkin,
   restoreAll,
   isAtDefault,
 }: SettingsPaneProps) {
@@ -152,7 +150,6 @@ export default function SettingsPane({
                   onClick={() => {
                     if (action === 'openWizard') openWizard();
                     if (action === 'restoreAll') restoreAll();
-                    if (action === 'openSkin') openSkin();
                   }}
                 />
               );

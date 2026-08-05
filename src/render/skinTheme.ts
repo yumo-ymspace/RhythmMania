@@ -12,7 +12,7 @@
 
 import { PlayfieldVisualSettings, ResolvedSkin } from './types';
 
-export function getLaneColors(settings: PlayfieldVisualSettings, keyCount: number, kind: 'note' | 'receptor'): string[] | null {
+export function getLaneColors(settings: PlayfieldVisualSettings, keyCount: number): string[] | null {
   const colors = settings.receptorColorsByKeyCount?.[keyCount];
   return Array.isArray(colors) && colors.length === keyCount ? colors : null;
 }

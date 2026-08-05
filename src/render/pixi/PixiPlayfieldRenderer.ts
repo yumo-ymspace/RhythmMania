@@ -78,7 +78,7 @@ export class PixiPlayfieldRenderer implements IPlayfieldRenderer {
     this.app.stage.addChild(this.hitErrorLayer);
   }
 
-  resize(width: number, height: number, dpr: number): void {
+  resize(width: number, height: number, _dpr: number): void {
     if (!this.app) return;
     this.app.renderer.resize(width, height);
   }
@@ -89,7 +89,7 @@ export class PixiPlayfieldRenderer implements IPlayfieldRenderer {
     const { shake, columns, settingsSlice, isFocusMode } = frame;
 
     // 1. Resolve / Build textures for this frame
-    const textures = this.cache.getTextures(this.app, columns, settingsSlice, isFocusMode);
+    const textures = this.cache.getTextures(columns, settingsSlice, isFocusMode);
 
     // 2. Handle screen shake on root container
     if (shake > 0) {

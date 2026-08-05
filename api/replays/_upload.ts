@@ -116,7 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Save only a replay. Catalog rows are created by seed/registration, never uploads.
-    await query(
+    const saved = await query(
       `INSERT INTO replays (
          id, user_id, beatmap_set_id, beatmap_difficulty_id, chart_revision_id, beatmap_hash,
         score, accuracy, max_combo, grade, is_failed,
@@ -134,7 +134,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         grade = EXCLUDED.grade,
         score_state = EXCLUDED.score_state,
         replay_frames = EXCLUDED.replay_frames,
-        upload_status = 'uploaded'`,
+         upload_status = 'uploaded'
+       WHERE replays.user_id = EXCLUDED.user_id`,
       [
          id,
          session.userId,
@@ -153,6 +154,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         JSON.stringify(mods || []),
       ]
     );
+
+    if (saved.rowCount === 0) {
+      return sendError(res, 409, 'Replay ID is already owned by another account');
+    }
 
     return sendJson(res, 200, {
       success: true,

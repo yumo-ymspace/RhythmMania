@@ -19,7 +19,6 @@
 class PreviewPlayer {
   private audio: HTMLAudioElement | null = null;
   private src: string | null = null;
-  private trackId: string | null = null;
   private previewStartSec = 0;
   private targetVolume = 0;
   private fadeTimer: number | null = null;
@@ -57,8 +56,8 @@ class PreviewPlayer {
     try { a.load(); } catch { /* noop */ }
   }
 
-  /** Start (or continue) previewing a track. Safe to call repeatedly with the same src/trackId. */
-  public play(src: string, previewTimeMs: number, volume: number, trackId?: string): void {
+  /** Start (or continue) previewing a track. */
+  public play(src: string, previewTimeMs: number, volume: number): void {
     if (!src) return;
     this.targetVolume = volume;
 
@@ -72,7 +71,6 @@ class PreviewPlayer {
       this.releaseElement(this.audio);
       this.audio = null;
       this.src = null;
-      this.trackId = null;
     }
     this.clearFade();
 
@@ -81,7 +79,6 @@ class PreviewPlayer {
     a.volume = 0;
     this.audio = a;
     this.src = src;
-    this.trackId = trackId ?? null;
 
     const begin = () => {
       if (this.audio !== a) return;
@@ -110,7 +107,6 @@ class PreviewPlayer {
       this.releaseElement(a);
       this.audio = null;
       this.src = null;
-      this.trackId = null;
     });
     a.src = src;
     if (a.readyState >= 1) begin();
@@ -130,7 +126,6 @@ class PreviewPlayer {
       if (this.audio === a) {
         this.audio = null;
         this.src = null;
-        this.trackId = null;
       }
     });
   }

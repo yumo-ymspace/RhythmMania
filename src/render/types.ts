@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { GameSettings, HitObject, JudgementWindow } from '../types';
+import { GameSettings } from '../types';
 
 export interface ColumnLayout {
   x: number;

@@ -10,34 +10,9 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { getColumnStyles, ColumnStyle } from '../components/GameplayCanvas';
+import { getColumnStyles } from '../components/GameplayCanvas';
 import { PlayfieldVisualSettings, ColumnLayout } from './types';
 import { ScrollModel, getScrollDelta } from './scrollVelocity';
-
-export function calculateColumnsLayout(
-  keyCount: number,
-  width: number,
-  settings: PlayfieldVisualSettings,
-  activeColumns: boolean[],
-  laneGlows: number[]
-) {
-  const baseWidth = width / keyCount;
-  const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
-
-  const columns = [];
-  let accumulatedX = 0;
-  for (let i = 0; i < keyCount; i++) {
-    columns.push({
-      x: accumulatedX,
-      width: colStyles[i].width,
-      color: colStyles[i].color,
-      pressed: activeColumns[i] || false,
-      glow: laneGlows[i] || 0
-    });
-    accumulatedX += colStyles[i].width;
-  }
-  return columns;
-}
 
 export function updateColumnsLayout(
   existingColumns: ColumnLayout[],

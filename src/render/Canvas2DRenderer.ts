@@ -117,7 +117,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                          settingsSlice.skinId === 'circles' ||
                          settingsSlice.skinId === 'glassy-spheres' ||
                           settingsSlice.skinId === 'hollow-rings';
-    const laneColors = getLaneColors(settingsSlice, columns.length, 'receptor');
+    const laneColors = getLaneColors(settingsSlice, columns.length);
     const noteColorFor = (column: number) => laneColors?.[column] || columns[column].color;
     const receptorColorFor = noteColorFor;
 

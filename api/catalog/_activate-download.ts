@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    if (typeof cloudSetId !== 'string' || !/^osuapi_\d+$/.test(cloudSetId) || typeof token !== 'string' || !token || !Array.isArray(charts) || charts.length === 0 || charts.some((chart: any) => !Number.isInteger(chart?.beatmapId) || chart.beatmapId < 1 || typeof chart?.checksum !== 'string' || !chart.checksum)) return sendError(res, 400, 'Invalid activation request');
   const result = await query<{ source_metadata: any; catalog_state: string; source_set_id: number }>('SELECT source_metadata, catalog_state, source_set_id FROM beatmap_sets WHERE id = $1 AND source = \'osuapi\'', [cloudSetId]);
   const row = result.rows[0];
-  if (!row || row.catalog_state === 'frozen') return sendError(res, 404, 'Pending cloud set not found');
+   if (!row) return sendError(res, 404, 'Pending cloud set not found');
   if (row.source_metadata?.token !== token || row.source_metadata?.userId !== session.userId) return sendError(res, 403, 'Activation token is invalid or expired');
   const expected = Array.isArray(row.source_metadata.charts) ? row.source_metadata.charts : [];
   const submitted = charts.map((chart: any) => `${chart.beatmapId}:${String(chart.checksum || '').toLowerCase()}`).sort();

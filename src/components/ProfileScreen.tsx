@@ -50,7 +50,6 @@ const SOCIAL_LABELS = [
 ] as const;
 
 export default function ProfileScreen({
-  user,
   profileId,
   onBack,
   onEditProfile,

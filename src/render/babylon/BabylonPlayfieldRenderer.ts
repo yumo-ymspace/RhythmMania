@@ -75,7 +75,7 @@ export class BabylonPlayfieldRenderer implements IPlayfieldRenderer {
     this.particleLayer = new ParticleLayer(this.scene);
   }
 
-  resize(width: number, height: number, dpr: number): void {
+  resize(_width: number, _height: number, dpr: number): void {
     if (!this.engine) return;
     this.engine.setHardwareScalingLevel(1 / Math.max(0.5, dpr));
     this.engine.resize();

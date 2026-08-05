@@ -1,7 +1,7 @@
 interface OsuChart { id: number; filename: string; version: string; keyCount: number; checksum: string; }
 interface EligibleOsuSet { title: string; artist: string; creator: string; status: string; coverUrl?: string; charts: OsuChart[]; }
 let cached: { token: string; expiresAt: number } | null = null;
-const eligibleStatuses = new Set(['ranked', 'approved', 'loved']);
+const eligibleStatuses = new Set(['ranked', 'loved']);
 
 async function accessToken(): Promise<string> {
   if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;

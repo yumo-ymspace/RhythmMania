@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings as SettingsIcon, Play, History, LogOut, User, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Play, History, Loader2 } from 'lucide-react';
 import metadata from '../../metadata.json';
 import { AuthUser } from '../utils/authClient';
 

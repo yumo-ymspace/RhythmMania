@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS beatmap_sets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     ,CONSTRAINT beatmap_sets_source_chk CHECK (source IN ('bundled', 'osuapi'))
-    ,CONSTRAINT beatmap_sets_state_chk CHECK (catalog_state IN ('pending', 'active', 'frozen'))
+    ,CONSTRAINT beatmap_sets_state_chk CHECK (catalog_state IN ('pending', 'active'))
     ,CONSTRAINT beatmap_sets_source_id_chk CHECK ((source = 'osuapi' AND source_set_id IS NOT NULL) OR (source = 'bundled'))
 );
 

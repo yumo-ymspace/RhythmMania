@@ -11,7 +11,7 @@
  */
 
 import JSZip from 'jszip';
-import { Beatmap, GameSettings, PlayHistoryRecord, ReplaySource, UploadEligibility, UploadStatus } from '../types';
+import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
 import { migrateHistoryRecord } from './replayManager';
 import {
   BABYLON_PLAYFIELD_WIDTH_MAX,
@@ -22,7 +22,6 @@ import {
 
 // SECURITY LIMIT CONSTANTS
 export const MAX_COMPRESSED_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB max compressed size for .osz
-export const MAX_SKIN_COMPRESSED_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB max compressed size for .osk
 export const MAX_TOTAL_UNCOMPRESSED_SIZE_BYTES = 250 * 1024 * 1024; // 250 MB max uncompressed zip size
 export const MAX_ZIP_ENTRIES = 500; // 500 files max per zip/osz
 export const MAX_SINGLE_ENTRY_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB max size for any single uncompressed entry
@@ -36,30 +35,35 @@ export const MAX_OSU_TEXT_BYTES = 2 * 1024 * 1024; // 2 MB max size for the .osu
  * Rejects arbitrary external http/https/ftp/etc. URLs.
  */
 export function isSafeAssetUrl(url: string): boolean {
-  if (!url) return false;
-  
-  // Allow blob URLs
-  if (url.startsWith('blob:')) {
-    return true;
-  }
-  
-  // Allow same-origin/relative paths
-  if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../') || !url.includes('://')) {
-    return true;
-  }
-  
-  try {
-    const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : undefined);
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    
-    // Check if same origin
-    if (origin && parsed.origin === origin) {
-      return true;
+  const value = typeof url === 'string' ? url.trim() : '';
+  if (!value || value.startsWith('//')) return false;
+
+  if (value.startsWith('blob:')) {
+    try {
+      return new URL(value).protocol === 'blob:';
+    } catch {
+      return false;
     }
-    
-    // Only allow specific paths on same origin if it was relative
-    return false;
-  } catch (e) {
+  }
+
+  if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) return true;
+  if (/^[a-z][a-z\d+.-]*:/i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      return typeof window !== 'undefined'
+        && (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+        && parsed.origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  }
+
+  if (!value.includes('://')) return true;
+
+  try {
+    const parsed = new URL(value, typeof window !== 'undefined' ? window.location.origin : undefined);
+    return typeof window !== 'undefined' && parsed.origin === window.location.origin;
+  } catch {
     return false;
   }
 }
@@ -77,7 +81,7 @@ export function assertSafeAssetUrl(url: string, context = 'Asset URL'): void {
  * Validates zip structural integrity and limits before decompressing/extracting.
  * Prevents client-side DoS (zip bombs, excessive file sizes, memory exhaustion).
  */
-export function validateZipLimits(zip: JSZip, isSkin = false): void {
+export function validateZipLimits(zip: JSZip): void {
   const files = zip.files;
   const fileKeys = Object.keys(files);
   
@@ -181,7 +185,7 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
   if (Array.isArray(parsed.selectedMods)) {
     for (const mod of parsed.selectedMods) {
       if (typeof mod === 'string' && /^[a-zA-Z0-9]{2,4}$/.test(mod)) {
-        selectedMods.push(mod);
+        selectedMods.push(mod.toUpperCase());
       }
     }
   }
@@ -236,6 +240,7 @@ export function sanitizeSettings(parsed: any, defaultSettings: GameSettings): Ga
     disableVideo: Boolean(parsed.disableVideo),
     videoOffset: clamp(parsed.videoOffset, -10000, 10000, defaultSettings.videoOffset || 0),
     disableParticles: Boolean(parsed.disableParticles),
+    disableLaneShake: Boolean(parsed.disableLaneShake),
     limitDprToOne: false,
     skinId: sanitizeString(parsed.skinId, defaultSettings.skinId || 'custom'),
     customSkinColors: customSkinColors,

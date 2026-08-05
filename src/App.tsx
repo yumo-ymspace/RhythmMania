@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings as SettingsIcon, Gamepad2, Play, ChevronRight, BarChart3, Disc, Music, Shield, Cpu, Sliders, Keyboard, History, CircleDot, Compass, UserRound, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Keyboard, History, Compass, UserRound, Loader2 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
 import { AnimatePresence, motion } from 'motion/react';
@@ -24,7 +24,6 @@ import ProfileScreen from './components/ProfileScreen';
 import EditProfileScreen from './components/EditProfileScreen';
 import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import JSZip from 'jszip';
-import { mainAudio } from './audio/AudioEngine';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
 import { unpackBeatmap } from './utils/unpackHelper';
@@ -756,16 +755,6 @@ export default function App() {
     }
   };
 
-  const handleDeleteCustomMap = async (mapId: string) => {
-    try {
-      await storageManager.deleteBeatmapAndCleanup(mapId);
-      setCustomMaps(prev => prev.filter(m => m.id !== mapId));
-      setSelectedBeatmap(prev => prev && prev.id === mapId ? null : prev);
-    } catch (e) {
-      console.error('Failed to delete custom map:', e instanceof Error ? e.message : String(e));
-    }
-  };
-
   const handleDeleteSongGroup = async (mapIds: string[]) => {
     try {
       for (const mapId of mapIds) {
@@ -1296,7 +1285,6 @@ export default function App() {
                 customMaps={customMaps}
                 shouldAutoSelectOnMount={hasPlayedThisSession}
                 onImportBeatmap={handleImportBeatmap}
-                onDeleteCustomMap={handleDeleteCustomMap}
                 onDeleteSongGroup={handleDeleteSongGroup}
                 filterMode={3}
                 setSongSelectBgUrl={setSongSelectBgUrl}

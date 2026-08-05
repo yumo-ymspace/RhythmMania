@@ -41,7 +41,6 @@ export class AudioEngine {
   // Procedural backup synthesizer tracker
   private synthInterval: any = null;
   private proceduralBpm: number = 120;
-  private proceduralTimeStart: number = 0;
 
   constructor() {
     // Lazy initialize to bypass auto-play restrictions on script load
@@ -311,7 +310,6 @@ export class AudioEngine {
       // Procedural fallback drum & melody sequencer mode
       // Synchronized to timing clock ticks
       this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / this.playbackRate;
-      this.proceduralTimeStart = this.startTime - (this.pauseTime / this.playbackRate);
       this.startBackupSynthSequencer();
     }
 
@@ -392,7 +390,6 @@ export class AudioEngine {
         this.musicSource.playbackRate.value = this.playbackRate;
         this.musicSource.start(this.startTime, this.pauseTime);
       } else {
-        this.proceduralTimeStart = audioContextTime - (this.pauseTime / this.playbackRate);
         this.startBackupSynthSequencer();
       }
     }
@@ -467,7 +464,6 @@ export class AudioEngine {
     if (this.synthInterval) clearInterval(this.synthInterval);
     if (!this.ctx) return;
 
-    const tickMs = 60000 / this.proceduralBpm / 2; // Eighth notes
     let tickCount = 0;
 
     // Reschedule in real-time
