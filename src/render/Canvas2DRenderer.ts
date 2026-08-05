@@ -13,6 +13,7 @@
 import { IPlayfieldRenderer, PlayfieldFrame, InitOpts, VisibleNote } from './types';
 import { hexToRgba } from '../components/GameplayCanvas';
 import { getLaneColors } from './skinTheme';
+import { getNoteVisualY } from './playfieldLayout';
 
 function applyFade(colorStr: string, stopOpacity: number) {
   if (colorStr.startsWith('#')) {
@@ -216,21 +217,23 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 // Anchor the body start to the receptor only while the LN is actively engaged
         // (head hit & held). A missed head must not ground the body — the LN keeps its
         // fixed length and scrolls off naturally; the release stays salvageable.
-        let visualStartY = n.y;
+        let visualStartY = getNoteVisualY(n.y, colW, settingsSlice);
         if (n.isHit && !n.isMissed && !n.isReleased && !n.isHoldFailed) {
           visualStartY = receptorY;
         }
 
+        const visualEndY = getNoteVisualY(n.endY, colW, settingsSlice);
+
         const isOff = settingsSlice.upsurfaceNoteMode
-          ? (n.endY < receptorY && visualStartY < receptorY && n.isReleased)
-          : (n.endY > receptorY && visualStartY > receptorY && n.isReleased);
+          ? (visualEndY < receptorY && visualStartY < receptorY && n.isReleased)
+          : (visualEndY > receptorY && visualStartY > receptorY && n.isReleased);
 
         if (!isOff) {
-          const clipHeight = visualStartY - n.endY;
+          const clipHeight = visualStartY - visualEndY;
 
           ctx.save();
           ctx.globalAlpha = 1.0;
-          const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, n.endY);
+          const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
 
           const fadeStart = n.opacity;
           const fadeEnd = n.endOpacity ?? n.opacity;
@@ -302,7 +305,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
            const rw = (colW - basePadding * 2) * noteScale;
            const rx = xPos + (colW - rw) / 2;
 
-          let drawY = Math.min(visualStartY, n.endY);
+          let drawY = Math.min(visualStartY, visualEndY);
           let drawH = Math.abs(clipHeight);
 
           if (useNotePadding) {
@@ -325,7 +328,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.fill();
 
           if (!(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-            const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, n.endY);
+            const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
             const baseStrokeColor = n.isHit && !n.isReleased
               ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
               : 'rgba(56,189,248,0.4)';
@@ -336,7 +339,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(xPos + colW / 2, visualStartY);
-            ctx.lineTo(xPos + colW / 2, n.endY);
+            ctx.lineTo(xPos + colW / 2, visualEndY);
             ctx.stroke();
           }
 
@@ -369,7 +372,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
            const rw = (colW - notePadding * 2) * noteScale;
            const rh = 20 * noteScale;
            const rx = xPos + (colW - rw) / 2;
-           const ry = n.y - rh / 2;
+            const ry = getNoteVisualY(n.y, colW, settingsSlice) - rh / 2;
 
           ctx.save();
           let currentOpacity = n.opacity;
@@ -491,7 +494,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       }
 
       if (n.type === 'hold' && n.endY !== undefined && !n.isReleased) {
-        drawEndReceptor(n.endY, xPos, colW, notePadding, n);
+         drawEndReceptor(getNoteVisualY(n.endY, colW, settingsSlice), xPos, colW, notePadding, n);
       }
     });
 

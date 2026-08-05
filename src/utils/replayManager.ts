@@ -12,6 +12,7 @@
 
 import { Beatmap, GameSettings, PlayHistoryRecord, ReplayFrame, ReplaySource, ScoreState, UploadEligibility, UploadStatus } from '../types';
 import { storageManager } from './storageManager';
+import { computeGradeFromScoreState } from './scoreCalculator';
 
 export const CURRENT_REPLAY_SCHEMA_VERSION = 2;
 
@@ -109,14 +110,7 @@ export function createPlayHistoryRecord(params: {
   const catalogInfo = determineCatalogIdentity(beatmap, beatmap.id);
   const hash = beatmap.beatmapHash || computeBeatmapHash(beatmap);
 
-  let gradeChar = 'D';
-  const acc = scoreState.accuracy;
-  if (scoreState.failed) gradeChar = 'F';
-  else if (acc >= 100) gradeChar = 'SS';
-  else if (acc >= 95) gradeChar = 'S';
-  else if (acc >= 90) gradeChar = 'A';
-  else if (acc >= 80) gradeChar = 'B';
-  else if (acc >= 70) gradeChar = 'C';
+  const gradeChar = computeGradeFromScoreState(scoreState);
 
   const uploadEligibility = determineUploadEligibility({
     isServerCatalogMap: catalogInfo.isServerCatalogMap,

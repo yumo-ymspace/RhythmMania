@@ -13,6 +13,7 @@
 import { getColumnStyles } from '../components/GameplayCanvas';
 import { PlayfieldVisualSettings, ColumnLayout } from './types';
 import { ScrollModel, getScrollDelta } from './scrollVelocity';
+import { isCircleSkinMode } from './skinTheme';
 
 export function updateColumnsLayout(
   existingColumns: ColumnLayout[],
@@ -78,6 +79,25 @@ export function getScrollYPosition(
   } else {
     return receptorY - delta * speedFactor;
   }
+}
+
+/**
+ * Note timing is represented by the receptor-facing edge, not the sprite
+ * center. This keeps skins with different visible heights visually aligned.
+ */
+export function getNoteVisualY(
+  timingY: number,
+  columnWidth: number,
+  settings: PlayfieldVisualSettings
+): number {
+  const noteScale = settings.noteSizeMultiplier ?? 1;
+  const noteHeight = isCircleSkinMode(settings)
+    ? columnWidth * (2 / 3) * noteScale
+    : settings.squareRenderStyle === 'rhythmplus'
+      ? 8 * noteScale
+      : 20 * noteScale;
+  const halfHeight = noteHeight / 2;
+  return settings.upsurfaceNoteMode ? timingY + halfHeight : timingY - halfHeight;
 }
 
 export function getHiddenOpacityForY(

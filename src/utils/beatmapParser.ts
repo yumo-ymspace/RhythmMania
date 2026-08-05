@@ -186,13 +186,18 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             uninherited = beatLength > 0;
           }
 
+          // Inherited points encode scroll velocity as beatLength < 0 → SV = -100/beatLength.
+          // Positive beatLength on an inherited line yields negative SV (reverse/scroll-back).
+          // Uninherited lines always reset scroll speed to 1x (osu!mania EffectControlPoint).
           let svMultiplier = 1.0;
           if (!uninherited) {
-            if (beatLength !== 0) {
+            if (beatLength !== 0 && isFinite(beatLength)) {
               svMultiplier = -100 / beatLength;
             }
-            if (svMultiplier <= 0 || isNaN(svMultiplier) || !isFinite(svMultiplier)) {
+            if (!isFinite(svMultiplier) || isNaN(svMultiplier)) {
               svMultiplier = 1.0;
+            } else if (Math.abs(svMultiplier) > 1000) {
+              svMultiplier = Math.sign(svMultiplier) * 1000;
             }
           }
 
@@ -339,7 +344,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       activeSV = 1.0;
     }
 
-    if (activeSV <= 0 || isNaN(activeSV)) {
+    // Slider duration needs a positive velocity; reverse/zero SV is visual-only.
+    if (activeSV <= 0 || isNaN(activeSV) || !isFinite(activeSV)) {
       activeSV = 1.0;
     }
 

@@ -1206,11 +1206,12 @@ export default function SongSelect({
                         const active = settings.selectedMods || [];
                         if (active.includes('AT')) return 'UNRANKED';
                         if (active.includes('NF')) factor *= 0.5;
-                        if (active.includes('EZ')) factor *= 0.5;
-                        if (active.includes('HT')) factor *= 0.3;
-                        if (active.includes('HR')) factor *= 1.06;
-                        if (active.includes('HD')) factor *= 1.06;
-                        if (active.includes('DT')) factor *= 1.12;
+                        if (active.includes('EZ')) factor *= 0.8;
+                        if (active.includes('HT')) factor *= 0.5;
+                        if (active.includes('HR')) factor *= 1.1;
+                        if (active.includes('HD')) factor *= 1.15;
+                        if (active.includes('DT')) factor *= 1.25;
+                        if (active.some(mod => /^K[2-8]$/.test(mod))) factor *= 0.9;
                         return factor.toFixed(2) + 'x';
                       })()}
                     </span>
@@ -2457,11 +2458,12 @@ export default function SongSelect({
                       let factor = 1.0;
                       const active = settings.selectedMods || [];
                       if (active.includes('NF')) factor *= 0.5;
-                      if (active.includes('EZ')) factor *= 0.5;
-                      if (active.includes('HT')) factor *= 0.3;
-                      if (active.includes('HR')) factor *= 1.06;
-                      if (active.includes('HD')) factor *= 1.06;
-                      if (active.includes('DT')) factor *= 1.12;
+                      if (active.includes('EZ')) factor *= 0.8;
+                      if (active.includes('HT')) factor *= 0.5;
+                      if (active.includes('HR')) factor *= 1.1;
+                      if (active.includes('HD')) factor *= 1.15;
+                      if (active.includes('DT')) factor *= 1.25;
+                      if (active.some(mod => /^K[2-8]$/.test(mod))) factor *= 0.9;
                       const str = factor.toFixed(2) + 'x';
                       if (active.includes('AT')) return str + ' (UNRANKED)';
                       return str;
@@ -2505,7 +2507,7 @@ export default function SongSelect({
                           title: 'Easy (EZ)',
                           desc: 'Toggles larger difficulty hit windows with less HP drain.',
                           activeBg: 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400',
-                          mult: '0.50x',
+                          mult: '0.80x',
                           exclusiveWith: 'HR'
                         },
                         {
@@ -2513,7 +2515,7 @@ export default function SongSelect({
                           title: 'HalfTime (HT)',
                           desc: 'Decreases playback speed and rate by 0.75x.',
                           activeBg: 'bg-teal-500/20 border-teal-500/60 text-teal-400',
-                          mult: '0.30x',
+                          mult: '0.50x',
                           exclusiveWith: 'DT'
                         }
                       ].map((mod) => {
@@ -2574,7 +2576,7 @@ export default function SongSelect({
                           title: 'HardRock (HR)',
                           desc: 'Tighter timing accuracy windows, faster HP loss.',
                           activeBg: 'bg-rose-500/20 border-rose-500/60 text-rose-400',
-                          mult: '1.06x',
+                          mult: '1.10x',
                           exclusiveWith: 'EZ'
                         },
                         {
@@ -2582,14 +2584,14 @@ export default function SongSelect({
                           title: 'Hidden (HD)',
                           desc: 'Fades notes out completely before hitting target.',
                           activeBg: 'bg-purple-500/20 border-purple-500/60 text-purple-400',
-                          mult: '1.06x'
+                          mult: '1.15x'
                         },
                         {
                           id: 'DT',
                           title: 'DoubleTime (DT)',
                           desc: 'Increases playback and simulation rate by 1.50x.',
                           activeBg: 'bg-[#ff80a5]/20 border-[#ff80a5]/60 text-[#ff80a5]',
-                          mult: '1.12x',
+                          mult: '1.25x',
                           exclusiveWith: 'HT'
                         }
                       ].map((mod) => {

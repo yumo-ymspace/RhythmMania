@@ -15,6 +15,7 @@ import { RotateCcw, ChevronLeft, Video, ArrowLeft, Trash2, Download } from 'luci
 import { Beatmap, ScoreState, PlayHistoryRecord } from '../types';
 import { sanitizeCssUrl } from '../utils/securityLimits';
 import { downloadReplayExport } from '../utils/replayTransfer';
+import { computeGradeFromScoreState } from '../utils/scoreCalculator';
 import HitErrorGraph from './HitErrorGraph';
 
 interface ResultsScreenProps {
@@ -111,7 +112,8 @@ export default function ResultsScreen({
 
   // Grade color themes & classes
   const getGradeTheme = (acc: number) => {
-    if (activeScoreState.failed) {
+    const gradeChar = computeGradeFromScoreState(activeScoreState);
+    if (gradeChar === 'F') {
       return {
         char: 'F',
         textColor: 'text-rose-500',
@@ -121,7 +123,7 @@ export default function ResultsScreen({
         ringColor: '#ef4444'
       };
     }
-    if (acc >= 100) {
+    if (gradeChar === 'SS') {
       return {
         char: 'SS',
         textColor: 'text-zinc-100',
@@ -131,7 +133,7 @@ export default function ResultsScreen({
         ringColor: '#f4f4f5'
       };
     }
-    if (acc >= 95) {
+    if (gradeChar === 'S') {
       return {
         char: 'S',
         textColor: 'text-yellow-400',
@@ -141,7 +143,7 @@ export default function ResultsScreen({
         ringColor: '#facc15'
       };
     }
-    if (acc >= 90) {
+    if (gradeChar === 'A') {
       return {
         char: 'A',
         textColor: 'text-emerald-400',
@@ -151,7 +153,7 @@ export default function ResultsScreen({
         ringColor: '#34d399'
       };
     }
-    if (acc >= 80) {
+    if (gradeChar === 'B') {
       return {
         char: 'B',
         textColor: 'text-indigo-400',
@@ -161,7 +163,7 @@ export default function ResultsScreen({
         ringColor: '#818cf8'
       };
     }
-    if (acc >= 70) {
+    if (gradeChar === 'C') {
       return {
         char: 'C',
         textColor: 'text-pink-400',

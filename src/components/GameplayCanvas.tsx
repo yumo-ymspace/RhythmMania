@@ -24,6 +24,16 @@ import { getMimeTypeFromFilename, getVideoFormatLabel, isBrowserPlayableVideoFil
 import { storageManager } from '../utils/storageManager';
 import { unpackBeatmap } from '../utils/unpackHelper';
 import { sanitizeCssUrl } from '../utils/securityLimits';
+import {
+  ACCURACY_BASE_SCORE,
+  computeAccuracyPercent,
+  computeMaxComboPortion,
+  computeModMultiplier,
+  computeTotalScore,
+  countMapJudgements,
+  countTotalHits,
+  getComboScoreChange,
+} from '../utils/scoreCalculator';
 import metadata from '../../metadata.json';
 
 // HIGH PERFORMANCE INTEGRATED RENDERER IMPORTS
@@ -282,25 +292,33 @@ export default function GameplayCanvas({
   const beatmap = React.useMemo(() => {
     let baseMap = originalBeatmap;
     const legacy = originalBeatmap as any;
-    if (legacy.originalContent && (!baseMap.timingPoints || baseMap.timingPoints.length === 0)) {
+    // Re-parse from .osu source when available so timing/SV matches the current parser
+    // (negative/zero SV, uninherited reset). Full merge when timingPoints were never stored.
+    if (legacy.originalContent) {
       try {
         const parsed = parseBeatmap(legacy.originalContent, baseMap.id);
-        // Preserve package/media metadata from the saved map — parseBeatmap only returns core fields
-        baseMap = {
-          ...legacy,
-          ...parsed,
-          audioUrl: legacy.audioUrl,
-          videoUrl: legacy.videoUrl,
-          bgUrl: legacy.bgUrl,
-          videoStartTime: legacy.videoStartTime !== undefined ? legacy.videoStartTime : parsed.videoStartTime,
-          packageId: legacy.packageId,
-          parentPackageId: legacy.parentPackageId,
-          audioFilename: legacy.audioFilename,
-          videoFilename: legacy.videoFilename,
-           bgFilename: legacy.bgFilename,
-           originalContent: legacy.originalContent,
-           isServerMap: legacy.isServerMap,
-         };
+        if (!baseMap.timingPoints || baseMap.timingPoints.length === 0) {
+          baseMap = {
+            ...legacy,
+            ...parsed,
+            audioUrl: legacy.audioUrl,
+            videoUrl: legacy.videoUrl,
+            bgUrl: legacy.bgUrl,
+            videoStartTime: legacy.videoStartTime !== undefined ? legacy.videoStartTime : parsed.videoStartTime,
+            packageId: legacy.packageId,
+            parentPackageId: legacy.parentPackageId,
+            audioFilename: legacy.audioFilename,
+            videoFilename: legacy.videoFilename,
+            bgFilename: legacy.bgFilename,
+            originalContent: legacy.originalContent,
+            isServerMap: legacy.isServerMap,
+          };
+        } else {
+          baseMap = {
+            ...baseMap,
+            timingPoints: parsed.timingPoints,
+          };
+        }
       } catch (err) {
         console.error('Failed to auto-repair/re-parse legacy beatmap timing points:', err);
       }
@@ -548,8 +566,9 @@ export default function GameplayCanvas({
     scoreStateRef.current.hitErrorSampleCount = hitErrorSamplesRef.current.length;
   };
 
-  const maxRawScoreRef = useRef<number>(1);
-  const currentRawScoreRef = useRef<number>(0);
+  const maxComboPortionRef = useRef<number>(1);
+  const currentComboPortionRef = useRef<number>(0);
+  const totalJudgementsRef = useRef<number>(1);
 
   const [uiScore, setUiScore] = useState<number>(0);
   const [uiCombo, setUiCombo] = useState<number>(0);
@@ -722,17 +741,27 @@ export default function GameplayCanvas({
     };
   }, [settings.renderEngine, settings.limitDprToOne, beatmap.keyCount, isAudioLoaded]);
 
-  // Parse overall difficulty and build dynamic judgement windows in milliseconds
-  // In competitive play (adjusted by adding +- 5ms on top of the original scoring timings):
-  // OD 0: Marvelous: 21ms, Perfect: 49ms, Great: 79ms, Good: 109ms, Bad: 139ms
-  // OD 10: Marvelous: 21ms, Perfect: 25ms, Great: 40ms, Good: 58ms, Bad: 77ms
-  const getJudgementWindows = (od: number): JudgementWindow[] => {
+  // osu!lazer ManiaHitWindows DifficultyRange. DT/HT do not change windows.
+  const difficultyRange = (od: number, min: number, mid: number, max: number): number => {
+    if (od > 5) return mid + (max - mid) * ((od - 5) / 5);
+    if (od < 5) return mid + (mid - min) * ((od - 5) / 5);
+    return mid;
+  };
+  const lazerWindowMs = (
+    od: number,
+    min: number,
+    mid: number,
+    max: number,
+    difficultyMultiplier = 1,
+  ): number => Math.floor(difficultyRange(od, min, mid, max) / difficultyMultiplier) + 0.5;
+
+  const getJudgementWindows = (od: number, difficultyMultiplier: number): JudgementWindow[] => {
     return [
       {
         type: 'marvelous',
         name: 'MARVELOUS',
-        windowMs: 16 + 5,
-        baseScore: 320,
+        windowMs: lazerWindowMs(od, 22.4, 19.4, 13.9, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.marvelous,
         hpDelta: 3,
         color: '#22d3ee', // Cyan
         glowColor: 'rgba(34,211,238,0.5)',
@@ -740,8 +769,8 @@ export default function GameplayCanvas({
       {
         type: 'perfect',
         name: 'PERFECT',
-        windowMs: Math.max(20, 44 - 2.4 * od) + 5,
-        baseScore: 300,
+        windowMs: lazerWindowMs(od, 64, 49, 34, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.perfect,
         hpDelta: 2,
         color: '#facc15', // Neon Gold
         glowColor: 'rgba(250,204,21,0.4)',
@@ -749,8 +778,8 @@ export default function GameplayCanvas({
       {
         type: 'great',
         name: 'GREAT',
-        windowMs: Math.max(35, 74 - 3.9 * od) + 5,
-        baseScore: 200,
+        windowMs: lazerWindowMs(od, 97, 82, 67, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.great,
         hpDelta: 1,
         color: '#4ade80', // Green
         glowColor: 'rgba(74,222,128,0.3)',
@@ -758,8 +787,8 @@ export default function GameplayCanvas({
       {
         type: 'good',
         name: 'GOOD',
-        windowMs: Math.max(53, 104 - 5.1 * od) + 5,
-        baseScore: 100,
+        windowMs: lazerWindowMs(od, 127, 112, 97, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.good,
         hpDelta: 0.2,
         color: '#3b82f6', // Indigo
         glowColor: 'rgba(59,130,246,0.2)',
@@ -767,8 +796,8 @@ export default function GameplayCanvas({
       {
         type: 'bad',
         name: 'BAD',
-        windowMs: Math.max(72, 134 - 6.2 * od) + 5,
-        baseScore: 50,
+        windowMs: lazerWindowMs(od, 151, 136, 121, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.bad,
         hpDelta: -3,
         color: '#ec4899', // Pink
         glowColor: 'rgba(236,72,153,0.1)',
@@ -776,23 +805,22 @@ export default function GameplayCanvas({
       {
         type: 'miss',
         name: 'MISS',
-        windowMs: Math.max(120, 180 - 7 * od) + 5,
-        baseScore: 0,
-        hpDelta: -10, // Harsh HP drain under miss conditions
+        windowMs: lazerWindowMs(od, 188, 173, 158, difficultyMultiplier),
+        baseScore: ACCURACY_BASE_SCORE.miss,
+        hpDelta: -10,
         color: '#ef4444', // Hot Red
         glowColor: 'rgba(239,68,68,0.3)',
       }
     ];
   };
 
-  // Apply active mods to Overall Difficulty for Tightness / Easy adjustments
-  let effectiveOD = beatmap.overallDifficulty;
-  if (settings.selectedMods?.includes('HR')) {
-    effectiveOD = Math.min(10, effectiveOD * 1.4);
-  } else if (settings.selectedMods?.includes('EZ')) {
-    effectiveOD = effectiveOD * 0.5;
-  }
-  const judgementWindows = getJudgementWindows(effectiveOD);
+  // Lazer Mania EZ/HR scale hit-window difficulty rather than changing OD.
+  const windowDifficultyMultiplier = settings.selectedMods?.includes('HR')
+    ? 1.4
+    : settings.selectedMods?.includes('EZ')
+      ? 1 / 1.4
+      : 1;
+  const judgementWindows = getJudgementWindows(beatmap.overallDifficulty, windowDifficultyMultiplier);
   const marvelousJudg = judgementWindows.find(w => w.type === 'marvelous') || judgementWindows[0];
   const greatJudg = judgementWindows.find(w => w.type === 'great') || judgementWindows[2];
   const goodJudg = judgementWindows.find(w => w.type === 'good') || judgementWindows[3];
@@ -840,12 +868,11 @@ export default function GameplayCanvas({
       isAutoplay: isAutoplay,
     };
 
-    // Calculate maximum possible raw score for the combo-based formula
-    const totalJudgements = Math.max(1, (beatmap.notes || []).reduce((sum, note) => sum + (note.type === 'hold' ? 2 : 1), 0));
-    const B_val = 1.0;
-    const W_val = 0.1;
-    maxRawScoreRef.current = totalJudgements * B_val + W_val * (totalJudgements * (totalJudgements + 1)) / 2;
-    currentRawScoreRef.current = 0;
+    // osu!lazer mania standardised score: max combo portion for all-Marvelous FC
+    const totalJudgements = countMapJudgements(beatmap.notes);
+    totalJudgementsRef.current = totalJudgements;
+    maxComboPortionRef.current = computeMaxComboPortion(totalJudgements);
+    currentComboPortionRef.current = 0;
 
     // Reset replay tracking
     replayFramesRef.current = [{ time: 0, keysPressed: new Array(beatmap.keyCount).fill(false) }];
@@ -1473,41 +1500,27 @@ export default function GameplayCanvas({
       }
     }
 
-    // Formula: Raw score aggregation + accuracy
-    // Acc = Weighted average notes hit division
-    const totalHits = state.perfectCount + state.marvelousCount + state.greatCount + state.goodCount + state.badCount + state.missCount;
-    
-    if (totalHits > 0) {
-      const weightedSum = 
-        state.marvelousCount * 320 +
-        state.perfectCount * 300 +
-        state.greatCount * 200 +
-        state.goodCount * 100 +
-        state.badCount * 50;
-      const maxPossibleSum = totalHits * 320;
-      state.accuracy = parseFloat(((weightedSum / maxPossibleSum) * 100).toFixed(2));
-    }
+    // osu!lazer mania accuracy (Perfect=305) + standardised total score
+    const counts = {
+      marvelousCount: state.marvelousCount,
+      perfectCount: state.perfectCount,
+      greatCount: state.greatCount,
+      goodCount: state.goodCount,
+      badCount: state.badCount,
+      missCount: state.missCount,
+    };
+    state.accuracy = computeAccuracyPercent(counts);
 
-    // Cumulative combo-based scoring formula
-    const B_factor = 1.0;
-    const W_factor = 0.1;
-    const judgementVal = judg.baseScore / 320;
-    const scoreGain = judgementVal * (B_factor + W_factor * state.combo);
-    currentRawScoreRef.current += scoreGain;
-
-    let modMultiplier = 1.0;
-    if (settings.selectedMods && settings.selectedMods.length > 0) {
-      settings.selectedMods.forEach(modId => {
-        if (modId === 'NF') modMultiplier *= 0.50;
-        else if (modId === 'EZ') modMultiplier *= 0.50;
-        else if (modId === 'HT') modMultiplier *= 0.30;
-        else if (modId === 'HR') modMultiplier *= 1.06;
-        else if (modId === 'HD') modMultiplier *= 1.06;
-        else if (modId === 'DT') modMultiplier *= 1.12;
-      });
-    }
-
-    state.score = Math.floor(Math.min(2000000, 1000000 * (currentRawScoreRef.current / maxRawScoreRef.current) * modMultiplier));
+    currentComboPortionRef.current += getComboScoreChange(judg.type, state.combo);
+    const modMultiplier = computeModMultiplier(settings.selectedMods);
+    state.score = computeTotalScore({
+      currentComboPortion: currentComboPortionRef.current,
+      maxComboPortion: maxComboPortionRef.current,
+      accuracyPercent: state.accuracy,
+      judgedCount: countTotalHits(counts),
+      totalJudgements: totalJudgementsRef.current,
+      modMultiplier,
+    });
 
     // Update canvas visual trackers
     currentJudgementRef.current = {
@@ -2155,6 +2168,9 @@ export default function GameplayCanvas({
       columnJudgements: initializeColumnJudgements(beatmap.keyCount),
     };
 
+    totalJudgementsRef.current = countMapJudgements(beatmap.notes);
+    maxComboPortionRef.current = computeMaxComboPortion(totalJudgementsRef.current);
+
     // Reset hit error timing ticks
     hitErrorTicksRef.current = [];
 
@@ -2165,7 +2181,7 @@ export default function GameplayCanvas({
       return;
     }
 
-    let simCurrentRawScore = 0;
+    let simCurrentComboPortion = 0;
 
     // Helper functions for chronological simulation
     const simApplyJudgement = (judg: JudgementWindow, col: number) => {
@@ -2194,38 +2210,26 @@ export default function GameplayCanvas({
       let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
       state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
 
-      const totalHits = state.perfectCount + state.marvelousCount + state.greatCount + state.goodCount + state.badCount + state.missCount;
-      if (totalHits > 0) {
-        const weightedSum = 
-          state.marvelousCount * 320 +
-          state.perfectCount * 300 +
-          state.greatCount * 200 +
-          state.goodCount * 100 +
-          state.badCount * 50;
-        const maxPossibleSum = totalHits * 320;
-        state.accuracy = parseFloat(((weightedSum / maxPossibleSum) * 100).toFixed(2));
-      }
+      const counts = {
+        marvelousCount: state.marvelousCount,
+        perfectCount: state.perfectCount,
+        greatCount: state.greatCount,
+        goodCount: state.goodCount,
+        badCount: state.badCount,
+        missCount: state.missCount,
+      };
+      state.accuracy = computeAccuracyPercent(counts);
 
-      // Replay simulation scoring matching gameplay
-      const B_factor = 1.0;
-      const W_factor = 0.1;
-      const judgementVal = judg.baseScore / 320;
-      const scoreGain = judgementVal * (B_factor + W_factor * state.combo);
-      simCurrentRawScore += scoreGain;
-
-      let modMultiplier = 1.0;
-      if (settings.selectedMods && settings.selectedMods.length > 0) {
-        settings.selectedMods.forEach(modId => {
-          if (modId === 'NF') modMultiplier *= 0.50;
-          else if (modId === 'EZ') modMultiplier *= 0.50;
-          else if (modId === 'HT') modMultiplier *= 0.30;
-          else if (modId === 'HR') modMultiplier *= 1.06;
-          else if (modId === 'HD') modMultiplier *= 1.06;
-          else if (modId === 'DT') modMultiplier *= 1.12;
-        });
-      }
-
-      state.score = Math.floor(Math.min(2000000, 1000000 * (simCurrentRawScore / maxRawScoreRef.current) * modMultiplier));
+      simCurrentComboPortion += getComboScoreChange(judg.type, state.combo);
+      const modMultiplier = computeModMultiplier(settings.selectedMods);
+      state.score = computeTotalScore({
+        currentComboPortion: simCurrentComboPortion,
+        maxComboPortion: maxComboPortionRef.current,
+        accuracyPercent: state.accuracy,
+        judgedCount: countTotalHits(counts),
+        totalJudgements: totalJudgementsRef.current,
+        modMultiplier,
+      });
     };
 
     const simTriggerHit = (colIndex: number, frameTime: number) => {

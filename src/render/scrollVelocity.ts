@@ -29,7 +29,9 @@ export interface ScrollModel {
  * Calculates dominant uninherited beat length as fallback when not pre-calculated
  */
 function calculateDominantBeatLength(timingPoints: TimingControlPoint[]): number {
-  const uninherited = timingPoints.filter(tp => tp.uninherited);
+  const uninherited = timingPoints.filter(
+    tp => tp.uninherited && tp.beatLength > 0 && isFinite(tp.beatLength)
+  );
   if (uninherited.length === 0) return 500;
   if (uninherited.length === 1) return uninherited[0].beatLength;
 
@@ -91,20 +93,30 @@ export function createScrollModel(beatmapLike: { timingPoints?: TimingControlPoi
 
   const resolvedMultipliers = new Map<number, number>();
 
+  // osu!mania sequential scroll: Multiplier = ScrollSpeed * baseBeatLength / beatLength.
+  // SliderMultiplier cancels out for mania (DrawableManiaRuleset sets Velocity=1 after
+  // folding SM into BaseBeatLength). Uninherited red lines reset ScrollSpeed to 1x.
+  // Negative multipliers reverse scroll; zero freezes notes in place.
   for (const t of uniqueTimes) {
     const points = pointsByTime.get(t)!;
     for (const tp of points) {
       if (tp.uninherited) {
-        currentBeatLength = tp.beatLength;
+        if (tp.beatLength !== 0 && isFinite(tp.beatLength)) {
+          currentBeatLength = tp.beatLength;
+        }
+        currentSv = 1.0;
       } else {
         currentSv = tp.svMultiplier;
       }
     }
-    let mult = currentSv * (baseBeatLength / currentBeatLength) * (sliderMultiplier / 1.4);
+    const safeBeatLength = (currentBeatLength !== 0 && isFinite(currentBeatLength))
+      ? currentBeatLength
+      : baseBeatLength;
+    let mult = currentSv * (baseBeatLength / safeBeatLength);
     if (isNaN(mult) || !isFinite(mult)) {
       mult = 1.0;
     } else {
-      mult = Math.max(0.0, Math.min(100.0, mult));
+      mult = Math.max(-1000, Math.min(1000, mult));
     }
     resolvedMultipliers.set(t, mult);
   }

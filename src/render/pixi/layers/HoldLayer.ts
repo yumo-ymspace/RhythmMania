@@ -13,6 +13,7 @@
 import { Container, Graphics, Texture, Sprite } from 'pixi.js';
 import { PlayfieldFrame } from '../../types';
 import { getLaneColors, isCircleSkinMode } from '../../skinTheme';
+import { getNoteVisualY } from '../../playfieldLayout';
 import { hexToRgba } from '../../../components/GameplayCanvas';
 import { SpritePool } from '../pool/SpritePool';
 
@@ -98,17 +99,19 @@ export class HoldLayer extends Container {
 // Anchor the body start to the receptor only while the LN is actively engaged
         // (head hit & held). A missed head must not ground the body — the LN keeps its
         // fixed length and scrolls off naturally; the release stays salvageable.
-        let visualStartY = n.y;
+        let visualStartY = getNoteVisualY(n.y, colW, settingsSlice);
         if (n.isHit && !n.isMissed && !n.isReleased && !n.isHoldFailed) {
           visualStartY = receptorY;
         }
 
+        const visualEndY = getNoteVisualY(n.endY, colW, settingsSlice);
+
         const isOff = settingsSlice.upsurfaceNoteMode
-          ? (n.endY < receptorY && visualStartY < receptorY && n.isReleased)
-          : (n.endY > receptorY && visualStartY > receptorY && n.isReleased);
+          ? (visualEndY < receptorY && visualStartY < receptorY && n.isReleased)
+          : (visualEndY > receptorY && visualStartY > receptorY && n.isReleased);
 
         if (!isOff) {
-          const clipHeight = visualStartY - n.endY;
+          const clipHeight = visualStartY - visualEndY;
           const fadeStart = n.opacity;
           const fadeEnd = n.endOpacity ?? n.opacity;
 
@@ -185,7 +188,7 @@ export class HoldLayer extends Container {
            const rw = (colW - basePadding * 2) * noteScale;
            const rx = xPos + (colW - rw) / 2;
 
-          let drawY = Math.min(visualStartY, n.endY);
+          let drawY = Math.min(visualStartY, visualEndY);
           let drawH = Math.abs(clipHeight);
 
           if (useNotePadding) {
@@ -223,7 +226,7 @@ export class HoldLayer extends Container {
               : 0.4;
             const lineColor = getLaneColors(settingsSlice, columns.length)?.[n.column] || columns[n.column].color;
             this.holdG.moveTo(xPos + colW / 2, visualStartY)
-                 .lineTo(xPos + colW / 2, n.endY)
+                 .lineTo(xPos + colW / 2, visualEndY)
                  .stroke({ color: lineColor, width: 2, alpha: lineAlpha * (fadeStart + fadeEnd) / 2 });
           }
         }
