@@ -1,6 +1,25 @@
-interface OsuChart { id: number; filename: string; version: string; keyCount: number; checksum: string; }
-interface EligibleOsuSet { title: string; artist: string; creator: string; status: string; coverUrl?: string; charts: OsuChart[]; }
+export interface OsuChart {
+  id: number;
+  filename: string;
+  version: string;
+  keyCount: number;
+  checksum: string;
+}
+
+export interface EligibleOsuSet {
+  title: string;
+  artist: string;
+  creator: string;
+  status: string;
+  coverUrl?: string;
+  charts: OsuChart[];
+}
+
+export type OsuSearchStatus = 'ranked' | 'loved' | 'graveyard';
+
 type UnknownRecord = Record<string, unknown>;
+
+const ELIGIBLE_STATUSES = new Set<string>(['ranked', 'loved', 'graveyard']);
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -26,50 +45,96 @@ function toChart(value: UnknownRecord, filename: string): OsuChart | null {
   };
 }
 
-let cached: { token: string; expiresAt: number } | null = null;
-const eligibleStatuses = new Set(['ranked', 'loved']);
-
-async function accessToken(): Promise<string> {
-  if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;
-  const id = process.env.OSU_CLIENT_ID;
-  const secret = process.env.OSU_CLIENT_SECRET;
-  if (!id || !secret) throw new Error('osu! API credentials are not configured');
-  const response = await fetch('https://osu.ppy.sh/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: Number(id), client_secret: secret, grant_type: 'client_credentials', scope: 'public' }) });
-  if (!response.ok) throw new Error('osu! authorization failed');
-  const data: unknown = await response.json();
-  if (!isRecord(data)) throw new Error('osu! authorization returned an invalid response');
-  if (typeof data.access_token !== 'string' || !data.access_token) throw new Error('osu! authorization returned no token');
-  const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
-  cached = { token: data.access_token, expiresAt: Date.now() + expiresIn * 1000 };
-  return data.access_token;
+function coverFromSet(rawSet: UnknownRecord): string | undefined {
+  if (isRecord(rawSet.covers) && typeof rawSet.covers.card === 'string') return rawSet.covers.card;
+  if (isRecord(rawSet.cover) && typeof rawSet.cover.url === 'string') return rawSet.cover.url;
+  return undefined;
 }
 
-export async function osuApi(path: string): Promise<unknown> {
-  const response = await fetch(`https://osu.ppy.sh/api/v2${path}`, { headers: { Authorization: `Bearer ${await accessToken()}`, Accept: 'application/json' } });
-  if (!response.ok) throw new Error('osu! API request failed');
+function parseEligibleSet(rawSet: UnknownRecord, requireEligibleStatus: boolean): (EligibleOsuSet & { sourceSetId: number }) | null {
+  const sourceSetId = Number(rawSet.id);
+  if (!Number.isInteger(sourceSetId) || sourceSetId < 1) return null;
+  const status = String(rawSet.status || '');
+  if (requireEligibleStatus && !ELIGIBLE_STATUSES.has(status)) return null;
+
+  const charts = asRecords(rawSet.beatmaps)
+    .filter((beatmap) => beatmap.mode_int === 3)
+    .map((beatmap) => toChart(beatmap, `${beatmap.id}.osu`))
+    .filter((chart): chart is OsuChart => chart !== null);
+  if (!charts.length) return null;
+
+  return {
+    sourceSetId,
+    title: String(rawSet.title || 'Unknown Title'),
+    artist: String(rawSet.artist || 'Unknown Artist'),
+    creator: String(rawSet.creator || 'Unknown Mapper'),
+    status,
+    coverUrl: coverFromSet(rawSet),
+    charts,
+  };
+}
+
+export function extractBearerToken(req: { headers: { authorization?: string | string[] } }): string | null {
+  const header = req.headers.authorization;
+  const value = Array.isArray(header) ? header[0] : header;
+  if (!value || typeof value !== 'string') return null;
+  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
+  const token = match?.[1]?.trim();
+  return token || null;
+}
+
+export async function osuApiWithToken(accessToken: string, path: string): Promise<unknown> {
+  const response = await fetch(`https://osu.ppy.sh/api/v2${path}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (response.status === 401) throw new Error('osu! token is invalid or expired');
+  if (response.status === 429) throw new Error('osu! rate limit exceeded');
+  if (!response.ok) throw new Error(`osu! API request failed (${response.status})`);
   return response.json();
 }
 
-export async function fetchEligibleOsuSet(setId: number): Promise<EligibleOsuSet | null> {
-  const rawSet = await osuApi(`/beatmapsets/${setId}`);
-  if (!isRecord(rawSet) || !eligibleStatuses.has(String(rawSet.status))) return null;
-  const charts = asRecords(rawSet.beatmaps)
-    .filter(beatmap => beatmap.mode_int === 3)
-    .map(beatmap => toChart(beatmap, `${beatmap.id}.osu`))
-    .filter((chart): chart is OsuChart => chart !== null);
-  if (!charts.length) return null;
-  const cover = isRecord(rawSet.cover) && typeof rawSet.cover.url === 'string' ? rawSet.cover.url : undefined;
-  return { title: String(rawSet.title || 'Unknown Title'), artist: String(rawSet.artist || 'Unknown Artist'), creator: String(rawSet.creator || 'Unknown Mapper'), status: String(rawSet.status), coverUrl: cover, charts };
+export async function fetchEligibleOsuSetWithToken(accessToken: string, setId: number): Promise<EligibleOsuSet | null> {
+  const rawSet = await osuApiWithToken(accessToken, `/beatmapsets/${setId}`);
+  if (!isRecord(rawSet)) return null;
+  const parsed = parseEligibleSet(rawSet, true);
+  if (!parsed) return null;
+  return {
+    title: parsed.title,
+    artist: parsed.artist,
+    creator: parsed.creator,
+    status: parsed.status,
+    coverUrl: parsed.coverUrl,
+    charts: parsed.charts,
+  };
 }
 
-export async function searchEligibleOsuSets(text: string, cursor?: string): Promise<{ sets: Array<EligibleOsuSet & { sourceSetId: number }>; cursor?: string }> {
-  const params = new URLSearchParams({ q: text, limit: '50', mode: 'mania' });
+export async function searchEligibleOsuSetsWithToken(
+  accessToken: string,
+  text: string,
+  status: OsuSearchStatus,
+  cursor?: string,
+): Promise<{ sets: Array<EligibleOsuSet & { sourceSetId: number }>; cursor?: string }> {
+  const params = new URLSearchParams({
+    q: text,
+    limit: '50',
+    mode: 'mania',
+    s: status,
+  });
   if (cursor) params.set('cursor_string', cursor);
-  const rawResponse = await osuApi(`/beatmapsets/search?${params.toString()}`);
+  const rawResponse = await osuApiWithToken(accessToken, `/beatmapsets/search?${params.toString()}`);
   if (!isRecord(rawResponse)) return { sets: [], cursor: undefined };
-  const sets = asRecords(rawResponse.beatmapsets).filter(set => eligibleStatuses.has(String(set.status))).map((set) => ({
-    sourceSetId: Number(set.id), title: String(set.title || 'Unknown Title'), artist: String(set.artist || 'Unknown Artist'), creator: String(set.creator || 'Unknown Mapper'), status: String(set.status), coverUrl: isRecord(set.covers) && typeof set.covers.card === 'string' ? set.covers.card : undefined,
-    charts: asRecords(set.beatmaps).filter(beatmap => beatmap.mode_int === 3).map(beatmap => toChart(beatmap, `${beatmap.id}.osu`)).filter((chart): chart is OsuChart => chart !== null),
-  })).filter((set) => set.charts.length > 0);
-  return { sets, cursor: typeof rawResponse.cursor_string === 'string' ? rawResponse.cursor_string : undefined };
+  const sets = asRecords(rawResponse.beatmapsets)
+    .map((set) => parseEligibleSet(set, true))
+    .filter((set): set is EligibleOsuSet & { sourceSetId: number } => set !== null);
+  return {
+    sets,
+    cursor: typeof rawResponse.cursor_string === 'string' ? rawResponse.cursor_string : undefined,
+  };
+}
+
+export function isOsuSearchStatus(value: unknown): value is OsuSearchStatus {
+  return value === 'ranked' || value === 'loved' || value === 'graveyard';
 }

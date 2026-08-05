@@ -28,7 +28,7 @@ import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
 import { unpackBeatmap } from './utils/unpackHelper';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
-import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl } from './utils/securityLimits';
+import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES } from './utils/securityLimits';
 import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps } from './utils/replayManager';
 import { uploadReplayRecord } from './utils/replayClient';
 import { AssetLifecycleManager } from './utils/assetLifecycle';
@@ -468,25 +468,34 @@ export default function App() {
       return { success: true };
     }
 
-    // Auto-download missing osu! mirror beatmaps for replay playback.
+    // Auto-download missing osu! mirror beatmaps for replay playback (browser → Catboy/osudl).
     const catalogSetId = record.catalogSetId;
     const chartRevisionId = record.chartRevisionId;
-    let downloadUrl = '';
     let catalogEntry: any = null;
+    let sourceSetId: number | null = null;
 
     if (chartRevisionId) {
       try {
         const res = await fetch(`/api/catalog/chart?chartRevisionId=${encodeURIComponent(chartRevisionId)}`, { credentials: 'include' });
         if (res.ok) {
           const json = await res.json();
-          if (json.success) { catalogEntry = json.data; downloadUrl = json.data.downloadUrl; }
+          if (json.success) {
+            catalogEntry = json.data;
+            const sid = Number(json.data.sourceSetId);
+            if (Number.isInteger(sid) && sid > 0) sourceSetId = sid;
+          }
         }
       } catch (err) {
         console.warn('Error querying catalog for replay auto-download:', err);
       }
     }
 
-    if (!downloadUrl) {
+    if (!sourceSetId && typeof catalogSetId === 'string') {
+      const match = /^osuapi_(\d+)$/.exec(catalogSetId);
+      if (match) sourceSetId = Number(match[1]);
+    }
+
+    if (!sourceSetId) {
       return {
         success: false,
         error: 'Beatmap is missing locally and could not be located in the osu! mirror for auto-download.'
@@ -494,9 +503,14 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(downloadUrl, { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status} - Failed to download beatmap package`);
-      const arrayBuffer = await res.arrayBuffer();
+      const { downloadBeatmapsetArchive } = await import('./utils/osuTokenManager');
+      const blob = await downloadBeatmapsetArchive(
+        sourceSetId,
+        () => {},
+        () => {},
+        MAX_COMPRESSED_SIZE_BYTES,
+      );
+      const arrayBuffer = await blob.arrayBuffer();
 
       const zip = await JSZip.loadAsync(arrayBuffer);
       const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));

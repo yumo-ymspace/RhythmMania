@@ -26,6 +26,8 @@ export interface ServerEnvConfig {
   sessionSecret: string;
   googleClientId?: string;
   googleClientSecret?: string;
+  osuClientId?: string;
+  osuClientSecret?: string;
   isProduction: boolean;
 }
 
@@ -40,6 +42,8 @@ export function getEnvConfig(): ServerEnvConfig {
   const sessionSecret = process.env.SESSION_SECRET || 'rhythm-mania-default-development-session-secret-key-321';
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const osuClientId = process.env.OSU_CLIENT_ID;
+  const osuClientSecret = process.env.OSU_CLIENT_SECRET;
 
   return {
     databaseUrl,
@@ -52,6 +56,8 @@ export function getEnvConfig(): ServerEnvConfig {
     sessionSecret,
     googleClientId,
     googleClientSecret,
+    osuClientId,
+    osuClientSecret,
     isProduction: process.env.NODE_ENV === 'production',
   };
 }

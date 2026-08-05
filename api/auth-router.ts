@@ -16,6 +16,10 @@ import handleMe from './auth/_me.js';
 import handleLogout from './auth/_logout.js';
 import handleGoogleUrl from './auth/google/_url.js';
 import handleGoogleCallback from './auth/google/_callback.js';
+import handleOsuUrl from './auth/osu/_url.js';
+import handleOsuCallback from './auth/osu/_callback.js';
+import handleOsuRefresh from './auth/osu/_refresh.js';
+import handleOsuByoToken from './auth/osu/_byo-token.js';
 
 // Single function for all /api/auth/* routes. Vercel's @vercel/node runtime
 // does not support [...path] catch-all files for non-Next.js projects, so
@@ -51,6 +55,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return handleGoogleUrl(req, res);
       case 'google/callback':
         return handleGoogleCallback(req, res);
+      case 'osu/url':
+        return handleOsuUrl(req, res);
+      case 'osu/callback':
+        return handleOsuCallback(req, res);
+      case 'osu/refresh':
+        return handleOsuRefresh(req, res);
+      case 'osu/byo-token':
+        return handleOsuByoToken(req, res);
       default:
         console.warn('[auth-router] no handler for route:', route);
         return sendJson(res, 404, { success: false, error: 'Not found' });

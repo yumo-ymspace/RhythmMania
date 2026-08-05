@@ -41,6 +41,7 @@ export function isValidUserId(value: unknown): value is string {
 
 export const SESSION_COOKIE_NAME = 'rm_session_token';
 export const OAUTH_STATE_COOKIE_NAME = 'rm_oauth_state';
+export const OSU_OAUTH_STATE_COOKIE_NAME = 'rm_osu_oauth_state';
 
 export function parseCookies(req: VercelRequest): Record<string, string> {
   const list: Record<string, string> = {};
@@ -112,6 +113,23 @@ export function clearOAuthStateCookie(res: VercelResponse, secure: boolean): voi
 
 export function isValidOAuthState(req: VercelRequest, state: string | undefined): boolean {
   const expected = parseCookies(req)[OAUTH_STATE_COOKIE_NAME];
+  if (!expected || !state || expected.length !== state.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(state));
+}
+
+export function setOsuOAuthStateCookie(res: VercelResponse, state: string, secure: boolean): void {
+  appendSetCookie(
+    res,
+    `${OSU_OAUTH_STATE_COOKIE_NAME}=${encodeURIComponent(state)}; ${getCookieAttributes(10 * 60, secure)}`
+  );
+}
+
+export function clearOsuOAuthStateCookie(res: VercelResponse, secure: boolean): void {
+  appendSetCookie(res, `${OSU_OAUTH_STATE_COOKIE_NAME}=; ${getCookieAttributes(0, secure)}`);
+}
+
+export function isValidOsuOAuthState(req: VercelRequest, state: string | undefined): boolean {
+  const expected = parseCookies(req)[OSU_OAUTH_STATE_COOKIE_NAME];
   if (!expected || !state || expected.length !== state.length) return false;
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(state));
 }

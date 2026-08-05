@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.10
+**HIGH DENSITY MATRIX** · v0.8.11
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a triple rendering engine (**HTML5 Canvas 2D** default, **PixiJS v8** WebGL option, and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -49,7 +49,7 @@ RhythmMania is an **18+ service**. Minors may not use the game or any connected 
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Beatmap sources**: Users can import `.osu`/`.osz` files into local browser storage, or signed-in users can search and download eligible osu!mania sets from the mirror through the PostgreSQL catalog API. Mirror archives are delivered after server metadata validation and browser chart verification.
+- **Beatmap sources**: Users can import `.osu`/`.osz` files into local browser storage, or connect an osu! API token to search ranked/loved/graveyard mania sets. Archives download in-browser from Catboy mirror (Mino) with osudl.org fallback. Google sign-in enables register/activate for online scores.
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 - **Song previews** — a toggleable audio preview plays while browsing Song Select, using a lightweight HTMLAudio path kept deliberately independent of the Web Audio gameplay clock
 - **Favorites** — star songs on Song Select for quick access; persisted locally
@@ -136,10 +136,17 @@ The API surface is:
 | `GET /api/auth/me` | Read the current session |
 | `GET /api/auth/google/url` | Start Google OAuth |
 | `GET /api/auth/google/callback` | Complete Google OAuth |
+| `GET /api/auth/osu/url` | Start osu! OAuth (catalog) |
+| `GET /api/auth/osu/callback` | Complete osu! OAuth; return tokens to opener |
+| `POST /api/auth/osu/refresh` | Refresh osu! auth-code tokens |
+| `POST /api/auth/osu/byo-token` | Mint token from user-supplied OAuth app |
 | `POST /api/auth/logout` | End the current session |
 | `POST /api/replays/upload` | Upload an eligible replay |
 | `GET /api/replays/list` | List the top replays for one exact chart revision |
 | `GET /api/replays/get` | Retrieve a replay by ID |
+| `GET /api/catalog/search` | Proxy osu!mania search with the user's osu! token |
+| `POST /api/catalog/register-download` | Pending catalog registration (Google + osu! token) |
+| `POST /api/catalog/activate-download` | Activate charts after client checksum verify |
 | `GET, PATCH /api/profile/me` | Read or update the signed-in user's profile |
 | `GET /api/profile/handle-check` | Check whether a handle is available |
 | `GET /api/profile/get` | Read a public profile by `userId` or `handle` |
@@ -153,8 +160,9 @@ the profile/avatar tables with the idempotent `database/update.sql`.
 Existing databases that still carry the removed `privacy_flags` column can
 drop it with `database/drop_privacy_flags.sql`. The
 backend accepts either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/
-`POSTGRES_*` connection variables. Google OAuth additionally uses
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Set `SESSION_SECRET` in
+`POSTGRES_*` connection variables. Google OAuth uses `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`. osu! catalog OAuth uses `OSU_CLIENT_ID` and
+`OSU_CLIENT_SECRET` (code exchange/refresh only). Set `SESSION_SECRET` in
 deployed environments.
 
 ---

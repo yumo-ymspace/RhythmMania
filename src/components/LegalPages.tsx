@@ -90,7 +90,7 @@ export const TermsOfServicePage: React.FC<LegalPageProps> = ({ onBack }) => (
     <Divider />
     <Section number="03" title="Local gameplay and cloud features">
       <p>Settings, imported maps, packages, favorites, and local play history are stored in your browser. They are not automatically sent to RhythmMania. Clearing browser storage, using private browsing, or changing browsers can remove or make that data unavailable.</p>
-      <p>Signed-in users can search the eligible osu!mania mirror, download verified maps, edit a public profile, choose or upload an avatar, and upload eligible replays. Only supported, verified chart revisions can receive an online replay upload.</p>
+      <p>Users may connect an osu! API token to search eligible mania sets and download maps from external mirrors. Google sign-in enables profile features and verified catalog activation for online replay upload. Only supported, verified chart revisions can receive an online replay upload.</p>
       <p>Uploaded replays contain score and performance data, selected modifiers and settings, and input replay frames. Eligible non-failed, non-autoplay replays may appear in public rankings, replay listings, and public profile statistics. Local-only, failed, autoplay, and unsupported runs are not eligible for online upload.</p>
     </Section>
     <Divider />
