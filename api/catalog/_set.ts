@@ -16,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     'keyCount', cr.key_count, 'mode', cr.mode, 'isActive', cr.is_active
   ) ORDER BY cr.key_count, cr.difficulty_name) FILTER (WHERE cr.id IS NOT NULL), '[]') AS charts
   FROM beatmap_sets bs LEFT JOIN beatmap_chart_revisions cr ON cr.beatmap_set_id = bs.id
-  WHERE bs.id = $1 GROUP BY bs.id`, [id]);
+   WHERE bs.id = $1 AND bs.source = 'osuapi' GROUP BY bs.id`, [id]);
   if (!result.rows[0]) return sendError(res, 404, 'Cloud set not found');
   return sendJson(res, 200, { success: true, data: result.rows[0] });
 }

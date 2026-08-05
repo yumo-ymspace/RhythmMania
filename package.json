@@ -1,7 +1,7 @@
 {
   "name": "rhythm-mania",
   "private": true,
-  "version": "0.8.8",
+  "version": "0.8.9",
   "type": "module",
   "license": "Proprietary",
   "scripts": {
@@ -9,7 +9,6 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "seed:catalog": "node --experimental-strip-types scripts/seed-bundled-catalog.mts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -12,7 +12,7 @@
 
 export type NoteType = 'normal' | 'hold';
 
-export type CloudBeatmapSource = 'bundled' | 'osuapi';
+export type CloudBeatmapSource = 'osuapi';
 export type CloudCatalogState = 'pending' | 'active';
 
 export interface CloudChartRef {
@@ -201,8 +201,8 @@ export interface PlayHistoryRecord {
   // Versioned replay schema & canonical catalog identity fields
   schemaVersion?: number; // e.g. 2
   replaySource?: ReplaySource;
-  catalogSetId?: string | null; // e.g., 'server_usseewa'
-  catalogMapId?: string | null; // e.g., 'server_usseewa_idx0'
+  catalogSetId?: string | null; // e.g., 'osuapi_12345'
+  catalogMapId?: string | null; // e.g., 'osuapi_12345_b67890_checksum'
   chartRevisionId?: string | null;
   checksum?: string;
   checksumAlgorithm?: 'md5' | 'sha256';

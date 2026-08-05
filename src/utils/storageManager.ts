@@ -22,7 +22,6 @@ export interface SavedBeatmap extends Beatmap {
   bgFilename?: string | null;
   originalContent?: string;
   isServerMap?: boolean;
-  oszUrl?: string;
   cloudSetId?: string;
   chartRevisionId?: string;
   source?: CloudBeatmapSource;

@@ -16,12 +16,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!set) return sendError(res, 422, 'The osu! set is not an eligible ranked mania set');
   const cloudSetId = `osuapi_${setId}`;
   const token = crypto.randomBytes(24).toString('base64url');
-  await query(`INSERT INTO beatmap_sets (id, title, artist, creator, source, source_set_id, catalog_state, rank_status, cover_url, download_url, source_metadata)
-    VALUES ($1,$2,$3,$4,'osuapi',$5,'pending',$6,$7,$8,$9)
+  await query(`INSERT INTO beatmap_sets (id, title, artist, creator, source, source_set_id, catalog_state, rank_status, cover_url, source_metadata)
+    VALUES ($1,$2,$3,$4,'osuapi',$5,'pending',$6,$7,$8)
     ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, artist=EXCLUDED.artist, creator=EXCLUDED.creator,
       catalog_state='pending', rank_status=EXCLUDED.rank_status, cover_url=EXCLUDED.cover_url,
-      download_url=EXCLUDED.download_url, source_metadata=EXCLUDED.source_metadata, updated_at=NOW()`,
-    [cloudSetId, set.title, set.artist, set.creator, setId, set.status, set.coverUrl, `https://osudl.org/s/${setId}`, JSON.stringify({ token, userId: session.userId, charts: set.charts })]);
+      source_metadata=EXCLUDED.source_metadata, updated_at=NOW()`,
+    [cloudSetId, set.title, set.artist, set.creator, setId, set.status, set.coverUrl, JSON.stringify({ token, userId: session.userId, charts: set.charts })]);
   for (const chart of set.charts) {
     await query(`INSERT INTO beatmap_chart_revisions (id, beatmap_set_id, source_chart_id, original_osu_filename, difficulty_name, key_count, mode, checksum, checksum_algorithm, is_current, is_active)
       VALUES ($1,$2,$3,$4,$5,$6,3,$7,'md5',TRUE,FALSE) ON CONFLICT (id) DO UPDATE SET checksum=EXCLUDED.checksum, original_osu_filename=EXCLUDED.original_osu_filename`,

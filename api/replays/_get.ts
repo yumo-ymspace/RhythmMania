@@ -57,15 +57,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       beatmap_title: string | null;
       beatmap_artist: string | null;
       beatmap_difficulty: string | null;
-      osz_url: string | null;
     }>(
       `SELECT 
         r.*,
         u.username,
         u.avatar_url,
-        bs.title as beatmap_title,
-        bs.artist as beatmap_artist,
-         bs.osz_url, bs.source, bs.source_set_id, bs.catalog_state,
+         bs.title as beatmap_title,
+         bs.artist as beatmap_artist,
+          bs.source, bs.source_set_id, bs.catalog_state,
          cr.checksum, cr.checksum_algorithm,
         bd.name as beatmap_difficulty
       FROM replays r
@@ -115,8 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       isServerCatalogMap: true,
       username: row.username || 'Guest Player',
       avatarUrl: row.avatar_url,
-      oszUrl: row.osz_url || undefined,
-      cloudSource: row.source || undefined,
+       cloudSource: row.source || undefined,
       sourceSetId: row.source_set_id || undefined,
       checksum: row.checksum || undefined,
       checksumAlgorithm: row.checksum_algorithm || undefined,

@@ -18,8 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     checksumAlgorithm: row.checksum_algorithm, title: row.title, artist: row.artist,
     creator: row.creator, difficulty: row.difficulty, keyCount: row.key_count, mode: row.mode,
     state: row.catalog_state, isActive: row.is_active,
-    downloadUrl: row.source === 'osuapi'
-      ? `/api/catalog/download?cloudSetId=${encodeURIComponent(row.cloud_set_id)}`
-      : row.download_url,
+    downloadUrl: `/api/catalog/download?cloudSetId=${encodeURIComponent(row.cloud_set_id)}`,
   }});
 }

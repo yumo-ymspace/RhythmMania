@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.8
+**HIGH DENSITY MATRIX** · v0.8.
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a triple rendering engine (**HTML5 Canvas 2D** default, **PixiJS v8** WebGL option, and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -49,7 +49,7 @@ RhythmMania is an **18+ service**. Minors may not use the game or any connected 
 
 ### Beatmap Support
 - **Drag & drop `.osu` / `.osz` import** — the app parses standard osu! mania format directly in-browser via JSZip
-- **Cloud beatmap catalog**: Signed-in users browse verified bundled packages and eligible osu!mania sets through the PostgreSQL catalog API. Bundled packages are seeded from `public/beatmaps/*.osz`; osu! archives are delivered directly from osudl after server metadata validation and browser chart verification.
+- **Beatmap sources**: Users can import `.osu`/`.osz` files into local browser storage, or signed-in users can search and download eligible osu!mania sets from the mirror through the PostgreSQL catalog API. Mirror archives are delivered after server metadata validation and browser chart verification.
 - **Strain-based star estimation** on imported maps using an exponential decay model balanced between peak and sustained note density
 - **Song previews** — a toggleable audio preview plays while browsing Song Select, using a lightweight HTMLAudio path kept deliberately independent of the Web Audio gameplay clock
 - **Favorites** — star songs on Song Select for quick access; persisted locally
@@ -258,7 +258,6 @@ RhythmMania-Beta/
 ├── public/
 │   ├── avatars/                 Preset profile avatars
 │   ├── backgrounds/             Menu and history artwork
-│   ├── beatmaps/                Catalog manifest and bundled .osz packages
 │   ├── icons/                   PWA and favicon icons
 │   ├── manifest.webmanifest     Installable PWA manifest
 │   └── sw.js                    Optional service worker

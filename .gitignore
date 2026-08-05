@@ -1,3 +1,6 @@
+# Environment files
+.env
+
 # Node and other build artifacts
 node_modules/
 build/

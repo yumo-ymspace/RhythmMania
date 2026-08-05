@@ -468,10 +468,10 @@ export default function App() {
       return { success: true };
     }
 
-    // Auto-download logic for missing catalog beatmaps
+    // Auto-download missing osu! mirror beatmaps for replay playback.
     const catalogSetId = record.catalogSetId;
     const chartRevisionId = record.chartRevisionId;
-    let oszToDownload = (record as any).oszUrl;
+    let downloadUrl = '';
     let catalogEntry: any = null;
 
     if (chartRevisionId) {
@@ -479,22 +479,22 @@ export default function App() {
         const res = await fetch(`/api/catalog/chart?chartRevisionId=${encodeURIComponent(chartRevisionId)}`, { credentials: 'include' });
         if (res.ok) {
           const json = await res.json();
-          if (json.success) { catalogEntry = json.data; oszToDownload = json.data.downloadUrl; }
+          if (json.success) { catalogEntry = json.data; downloadUrl = json.data.downloadUrl; }
         }
       } catch (err) {
         console.warn('Error querying catalog for replay auto-download:', err);
       }
     }
 
-    if (!oszToDownload) {
+    if (!downloadUrl) {
       return {
         success: false,
-        error: 'Beatmap is missing locally and could not be located in the server catalog for auto-download.'
+        error: 'Beatmap is missing locally and could not be located in the osu! mirror for auto-download.'
       };
     }
 
     try {
-      const res = await fetch(oszToDownload);
+      const res = await fetch(downloadUrl, { credentials: 'include' });
       if (!res.ok) throw new Error(`HTTP ${res.status} - Failed to download beatmap package`);
       const arrayBuffer = await res.arrayBuffer();
 
@@ -566,10 +566,10 @@ export default function App() {
       setCurrentScreen('play');
       return { success: true };
     } catch (e: any) {
-      console.error('Failed to auto-download catalog beatmap for replay:', e);
+      console.error('Failed to auto-download mirror beatmap for replay:', e);
       return {
         success: false,
-        error: e?.message || 'Failed to auto-download catalog beatmap for replay playback'
+        error: e?.message || 'Failed to auto-download mirror beatmap for replay playback'
       };
     }
   };

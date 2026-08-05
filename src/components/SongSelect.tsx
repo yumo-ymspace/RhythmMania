@@ -22,7 +22,7 @@ import {
 import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
-import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
+import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
 import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
 import { unpackBeatmap } from '../utils/unpackHelper';
@@ -114,10 +114,6 @@ export default function SongSelect({
   
   const [songDeleteConfirmKey, setSongDeleteConfirmKey] = useState<string | null>(null);
 
-  const [serverManifest, setServerManifest] = useState<any[]>([]);
-  const showServerPackages = true;
-  const [downloadingMapId, setDownloadingMapId] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null);
 
   // High-fidelity options, filters, details state variables
   const [showPreplayOptions, setShowPreplayOptions] = useState<boolean>(false);
@@ -174,22 +170,6 @@ export default function SongSelect({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showModsModal]);
-
-  // Fetch server manifest on mount
-  useEffect(() => {
-    const fetchManifest = async () => {
-      try {
-        const response = await fetch('/api/catalog/search?q=', { credentials: 'include' });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && Array.isArray(data.data)) setServerManifest(data.data);
-        }
-      } catch (err) {
-        console.warn('Unable to load beatmap manifest. Using cached custom maps only.', err);
-      }
-    };
-    fetchManifest();
-  }, []);
 
   // Sync state for play history records of the selected beatmap
   useEffect(() => {
@@ -254,7 +234,7 @@ export default function SongSelect({
     return 'text-purple-400 bg-purple-500/10 border border-purple-500/20';
   };
 
-  // Extract merged custom and virtual server/cloud maps
+  // Resolve locally stored uploads and previously downloaded mirror maps.
   const mergedCustomMaps = React.useMemo((): Beatmap[] => {
     const resolvedCustomMaps: Beatmap[] = [];
     
@@ -271,44 +251,8 @@ export default function SongSelect({
       } as any);
     });
 
-    // 2. Synthesize virtual servers packages as cloud offerings
-    if (showServerPackages) {
-      serverManifest.forEach((s) => {
-        const pkgId = `pkg_${s.id}`;
-        const isAlreadyImported = resolvedCustomMaps.push && resolvedCustomMaps.some(
-          m => (m as any).parentPackageId === s.id || (m as any).packageId === pkgId
-        );
-
-        if (!isAlreadyImported) {
-          resolvedCustomMaps.push({
-            id: s.id,
-            title: s.title,
-            artist: s.artist,
-            bpm: s.bpm || 120,
-            creator: s.creator || 'Server',
-            difficulty: s.difficultiesSummary?.[0] || s.difficultsSummary?.[0] || 'Cloud Pack',
-            keyCount: s.keyCount || 4,
-            duration: s.duration || 180,
-            isServerPackage: true,
-            isServerMap: true,
-            oszUrl: s.oszUrl,
-            difficultiesSummary: s.difficultiesSummary || s.difficultsSummary || [],
-            notes: [],
-            hpDrainRate: 8,
-            overallDifficulty: 8,
-            audioUrl: '',
-            videoUrl: '',
-            bgUrl: '',
-            packageId: `pkg_${s.id}`,
-            parentPackageId: s.id,
-            mode: s.mode !== undefined ? s.mode : 3,
-          } as any);
-        }
-      });
-    }
-
     return resolvedCustomMaps;
-  }, [customMaps, showServerPackages, serverManifest, unpackTrigger]);
+  }, [customMaps, unpackTrigger]);
 
 
 
@@ -327,7 +271,7 @@ export default function SongSelect({
 
   const getMapSongKey = (map: any) => {
     const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
-    if (mapPkgId) return `server_pkg_${mapPkgId}`;
+    if (mapPkgId) return `package_${mapPkgId}`;
     // Standalone imports have no package identity. Keep same-name imports
     // separate instead of collapsing them into one song group.
     return map.id ? `local_map_${map.id}` : getArtistTitleKey(map);
@@ -350,10 +294,8 @@ export default function SongSelect({
       const rating = getStarRating(map);
       if (rating < minStar || rating > maxStar) return false;
 
-      // Filter by Collection / Source type
-      if (collectionFilter === 'Downloaded') {
-        if ((map as any).isServerPackage) return false;
-      } else if (collectionFilter === 'Favorites') {
+      // Filter by collection
+      if (collectionFilter === 'Favorites') {
         if (!favoriteSongs.includes(getMapSongKey(map))) return false;
       }
 
@@ -375,8 +317,8 @@ export default function SongSelect({
   const persistLastDifficultyForMap = (map: any) => {
     if (!map?.id) return;
     const keys = new Set<string>([getMapSongKey(map), getArtistTitleKey(map)]);
-    if (map.parentPackageId) keys.add(`server_pkg_${map.parentPackageId}`);
-    if (map.packageId) keys.add(`server_pkg_${String(map.packageId).replace(/^pkg_/, '')}`);
+    if (map.parentPackageId) keys.add(`package_${map.parentPackageId}`);
+    if (map.packageId) keys.add(`package_${String(map.packageId).replace(/^pkg_/, '')}`);
     // Difficulty name fallback (used when map ids are rebuilt on re-import)
     const metaKey = `diffname:${getArtistTitleKey(map)}`;
 
@@ -437,9 +379,7 @@ export default function SongSelect({
       title: string;
       artist: string;
       creator?: string;
-      isServerPackage?: boolean;
       packageId?: string;
-      oszUrl?: string;
       bgUrl?: string;
       difficultiesSummary?: string[];
       maps: typeof filteredCustomMaps;
@@ -452,26 +392,20 @@ export default function SongSelect({
       if (!group) {
         const mapTitle = map.title || 'Untitled';
         const mapArtist = map.artist || 'Unknown';
-        const mapPkgId = map.parentPackageId || (map.packageId ? map.packageId.replace(/^pkg_/, '') : undefined);
-        const matchingManifest = mapPkgId ? serverManifest.find(s => s.id === mapPkgId) : undefined;
-        
         group = {
           songKey,
-          title: matchingManifest ? matchingManifest.title : mapTitle,
-          artist: matchingManifest ? matchingManifest.artist : mapArtist,
-          creator: matchingManifest ? matchingManifest.creator : (map.creator || (map as any).creator),
-          isServerPackage: !!(map as any).isServerPackage,
+          title: mapTitle,
+          artist: mapArtist,
+          creator: map.creator || (map as any).creator,
           packageId: (map as any).packageId,
-          oszUrl: (map as any).oszUrl,
           bgUrl: map.bgUrl,
-          difficultiesSummary: matchingManifest ? (matchingManifest.difficultiesSummary || matchingManifest.difficultsSummary || []) : ((map as any).difficultiesSummary || (map as any).difficultsSummary || []),
+          difficultiesSummary: (map as any).difficultiesSummary || (map as any).difficultsSummary || [],
           maps: []
         };
         groupsMap.set(songKey, group);
       } else {
         if (!group.bgUrl && map.bgUrl) group.bgUrl = map.bgUrl;
         if (!group.creator && map.creator) group.creator = map.creator;
-        if ((map as any).isServerPackage) group.isServerPackage = true;
       }
       
       const mapDiffs = (map as any).difficultiesSummary || (map as any).difficultsSummary;
@@ -482,16 +416,8 @@ export default function SongSelect({
       group.maps.push(map);
     });
 
-    // Mark as local if cached difficulties are bound
-    groupsMap.forEach((group) => {
-      const containsCached = group.maps.some((m) => (m as any).isCached);
-      if (containsCached) {
-        group.isServerPackage = false;
-      }
-    });
-
     return Array.from(groupsMap.values());
-  }, [filteredCustomMaps, serverManifest]);
+  }, [filteredCustomMaps]);
 
   const activeSongKey = React.useMemo(() => {
     const selected = filteredCustomMaps.find(m => m.id === selectedCustomMapId);
@@ -527,7 +453,7 @@ export default function SongSelect({
     const candidateIds = [
       memory[group.songKey],
       memory[artistTitleKey],
-      group.packageId ? memory[`server_pkg_${String(group.packageId).replace(/^pkg_/, '')}`] : undefined,
+      group.packageId ? memory[`package_${String(group.packageId).replace(/^pkg_/, '')}`] : undefined,
     ].filter(Boolean) as string[];
 
     for (const savedMapId of candidateIds) {
@@ -551,12 +477,6 @@ export default function SongSelect({
   const handleSelectGroup = (group: any) => {
     const targetMap = resolveGroupTargetMap(group);
 
-    if (group.isServerPackage) {
-      if (targetMap) {
-        handleSelectCustomMap(targetMap);
-      }
-      return;
-    }
     if (expandedSongKey === group.songKey) {
       setManualExpandedSongKey('');
     } else {
@@ -570,8 +490,7 @@ export default function SongSelect({
   const selectedCustomMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId) || null;
   const isServerLeaderboardMap = Boolean(
     selectedCustomMap &&
-    (selectedCustomMap as any).isServerMap === true &&
-    !(selectedCustomMap as any).isServerPackage
+    (selectedCustomMap as any).isServerMap === true
   );
 
   useEffect(() => {
@@ -776,25 +695,22 @@ export default function SongSelect({
     setSelectedCustomMapId(map.id);
     persistLastDifficultyForMap(map);
     
-    const isVirtualPackage = (map as any).isServerPackage || ((map as any).isServerMap && !(map as any).isCached);
-    if (!isVirtualPackage) {
-      try {
-        await unpackBeatmap(map, forceUnpack);
-        const cached = storageManager.lruMediaCache.get(map.id);
-        if (cached) {
-          map.audioUrl = cached.audioUrl || map.audioUrl;
-          map.bgUrl = cached.bgUrl || map.bgUrl;
-          map.videoUrl = cached.videoUrl || map.videoUrl;
-        }
-        setUnpackTrigger(prev => prev + 1);
-      } catch (err) {
-        console.warn('Unpacker encountered an issue resolving map media channels:', err);
+    try {
+      await unpackBeatmap(map, forceUnpack);
+      const cached = storageManager.lruMediaCache.get(map.id);
+      if (cached) {
+        map.audioUrl = cached.audioUrl || map.audioUrl;
+        map.bgUrl = cached.bgUrl || map.bgUrl;
+        map.videoUrl = cached.videoUrl || map.videoUrl;
       }
+      setUnpackTrigger(prev => prev + 1);
+    } catch (err) {
+      console.warn('Unpacker encountered an issue resolving map media channels:', err);
     }
   };
 
-  // Song preview: play audio for the currently selected local map once its
-  // media has been unpacked (blob URL available). Skips virtual cloud packages.
+  // Song preview: play audio for the currently selected map once its media has
+  // been unpacked (blob URL available).
   useEffect(() => {
     if (!settings.enableSongPreview || !selectedCustomMapId) {
       previewPlayer.stop();
@@ -842,168 +758,6 @@ export default function SongSelect({
         } catch (fullscreenErr) {
           console.warn('Browser standard fullscreen is unsupported inside frames:', fullscreenErr);
         }
-      }
-
-      const isVirtual = (activeMap as any).isServerMap && !(activeMap as any).isCached;
-
-      if (isVirtual) {
-        const oszUrl = (activeMap as any).oszUrl;
-        const serverMapId = activeMap.id;
-        const serverMapTitle = activeMap.title;
-
-        setDownloadingMapId(serverMapId);
-        setDownloadProgress({ loaded: 0, total: 0, percentage: 0 });
-        setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
-
-        try {
-          assertSafeAssetUrl(oszUrl, 'SongSelect download');
-          const response = await fetch(oszUrl);
-          if (!response.ok) {
-            throw new Error(`Failed to request map pack. Status: ${response.status}`);
-          }
-
-          const contentLength = response.headers.get('content-length');
-          const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-          if (totalBytes > MAX_COMPRESSED_SIZE_BYTES) {
-            throw new Error(`Security Exception: Download size exceeds limit (${(totalBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
-          }
-          const reader = response.body?.getReader();
-          if (!reader) {
-            throw new Error('ReadableStream parser is unsupported.');
-          }
-
-          let loadedBytes = 0;
-          const chunks: Uint8Array[] = [];
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) {
-              chunks.push(value);
-              loadedBytes += value.length;
-              if (loadedBytes > MAX_COMPRESSED_SIZE_BYTES) {
-                reader.cancel();
-                throw new Error(`Security Exception: Download size limit exceeded (${(loadedBytes / (1024 * 1024)).toFixed(1)} MB, limit: ${(MAX_COMPRESSED_SIZE_BYTES / (1024 * 1024)).toFixed(1)} MB)`);
-              }
-              const percentage = totalBytes ? Math.round((loadedBytes / totalBytes) * 100) : 0;
-              setDownloadProgress({
-                loaded: loadedBytes,
-                total: totalBytes,
-                percentage
-              });
-            }
-          }
-
-          setImportStatus({ type: 'ok', msg: 'Storing package and cache...' });
-
-          const blob = new Blob(chunks, { type: 'application/octet-stream' });
-          const packageId = `pkg_${serverMapId}`;
-
-          // Keep bundled hitsound samples; unpackBeatmap applies the package
-          // security limits when it resolves audio assets.
-          const zip = await JSZip.loadAsync(blob);
-          validateZipLimits(zip);
-
-          await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
-          await new Promise(resolve => setTimeout(resolve, 15));
-
-           const fileNames = Object.keys(zip.files);
-          const beatmapFiles: { name: string; content: string }[] = [];
-
-          for (const name of fileNames) {
-            if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
-              const content = await zip.files[name].async('text');
-              beatmapFiles.push({ name, content });
-            }
-          }
-
-          if (beatmapFiles.length === 0) {
-            throw new Error('Invalid package structure.');
-          }
-
-          let importedCount = 0;
-          const parsedDifficulties: Beatmap[] = [];
-
-          for (let i = 0; i < beatmapFiles.length; i++) {
-            const beatmapStr = beatmapFiles[i];
-            const matchingServerObj = serverManifest.find(s => s.id === serverMapId);
-
-            let canonicalMapId = '';
-            let tempParsedDifficulty = '';
-            const diffMatch = beatmapStr.content.match(/^Version:(.*)$/m);
-            if (diffMatch) {
-              tempParsedDifficulty = diffMatch[1].trim();
-            }
-
-            if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
-              const matchedDiff = matchingServerObj.difficulties.find((d: any) =>
-                d.name && tempParsedDifficulty && d.name.trim().toLowerCase() === tempParsedDifficulty.toLowerCase()
-              );
-              if (matchedDiff?.chartRevisionId) canonicalMapId = matchedDiff.chartRevisionId;
-            }
-            if (!canonicalMapId) continue;
-
-            const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
-
-            if (parsedMap.notes.length > 0) {
-              const media = parseMediaPaths(beatmapStr.content);
-              const mapWithMeta = parsedMap as any;
-
-              mapWithMeta.packageId = packageId;
-              mapWithMeta.parentPackageId = serverMapId;
-              mapWithMeta.catalogSetId = serverMapId;
-              mapWithMeta.catalogMapId = canonicalMapId;
-              mapWithMeta.chartRevisionId = canonicalMapId;
-              const chart = matchingServerObj?.difficulties?.find((d: any) => d.chartRevisionId === canonicalMapId);
-              mapWithMeta.checksum = chart?.checksum;
-              mapWithMeta.checksumAlgorithm = chart?.checksumAlgorithm;
-              mapWithMeta.audioFilename = media.audioFilename;
-              mapWithMeta.videoFilename = media.videoFilename;
-              mapWithMeta.bgFilename = media.bgFilename;
-              mapWithMeta.originalContent = beatmapStr.content;
-              mapWithMeta.isServerMap = true;
-              mapWithMeta.oszUrl = oszUrl;
-              mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
-
-              if (matchingServerObj && matchingServerObj.mode !== undefined) {
-                parsedMap.mode = matchingServerObj.mode;
-                const diffSummary = matchingServerObj.difficultiesSummary || matchingServerObj.difficultsSummary;
-                if (diffSummary) {
-                  mapWithMeta.difficultiesSummary = diffSummary;
-                }
-              }
-
-              parsedMap.audioUrl = '';
-              parsedMap.videoUrl = '';
-              parsedMap.bgUrl = '';
-
-              onImportBeatmap(parsedMap);
-              parsedDifficulties.push(parsedMap);
-              importedCount++;
-            }
-          }
-
-          if (importedCount > 0 && parsedDifficulties.length > 0) {
-            setImportStatus({ type: 'ok', msg: `Successfully downloaded! Pick a difficulty to play.` });
-            setSelectedCustomMapId(parsedDifficulties[0].id);
-          } else {
-            throw new Error('No valid playable difficulties found inside.');
-          }
-
-        } catch (err: any) {
-          console.error('Downloader error:', err?.message || String(err));
-          try {
-            await storageManager.deletePackageAndAllBeatmaps(serverMapId);
-          } catch {
-            // Ignore clean error
-          }
-          setImportStatus({ type: 'err', msg: err?.message || 'Download error. Check network connection.' });
-        } finally {
-          setDownloadingMapId(null);
-          setDownloadProgress(null);
-          setTimeout(() => setImportStatus(null), 5000);
-        }
-        return;
       }
 
       try {
@@ -1147,10 +901,10 @@ export default function SongSelect({
   };
 
   const handleDeleteSelectedSet = () => {
-    if (!selectedCustomMap || (selectedCustomMap as any).isServerPackage || !onDeleteSongGroup) return;
+    if (!selectedCustomMap || !onDeleteSongGroup) return;
     const songKey = getMapSongKey(selectedCustomMap);
     const mapIds = mergedCustomMaps
-      .filter((map) => getMapSongKey(map) === songKey && !(map as any).isServerPackage)
+      .filter((map) => getMapSongKey(map) === songKey)
       .map((map) => map.id);
     if (songDeleteConfirmKey === songKey) {
       void onDeleteSongGroup(mapIds);
@@ -1164,12 +918,6 @@ export default function SongSelect({
   // Extract selected beatmap statistics
   const currentStarRating = selectedCustomMap ? getStarRating(selectedCustomMap) : 0.0;
   if (isMobile) {
-    const playButtonText = downloadingMapId 
-      ? 'DOWNLOADING' 
-      : (selectedCustomMap && ((selectedCustomMap as any).isServerPackage || ((selectedCustomMap as any).isServerMap && !(selectedCustomMap as any).isCached)))
-        ? 'GET'
-        : 'PLAY';
-
     return (
       <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
         {/* BACKGROUND EFFECT LAYER */}
@@ -1240,9 +988,9 @@ export default function SongSelect({
                 className="px-6 py-2.5 bg-pink-500 hover:bg-pink-600 active:brightness-90 active:scale-95 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-pink-500/20 flex items-center justify-center gap-1.5 transform transition duration-150 cursor-pointer border border-white/10 select-none shrink-0"
               >
                 <Play className="h-4 w-4 fill-current text-slate-950" />
-                <span>{playButtonText}</span>
+                <span>PLAY</span>
               </button>
-              {selectedCustomMap && !(selectedCustomMap as any).isServerPackage && onDeleteSongGroup && (
+              {selectedCustomMap && onDeleteSongGroup && (
                 <button
                   onClick={handleDeleteSelectedSet}
                   className={`px-3 py-2.5 rounded-xl border text-[10px] font-sans font-black uppercase tracking-wider transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
@@ -1252,18 +1000,6 @@ export default function SongSelect({
               )}
             </div>
 
-            {/* Download Progress Bar overlay */}
-            {downloadingMapId && downloadProgress && (
-              <div className="w-full bg-black/40 border border-pink-500/20 p-2.5 rounded-xl flex flex-col gap-1 mt-1">
-                <div className="flex justify-between text-[9px] font-mono font-black text-pink-400 uppercase">
-                  <span>DOWNLOADING BEATMAP SET</span>
-                  <span>{downloadProgress.percentage}%</span>
-                </div>
-                <div className="w-full bg-slate-850 h-1 rounded-full overflow-hidden">
-                  <div className="bg-pink-500 h-full transition-all" style={{ width: `${downloadProgress.percentage}%` }} />
-                </div>
-              </div>
-            )}
           </div>
           ) : (
           <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
@@ -1355,12 +1091,7 @@ export default function SongSelect({
                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${getDifficultyColor(rating)}`}>
                       ★ {rating.toFixed(1)}
                     </span>
-                    {group.isServerPackage && (
-                      <span className="px-1.5 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[8px] font-mono font-black rounded uppercase">
-                        CLOUD
-                        </span>
-                      )}
-                    {!group.isServerPackage && onDeleteSongGroup && (
+                    {onDeleteSongGroup && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1731,7 +1462,7 @@ export default function SongSelect({
                   <div className="flex flex-col items-center justify-center text-slate-950 font-black italic tracking-widest select-none">
                     <span className="text-4xl font-sans tracking-tight uppercase">Play</span>
                     <span className="text-[9px] font-mono uppercase tracking-[0.25em] font-black leading-none mt-1 group-hover:scale-105 transition-all">
-                      {downloadingMapId ? 'FETCHING' : 'MANIA'}
+                       MANIA
                     </span>
                   </div>
                 </div>
@@ -1783,17 +1514,6 @@ export default function SongSelect({
                 </div>
               </div>
 
-              {downloadingMapId && downloadProgress && (
-                <div className="w-full max-w-sm flex flex-col gap-1.5 bg-black/40 border border-pink-500/20 p-4 rounded-xl shadow-lg">
-                  <div className="flex justify-between text-[10px] font-mono font-black text-pink-400 uppercase">
-                    <span>DOWNLOADING BEATMAP SET</span>
-                    <span>{downloadProgress.percentage}%</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-                    <div className="bg-pink-500 h-full transition-all" style={{ width: `${downloadProgress.percentage}%` }} />
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Right Panels (Visual settings, Audio settings, inputs settings) */}
@@ -2048,7 +1768,7 @@ export default function SongSelect({
                 <Play className="h-5 w-5 fill-current text-slate-950" />
                 <span>PLAY SONG</span>
               </button>
-              {selectedCustomMap && !(selectedCustomMap as any).isServerPackage && onDeleteSongGroup && (
+              {selectedCustomMap && onDeleteSongGroup && (
                 <button
                   onClick={handleDeleteSelectedSet}
                   className={`w-full py-3 rounded-xl border text-xs font-sans font-black uppercase tracking-widest transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
@@ -2575,12 +2295,7 @@ export default function SongSelect({
                             </span>
                           )}
 
-                           {group.isServerPackage && (
-                            <span className="px-1.5 py-0.5 bg-cyan-500/15 border border-cyan-500/20 text-cyan-300 text-[8px] font-mono font-black tracking-widest rounded uppercase">
-                              CLOUD
-                             </span>
-                           )}
-                           {!group.isServerPackage && onDeleteSongGroup && (
+                            {onDeleteSongGroup && (
                              <button
                                onClick={(e) => {
                                  e.stopPropagation();

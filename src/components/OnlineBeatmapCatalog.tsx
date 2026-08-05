@@ -20,7 +20,7 @@ import {
 import { Beatmap } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { storageManager } from '../utils/storageManager';
-import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, assertSafeAssetUrl } from '../utils/securityLimits';
+import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize } from '../utils/securityLimits';
 import { computeBeatmapHash } from '../utils/replayManager';
 
 interface OnlineBeatmapCatalogProps {
@@ -36,7 +36,7 @@ export default function OnlineBeatmapCatalog({
   customMaps, 
   onImportBeatmap 
 }: OnlineBeatmapCatalogProps) {
-  const [serverManifest, setServerManifest] = useState<any[]>([]);
+  const [mirrorManifest, setMirrorManifest] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [catalogRequestState, setCatalogRequestState] = useState<'idle' | 'loading' | 'loaded'>('idle');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -56,11 +56,11 @@ export default function OnlineBeatmapCatalog({
     }
   }, [open]);
 
-  // Fetch server results only for an explicitly submitted, non-empty query.
+  // Query the osu! mirror only after an explicitly submitted, non-empty search.
   useEffect(() => {
     if (!open || !submittedSearchTerm.trim()) {
       if (open) {
-        setServerManifest([]);
+        setMirrorManifest([]);
         setIsLoading(false);
         setCatalogRequestState('idle');
       }
@@ -73,34 +73,18 @@ export default function OnlineBeatmapCatalog({
       setCatalogRequestState('loading');
       setCatalogError(null);
       try {
-        const [localResponse, osuResponse] = await Promise.all([
-          fetch(`/api/catalog/search?q=${encodeURIComponent(requestTerm)}`, { credentials: 'include', signal: controller.signal }),
-          fetch(`/api/catalog/search?source=osu&q=${encodeURIComponent(requestTerm)}`, { credentials: 'include', signal: controller.signal }),
-        ]);
-        const [local, osu] = await Promise.all([
-          localResponse.json().catch(() => ({ data: [] })),
-          osuResponse.json().catch(() => ({ data: [] })),
-        ]);
-        const failures = [localResponse, osuResponse].filter(response => !response.ok);
-        if (failures.length === 2) {
-          throw new Error(local.error || osu.error || 'Cloud catalog is unavailable.');
-        }
-        if (failures.length > 0) {
-          setCatalogError('One catalog source is unavailable; showing the results from the other source.');
-        }
-        const results = [
-          ...(Array.isArray(local.data) ? local.data : []),
-          ...(Array.isArray(osu.data) ? osu.data.map((item: any) => ({ ...item, id: `osuapi_${item.sourceSetId}`, source: 'osuapi', catalogState: 'pending' })) : []),
-        ];
-        const uniqueResults = Array.from(new Map(
-          results.map((item: any) => [`${item.source || 'local'}:${item.cloudSetId || item.id}`, item])
-        ).values());
-        setServerManifest(uniqueResults);
+        const response = await fetch(`/api/catalog/search?q=${encodeURIComponent(requestTerm)}`, { credentials: 'include', signal: controller.signal });
+        const result = await response.json().catch(() => ({ data: [] }));
+        if (!response.ok) throw new Error(result.error || 'osu! mirror is unavailable.');
+        const results = Array.isArray(result.data)
+          ? result.data.map((item: any) => ({ ...item, id: item.id || `osuapi_${item.sourceSetId}`, source: 'osuapi', catalogState: 'pending' }))
+          : [];
+        setMirrorManifest(results);
       } catch (err) {
         if (controller.signal.aborted) return;
         console.warn('Unable to load online beatmap manifest.', err);
-        setServerManifest([]);
-        setCatalogError(err instanceof Error ? err.message : 'Cloud catalog is unavailable.');
+        setMirrorManifest([]);
+        setCatalogError(err instanceof Error ? err.message : 'osu! mirror is unavailable.');
       } finally {
         if (controller.signal.aborted) return;
         setIsLoading(false);
@@ -115,7 +99,7 @@ export default function OnlineBeatmapCatalog({
   // a previous response from remaining visible while the new request is pending.
   useEffect(() => {
     if (open && submittedSearchTerm.trim()) {
-      setServerManifest([]);
+      setMirrorManifest([]);
     }
   }, [open, submittedSearchTerm]);
 
@@ -150,35 +134,33 @@ export default function OnlineBeatmapCatalog({
       return;
     }
 
-    const serverMapId = s.id;
-    const serverMapTitle = s.title;
-    let oszUrl = s.oszUrl;
+    const mirrorSetId = s.id;
+    const mirrorSetTitle = s.title;
+    let downloadUrl = '';
     let activationToken: string | null = null;
     const activationCharts: { beatmapId: number; checksum: string }[] = [];
 
-    setDownloadingMapId(serverMapId);
+    setDownloadingMapId(mirrorSetId);
     setDownloadProgress({ loaded: 0, total: 0, percentage: 0 });
     setImportStatus({
       type: 'ok',
-      msg: s.source === 'osuapi' ? 'Verifying map authentication...' : `Downloading "${serverMapTitle}"...`,
+      msg: 'Verifying osu! mirror map...',
     });
 
     try {
-      if (s.source === 'osuapi' && s.sourceSetId) {
-        const registration = await fetch('/api/catalog/register-download', {
-         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ beatmapsetId: s.sourceSetId }),
-       });
-        const registrationJson = await registration.json();
-        if (!registration.ok || !registrationJson.success) throw new Error(registrationJson.error || 'osu! mirror registration failed');
-        oszUrl = registrationJson.data.downloadUrl;
-        activationToken = registrationJson.data.token;
-        s = { ...s, id: registrationJson.data.cloudSetId, difficulties: registrationJson.data.charts.map((chart: any) => ({ ...chart, sourceChartId: chart.sourceChartId ?? chart.id, chartRevisionId: `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum}`, name: chart.version })) };
-        setImportStatus({ type: 'ok', msg: `Downloading "${serverMapTitle}"...` });
-      }
-       if (typeof oszUrl !== 'string' || !oszUrl) throw new Error('This catalog entry has no downloadable package URL. Reseed the bundled catalog.');
-       if (s.source !== 'osuapi') assertSafeAssetUrl(oszUrl, 'OnlineBeatmapCatalog download');
-      const response = await fetch(oszUrl);
+      if (!s.sourceSetId) throw new Error('The mirror result is missing its osu! beatmap set id.');
+      const registration = await fetch('/api/catalog/register-download', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ beatmapsetId: s.sourceSetId }),
+      });
+      const registrationJson = await registration.json();
+      if (!registration.ok || !registrationJson.success) throw new Error(registrationJson.error || 'osu! mirror registration failed');
+      downloadUrl = registrationJson.data.downloadUrl;
+      activationToken = registrationJson.data.token;
+      s = { ...s, id: registrationJson.data.cloudSetId, difficulties: registrationJson.data.charts.map((chart: any) => ({ ...chart, sourceChartId: chart.sourceChartId ?? chart.id, chartRevisionId: `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum}`, name: chart.version })) };
+      setImportStatus({ type: 'ok', msg: `Downloading "${mirrorSetTitle}"...` });
+      if (!downloadUrl) throw new Error('The osu! mirror did not provide a download URL.');
+      const response = await fetch(downloadUrl, { credentials: 'include' });
       if (!response.ok) {
         throw new Error(`Failed to request map pack. Status: ${response.status}`);
       }
@@ -218,16 +200,16 @@ export default function OnlineBeatmapCatalog({
       setImportStatus({ type: 'ok', msg: 'Storing package and cache...' });
 
       const blob = new Blob(chunks, { type: 'application/octet-stream' });
-       const packageId = serverMapId;
+      const packageId = mirrorSetId;
 
-       // Preserve the verified archive byte-for-byte; media is validated when unpacked.
-       const zip = await JSZip.loadAsync(blob);
-       validateZipLimits(zip);
-       await storageManager.savePackage(packageId, `${serverMapTitle}.osz`, blob);
+      // Preserve the verified archive byte-for-byte; media is validated when unpacked.
+      const zip = await JSZip.loadAsync(blob);
+      validateZipLimits(zip);
+      await storageManager.savePackage(packageId, `${mirrorSetTitle}.osz`, blob);
       await new Promise(resolve => setTimeout(resolve, 15));
 
       const fileNames = Object.keys(zip.files);
-       const beatmapFiles: { name: string; content: string; checksum: string }[] = [];
+      const beatmapFiles: { name: string; content: string; checksum: string }[] = [];
 
       for (const name of fileNames) {
         if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
@@ -246,24 +228,22 @@ export default function OnlineBeatmapCatalog({
 
       for (let i = 0; i < beatmapFiles.length; i++) {
         const beatmapStr = beatmapFiles[i];
-         const matchingServerObj = s.source === 'osuapi'
-           ? s
-           : serverManifest.find(sm => sm.id === serverMapId);
+        const matchingMirrorSet = s;
 
-          let canonicalMapId = '';
-          let matchedDiff: any;
-           if (matchingServerObj?.difficulties && Array.isArray(matchingServerObj.difficulties)) {
-            matchedDiff = matchingServerObj.difficulties.find((d: any) =>
-             d.checksum?.toLowerCase() === beatmapStr.checksum.toLowerCase() ||
-             ((d.originalOsuFilename || d.osuFilename) === beatmapStr.name)
-           );
-           if (matchedDiff?.chartRevisionId) canonicalMapId = matchedDiff.chartRevisionId;
-         }
-          if (!canonicalMapId) continue;
-          const sourceChartId = Number(matchedDiff?.sourceChartId ?? matchedDiff?.id);
-          if (s.source === 'osuapi' && Number.isInteger(sourceChartId) && sourceChartId > 0 && matchedDiff.checksum) {
-            activationCharts.push({ beatmapId: sourceChartId, checksum: matchedDiff.checksum });
-          }
+        let canonicalMapId = '';
+        let matchedDiff: any;
+        if (matchingMirrorSet?.difficulties && Array.isArray(matchingMirrorSet.difficulties)) {
+          matchedDiff = matchingMirrorSet.difficulties.find((d: any) =>
+            d.checksum?.toLowerCase() === beatmapStr.checksum.toLowerCase() ||
+            ((d.originalOsuFilename || d.osuFilename) === beatmapStr.name)
+          );
+          if (matchedDiff?.chartRevisionId) canonicalMapId = matchedDiff.chartRevisionId;
+        }
+        if (!canonicalMapId) continue;
+        const sourceChartId = Number(matchedDiff?.sourceChartId ?? matchedDiff?.id);
+        if (Number.isInteger(sourceChartId) && sourceChartId > 0 && matchedDiff.checksum) {
+          activationCharts.push({ beatmapId: sourceChartId, checksum: matchedDiff.checksum });
+        }
 
         const parsedMap = parseBeatmap(beatmapStr.content, canonicalMapId);
 
@@ -272,24 +252,23 @@ export default function OnlineBeatmapCatalog({
           const mapWithMeta = parsedMap as any;
 
           mapWithMeta.packageId = packageId;
-          mapWithMeta.parentPackageId = serverMapId;
-          mapWithMeta.catalogSetId = serverMapId;
-           mapWithMeta.catalogMapId = canonicalMapId;
-           mapWithMeta.chartRevisionId = canonicalMapId;
-           const chart = matchingServerObj?.difficulties?.find((d: any) => d.chartRevisionId === canonicalMapId);
-           mapWithMeta.checksum = chart?.checksum;
-           mapWithMeta.checksumAlgorithm = chart?.checksumAlgorithm;
+          mapWithMeta.parentPackageId = mirrorSetId;
+          mapWithMeta.catalogSetId = mirrorSetId;
+          mapWithMeta.catalogMapId = canonicalMapId;
+          mapWithMeta.chartRevisionId = canonicalMapId;
+          const chart = matchingMirrorSet?.difficulties?.find((d: any) => d.chartRevisionId === canonicalMapId);
+          mapWithMeta.checksum = chart?.checksum;
+          mapWithMeta.checksumAlgorithm = chart?.checksumAlgorithm;
           mapWithMeta.audioFilename = media.audioFilename;
           mapWithMeta.videoFilename = media.videoFilename;
           mapWithMeta.bgFilename = media.bgFilename;
           mapWithMeta.originalContent = beatmapStr.content;
           mapWithMeta.isServerMap = true;
-          mapWithMeta.oszUrl = oszUrl;
           mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
-          if (matchingServerObj && matchingServerObj.mode !== undefined) {
-            parsedMap.mode = matchingServerObj.mode;
-            const diffSummary = matchingServerObj.difficultiesSummary || matchingServerObj.difficultsSummary;
+          if (matchingMirrorSet && matchingMirrorSet.mode !== undefined) {
+            parsedMap.mode = matchingMirrorSet.mode;
+            const diffSummary = matchingMirrorSet.difficultiesSummary || matchingMirrorSet.difficultsSummary;
             if (diffSummary) {
               mapWithMeta.difficultiesSummary = diffSummary;
             }
@@ -305,8 +284,8 @@ export default function OnlineBeatmapCatalog({
         }
       }
 
-       if (importedCount > 0 && parsedDifficulties.length > 0) {
-        if (s.source === 'osuapi' && activationToken) {
+      if (importedCount > 0 && parsedDifficulties.length > 0) {
+        if (activationToken) {
           const activation = await fetch('/api/catalog/activate-download', {
             method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cloudSetId: s.id, token: activationToken, charts: activationCharts }),
@@ -316,7 +295,7 @@ export default function OnlineBeatmapCatalog({
             throw new Error(activationJson.error || 'Downloaded map authentication failed.');
           }
         }
-        setImportStatus({ type: 'ok', msg: `Successfully downloaded and unpacked "${serverMapTitle}"!` });
+        setImportStatus({ type: 'ok', msg: `Successfully downloaded and unpacked "${mirrorSetTitle}"!` });
       } else {
         throw new Error('No valid playable difficulties found inside.');
       }
@@ -324,7 +303,7 @@ export default function OnlineBeatmapCatalog({
     } catch (err: any) {
       console.error('Downloader error:', err?.message || String(err));
       try {
-        await storageManager.deletePackageAndAllBeatmaps(serverMapId);
+        await storageManager.deletePackageAndAllBeatmaps(mirrorSetId);
       } catch {
         // Ignore clean error
       }
@@ -336,7 +315,7 @@ export default function OnlineBeatmapCatalog({
     }
   };
 
-  const filteredManifest = serverManifest.filter((s) => {
+  const filteredManifest = mirrorManifest.filter((s) => {
     if (filterSearchTerm) {
       const q = filterSearchTerm.toLowerCase();
       const match = (s.title || '').toLowerCase().includes(q) ||
@@ -389,7 +368,7 @@ export default function OnlineBeatmapCatalog({
                 </div>
                 <div>
                   <h1 className="text-xl font-black tracking-widest text-white font-sans uppercase">
-                    Find Server Beatmaps
+                    Find Mirror Beatmaps
                   </h1>
                   <p className="text-xs text-slate-450 mt-0.5 font-sans font-medium tracking-wide">
                     Discover your favourite song!
@@ -474,7 +453,7 @@ export default function OnlineBeatmapCatalog({
               {isLoading ? (
                 <div className="py-16 text-center text-slate-500">
                   <Loader className="h-8 w-8 mx-auto mb-3 animate-spin text-cyan-400" />
-                  <p className="text-xs font-mono font-black uppercase tracking-widest text-white">Fetching beatmaps from the server...</p>
+                   <p className="text-xs font-mono font-black uppercase tracking-widest text-white">Fetching beatmaps from the osu! mirror...</p>
                 </div>
               ) : !filterSearchTerm.trim() ? (
                 <div className="py-16 text-center text-slate-500">
@@ -543,17 +522,17 @@ export default function OnlineBeatmapCatalog({
                     );
                   })}
                 </div>
-              ) : serverManifest.length === 0 ? (
+              ) : mirrorManifest.length === 0 ? (
                 <div className="bg-[#12121a]/50 border border-white/5 py-16 px-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-500 max-w-md mx-auto shadow-xl">
                   <Info className="h-8 w-8 mb-3 text-slate-600" />
-                  <p className="text-xs font-sans font-black tracking-widest uppercase text-white">No community profiles discovered</p>
-                  <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Tweak your search keywords or select different timing mode filters</p>
+                   <p className="text-xs font-sans font-black tracking-widest uppercase text-white">No mirror maps found</p>
+                   <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Try a different song title, artist, or mapper</p>
                 </div>
               ) : (
                 <div className="bg-[#12121a]/50 border border-white/5 py-16 px-8 rounded-2xl flex flex-col items-center justify-center text-center text-slate-500 max-w-md mx-auto shadow-xl">
                   <Info className="h-8 w-8 mb-3 text-slate-600" />
                   <p className="text-xs font-sans font-black tracking-widest uppercase text-white">No matching beatmaps</p>
-                  <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Try a different local filter</p>
+                   <p className="text-[10px] text-slate-500 font-mono max-w-xs mt-1 leading-relaxed uppercase">Try a different song title, artist, or mapper</p>
                 </div>
               )}
               {importStatus && (

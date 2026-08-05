@@ -1,13 +1,5 @@
--- RhythmMania PostgreSQL Database Schema for aaPanel / Standard PostgreSQL
+-- RhythmMania PostgreSQL Database Schema for Standard PostgreSQL
 -- Execute this script on your target PostgreSQL instance to set up all tables and indexes.
---
--- Fresh installs only: CREATE TABLE IF NOT EXISTS will NOT alter an existing database.
--- If users.id is still SERIAL/INT (profile URLs like /profile/1), run:
---   database/migrate_user_ids_to_alnum.sql
--- To add editable profile identity + avatar storage to an existing database, run:
---   database/update.sql
--- To drop the removed privacy_flags column from an existing database, run:
---   database/drop_privacy_flags.sql
 --
 -- Public profile id is users.id (VARCHAR(16) alphanumeric). There is no separate userid column.
 -- Editable public identity (display name, handle, bio, social links) lives in
@@ -57,29 +49,25 @@ CREATE TABLE IF NOT EXISTS beatmap_sets (
     title VARCHAR(255) NOT NULL,
     artist VARCHAR(255) NOT NULL,
     creator VARCHAR(255) NOT NULL,
-    osz_url VARCHAR(512),
     mode INT NOT NULL DEFAULT 3,
-    source VARCHAR(16) NOT NULL DEFAULT 'bundled',
-    source_set_id BIGINT,
-    source_slug VARCHAR(128),
+    source VARCHAR(16) NOT NULL DEFAULT 'osuapi',
+    source_set_id BIGINT NOT NULL,
     catalog_state VARCHAR(16) NOT NULL DEFAULT 'active',
     rank_status VARCHAR(32),
     cover_url VARCHAR(512),
-    download_url VARCHAR(512),
     last_source_check_at TIMESTAMPTZ,
     source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ,CONSTRAINT beatmap_sets_source_chk CHECK (source IN ('bundled', 'osuapi'))
+    ,CONSTRAINT beatmap_sets_source_chk CHECK (source = 'osuapi')
     ,CONSTRAINT beatmap_sets_state_chk CHECK (catalog_state IN ('pending', 'active'))
-    ,CONSTRAINT beatmap_sets_source_id_chk CHECK ((source = 'osuapi' AND source_set_id IS NOT NULL) OR (source = 'bundled'))
+    ,CONSTRAINT beatmap_sets_source_id_chk CHECK (source_set_id IS NOT NULL)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_beatmap_sets_osu_source ON beatmap_sets(source_set_id) WHERE source = 'osuapi';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_beatmap_sets_bundled_slug ON beatmap_sets(source_slug) WHERE source = 'bundled' AND source_slug IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS beatmap_difficulties (
-    id VARCHAR(128) PRIMARY KEY, -- e.g., 'server_usseewa_diff_0'
+    id VARCHAR(128) PRIMARY KEY, -- legacy difficulty identity when applicable
     beatmap_set_id VARCHAR(128) NOT NULL REFERENCES beatmap_sets(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     key_count INT NOT NULL DEFAULT 4,

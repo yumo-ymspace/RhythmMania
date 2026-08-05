@@ -297,11 +297,10 @@ export default function GameplayCanvas({
           parentPackageId: legacy.parentPackageId,
           audioFilename: legacy.audioFilename,
           videoFilename: legacy.videoFilename,
-          bgFilename: legacy.bgFilename,
-          originalContent: legacy.originalContent,
-          isServerMap: legacy.isServerMap,
-          oszUrl: legacy.oszUrl,
-        };
+           bgFilename: legacy.bgFilename,
+           originalContent: legacy.originalContent,
+           isServerMap: legacy.isServerMap,
+         };
       } catch (err) {
         console.error('Failed to auto-repair/re-parse legacy beatmap timing points:', err);
       }
