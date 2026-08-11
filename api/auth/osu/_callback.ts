@@ -20,15 +20,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   clearOsuOAuthStateCookie(res, secure);
 
   if (error) {
-    return sendHtmlResult(res, requestOrigin, false, 'osu! authorization was cancelled or denied.');
+    return sendHtmlResult(res, requestOrigin, false, 'osu! authorization was cancelled or denied.', state);
   }
   if (!code) {
-    return sendHtmlResult(res, requestOrigin, false, 'Missing authorization code.');
+    return sendHtmlResult(res, requestOrigin, false, 'Missing authorization code.', state);
   }
 
   const env = getEnvConfig();
   if (!env.osuClientId || !env.osuClientSecret) {
-    return sendHtmlResult(res, requestOrigin, false, 'Server osu! OAuth credentials are not configured.');
+    return sendHtmlResult(res, requestOrigin, false, 'Server osu! OAuth credentials are not configured.', state);
   }
 
   const redirectUri = `${requestOrigin}/api/auth/osu/callback`;
@@ -57,22 +57,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       !tokenData.access_token
     ) {
       console.error('osu! token exchange error');
-      return sendHtmlResult(res, requestOrigin, false, 'Failed to exchange the osu! authorization code.');
+      return sendHtmlResult(res, requestOrigin, false, 'Failed to exchange the osu! authorization code.', state);
     }
 
     const accessToken = tokenData.access_token;
     const refreshToken = typeof tokenData.refresh_token === 'string' ? tokenData.refresh_token : '';
     const expiresIn = typeof tokenData.expires_in === 'number' ? tokenData.expires_in : 86400;
 
-    return sendHtmlResult(res, requestOrigin, true, 'osu! connected.', {
+    return sendHtmlResult(res, requestOrigin, true, 'osu! connected.', state, {
       accessToken,
       refreshToken,
       expiresIn,
       mode: 'auth_code',
     });
   } catch (err) {
-    console.error('Error during osu! OAuth callback:', err);
-    return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while connecting osu!.');
+    console.error('osu! OAuth callback failed:', err instanceof Error ? err.name : 'unknown');
+    return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while connecting osu!.', state);
   }
 }
 
@@ -95,9 +95,13 @@ function sendHtmlResult(
   targetOrigin: string,
   success: boolean,
   message: string,
+  state?: string,
   tokens?: { accessToken: string; refreshToken: string; expiresIn: number; mode: string },
 ) {
-  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const payload = JSON.stringify({
     success,
     message,
@@ -111,6 +115,7 @@ function sendHtmlResult(
       : {}),
   }).replace(/</g, '\\u003c');
   const safeMessage = escapeHtml(message);
+  const resultKey = state ? `rhythm_mania_osu_auth_${state}` : null;
 
   return res.status(200).send(`
     <!DOCTYPE html>
@@ -131,8 +136,17 @@ function sendHtmlResult(
         </div>
         <script>
           const authData = ${payload};
+          const resultKey = ${JSON.stringify(resultKey)};
+          if (resultKey) {
+            try {
+              localStorage.setItem(resultKey, JSON.stringify(authData));
+              setTimeout(() => localStorage.removeItem(resultKey), 60000);
+            } catch {}
+          }
           if (window.opener) {
-            window.opener.postMessage({ type: 'OSU_AUTH_RESULT', payload: authData }, ${JSON.stringify(targetOrigin)});
+            try {
+              window.opener.postMessage({ type: 'OSU_AUTH_RESULT', payload: authData }, ${JSON.stringify(targetOrigin)});
+            } catch {}
             setTimeout(() => window.close(), 1000);
           } else {
             setTimeout(() => { window.location.href = '/'; }, 1500);

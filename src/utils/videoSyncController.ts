@@ -195,4 +195,12 @@ export class VideoSyncController {
     this.lastUpdateWallMs = 0;
     this.seekCooldownUntil = 0;
   }
+
+  public destroy(): void {
+    try {
+      this.videoEl.pause();
+      this.videoEl.playbackRate = 1;
+    } catch (_e) {}
+    this.reset();
+  }
 }

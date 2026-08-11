@@ -25,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       default: return sendError(res, 404, 'Catalog route not found');
     }
   } catch (error) {
-    console.error('Catalog router error:', error);
+    console.error('Catalog router request failed:', error instanceof Error ? error.name : 'unknown');
     return sendJson(res, 500, { success: false, error: 'Catalog service unavailable' });
   }
 }

@@ -10,9 +10,17 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Beatmap, CloudBeatmapSource } from '../types';
+import { Beatmap, CloudBeatmapSource, HitObject, TimingControlPoint } from '../types';
 import { AssetLifecycleManager, getMediaCacheKey } from './assetLifecycle';
 import { TempMemoryCache } from './tempMemoryCache';
+import {
+  isSafeAssetUrl,
+  MAX_BEATMAP_NOTES,
+  MAX_BEATMAP_TIMING_POINTS,
+  MAX_COMPRESSED_SIZE_BYTES,
+  MAX_MEDIA_URL_LENGTH,
+  MAX_OSU_TEXT_BYTES,
+} from './securityLimits';
 
 export interface SavedBeatmap extends Beatmap {
   packageId?: string;
@@ -40,11 +48,197 @@ export interface PackageRecord {
   zipData?: ArrayBuffer;
 }
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown, min: number, max: number): number | null {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
+function safeString(value: unknown, maxLength: number, fallback = ''): string {
+  return typeof value === 'string' && value.length <= maxLength ? value : fallback;
+}
+
+function safeMediaUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.length > MAX_MEDIA_URL_LENGTH) return '';
+  return !value || isSafeAssetUrl(value) ? value : '';
+}
+
+function isPackageRecord(value: unknown, expectedId: string): value is PackageRecord {
+  if (!isRecord(value) || value.id !== expectedId || !(value.zipData instanceof ArrayBuffer)) return false;
+  return value.zipData.byteLength <= MAX_COMPRESSED_SIZE_BYTES;
+}
+
+function sanitizeHitObject(value: unknown, index: number): HitObject | null {
+  if (!isRecord(value)) return null;
+  const time = finiteNumber(value.time, 0, 10000000);
+  const column = finiteNumber(value.column, 0, 7);
+  if (time === null || column === null || !Number.isInteger(column)) return null;
+  const type = value.type === 'normal' || value.type === 'hold' ? value.type : null;
+  if (!type) return null;
+  const note: HitObject = {
+    id: safeString(value.id, 200, `stored_note_${index}`),
+    time,
+    column,
+    type,
+    isHit: Boolean(value.isHit),
+    isReleased: Boolean(value.isReleased),
+    isMissed: Boolean(value.isMissed),
+    isHoldFailed: Boolean(value.isHoldFailed),
+  };
+  const endTime = value.endTime === undefined ? undefined : finiteNumber(value.endTime, time + 1, 10000000);
+  if (value.endTime !== undefined && endTime === null) return null;
+  if (endTime !== undefined && endTime !== null) note.endTime = endTime;
+  for (const field of ['hitTime', 'releaseTime', 'releaseGraceUntil'] as const) {
+    if (value[field] !== undefined) {
+      const number = finiteNumber(value[field], 0, 10000000);
+      if (number === null) return null;
+      note[field] = number;
+    }
+  }
+  for (const field of ['x', 'y', 'objType', 'hitSound', 'sliderLength', 'slidesCount'] as const) {
+    if (value[field] !== undefined) {
+      const max = field === 'x' ? 512 : field === 'y' ? 384 : field === 'slidesCount' ? 100 : 1000000;
+      const number = finiteNumber(value[field], 0, max);
+      if (number === null) return null;
+      note[field] = number;
+    }
+  }
+  if (Array.isArray(value.sliderPoints)) {
+    if (value.sliderPoints.length > 1000) return null;
+    note.sliderPoints = [];
+    for (const point of value.sliderPoints) {
+      if (!isRecord(point)) return null;
+      const x = finiteNumber(point.x, 0, 512);
+      const y = finiteNumber(point.y, 0, 384);
+      if (x === null || y === null) return null;
+      note.sliderPoints.push({ x, y });
+    }
+  }
+  if (isRecord(value.hitSample)) {
+    const normalSet = finiteNumber(value.hitSample.normalSet, 0, 1000);
+    const additionSet = finiteNumber(value.hitSample.additionSet, 0, 1000);
+    const sampleIndex = finiteNumber(value.hitSample.index, 0, 1000);
+    const volume = finiteNumber(value.hitSample.volume, 0, 1000);
+    if (normalSet === null || additionSet === null || sampleIndex === null || volume === null) return null;
+    note.hitSample = {
+      normalSet,
+      additionSet,
+      index: sampleIndex,
+      volume,
+      filename: value.hitSample.filename === undefined ? undefined : safeString(value.hitSample.filename, 512),
+    };
+  }
+  return note;
+}
+
+/** Runtime guard for records read from IndexedDB or legacy localStorage. */
+export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
+  if (!isRecord(raw)) return null;
+  const keyCount = finiteNumber(raw.keyCount, 2, 8);
+  const duration = finiteNumber(raw.duration, 0, 10000000);
+  const bpm = finiteNumber(raw.bpm, 0.01, 10000);
+  const hpDrainRate = finiteNumber(raw.hpDrainRate, 0, 10);
+  const overallDifficulty = finiteNumber(raw.overallDifficulty, 0, 10);
+  const sliderMultiplier = finiteNumber(raw.sliderMultiplier, 0.001, 10);
+  if (keyCount === null || duration === null || bpm === null || hpDrainRate === null || overallDifficulty === null || sliderMultiplier === null ||
+      !Number.isInteger(keyCount) || !Array.isArray(raw.notes) || raw.notes.length > MAX_BEATMAP_NOTES ||
+      !Array.isArray(raw.timingPoints) || raw.timingPoints.length > MAX_BEATMAP_TIMING_POINTS) return null;
+
+  const notes: HitObject[] = [];
+  for (let i = 0; i < raw.notes.length; i++) {
+    const note = sanitizeHitObject(raw.notes[i], i);
+    if (!note || note.column >= keyCount) return null;
+    notes.push(note);
+  }
+  const timingPoints: TimingControlPoint[] = [];
+  for (const point of raw.timingPoints) {
+    if (!isRecord(point)) return null;
+    const timeMs = finiteNumber(point.timeMs, -1000000, 10000000);
+    const beatLength = finiteNumber(point.beatLength, -600000, 600000);
+    const svMultiplier = finiteNumber(point.svMultiplier, -1000, 1000);
+    if (timeMs === null || beatLength === null || beatLength === 0 || svMultiplier === null || typeof point.uninherited !== 'boolean') return null;
+    timingPoints.push({ timeMs, beatLength, uninherited: point.uninherited, svMultiplier });
+  }
+  const mode = raw.mode === undefined ? 3 : finiteNumber(raw.mode, 0, 3);
+  if (mode === null || (mode !== 0 && mode !== 3) || (mode === 3 && !Number.isInteger(keyCount))) return null;
+  const baseBeatLength = raw.baseBeatLength === undefined ? undefined : finiteNumber(raw.baseBeatLength, 0.001, 600000);
+  if (raw.baseBeatLength !== undefined && baseBeatLength === null) return null;
+  const breaks: Array<{ startTime: number; endTime: number }> = [];
+  if (raw.breaks !== undefined) {
+    if (!Array.isArray(raw.breaks) || raw.breaks.length > 10000) return null;
+    for (const item of raw.breaks) {
+      if (!isRecord(item)) return null;
+      const startTime = finiteNumber(item.startTime, 0, 10000000);
+      const endTime = finiteNumber(item.endTime, 0, 10000000);
+      if (startTime === null || endTime === null || endTime <= startTime) return null;
+      breaks.push({ startTime, endTime });
+    }
+  }
+  const hitSoundUrls: Record<string, string> = {};
+  if (raw.hitSoundUrls !== undefined) {
+    if (!isRecord(raw.hitSoundUrls) || Object.keys(raw.hitSoundUrls).length > 100) return null;
+    for (const [name, url] of Object.entries(raw.hitSoundUrls)) hitSoundUrls[safeString(name, 512)] = safeMediaUrl(url);
+  }
+  const originalContent = raw.originalContent === undefined ? undefined : safeString(raw.originalContent, MAX_OSU_TEXT_BYTES);
+  if (raw.originalContent !== undefined && (originalContent === '' || new TextEncoder().encode(originalContent).byteLength > MAX_OSU_TEXT_BYTES)) return null;
+  const result: SavedBeatmap = {
+    id: safeString(raw.id, 300),
+    title: safeString(raw.title, 300, 'Unknown Title'),
+    artist: safeString(raw.artist, 300, 'Unknown Artist'),
+    creator: safeString(raw.creator, 300, 'Unknown Mapper'),
+    difficulty: safeString(raw.difficulty, 200, 'Normal'),
+    bpm,
+    keyCount,
+    duration,
+    notes,
+    hpDrainRate,
+    overallDifficulty,
+    timingPoints,
+    sliderMultiplier,
+    baseBeatLength: baseBeatLength ?? undefined,
+    breaks,
+    audioUrl: safeMediaUrl(raw.audioUrl),
+    videoUrl: safeMediaUrl(raw.videoUrl),
+    bgUrl: safeMediaUrl(raw.bgUrl),
+    hitSoundUrls,
+    videoStartTime: raw.videoStartTime === undefined ? undefined : finiteNumber(raw.videoStartTime, -1000000, 10000000) ?? undefined,
+    previewTime: raw.previewTime === undefined ? undefined : finiteNumber(raw.previewTime, -1, 10000000) ?? undefined,
+    mode,
+    catalogSetId: typeof raw.catalogSetId === 'string' || raw.catalogSetId === null ? raw.catalogSetId : null,
+    catalogMapId: typeof raw.catalogMapId === 'string' || raw.catalogMapId === null ? raw.catalogMapId : null,
+    beatmapHash: safeString(raw.beatmapHash, 256) || undefined,
+    isServerMap: Boolean(raw.isServerMap),
+    chartRevisionId: typeof raw.chartRevisionId === 'string' ? raw.chartRevisionId : undefined,
+    checksum: safeString(raw.checksum, 128) || undefined,
+    checksumAlgorithm: raw.checksumAlgorithm === 'md5' || raw.checksumAlgorithm === 'sha256' ? raw.checksumAlgorithm : undefined,
+    packageId: safeString(raw.packageId, 300) || undefined,
+    parentPackageId: safeString(raw.parentPackageId, 300) || undefined,
+    audioFilename: safeString(raw.audioFilename, 512) || undefined,
+    videoFilename: raw.videoFilename === null ? null : safeString(raw.videoFilename, 512) || undefined,
+    bgFilename: raw.bgFilename === null ? null : safeString(raw.bgFilename, 512) || undefined,
+    originalContent,
+    cloudSetId: safeString(raw.cloudSetId, 300) || undefined,
+    source: raw.source === 'osuapi' ? 'osuapi' : undefined,
+    sourceSetId: raw.sourceSetId === undefined ? undefined : finiteNumber(raw.sourceSetId, 1, 2147483647) ?? undefined,
+    sourceChartId: raw.sourceChartId === undefined ? undefined : finiteNumber(raw.sourceChartId, 1, 2147483647) ?? undefined,
+    originalOsuFilename: safeString(raw.originalOsuFilename, 512) || undefined,
+    importedAt: raw.importedAt === undefined ? undefined : finiteNumber(raw.importedAt, 0, 2000000000000) ?? undefined,
+    isCached: raw.isCached === undefined ? undefined : Boolean(raw.isCached),
+  };
+  if (!result.id) return null;
+  return result;
+}
+
 const DB_NAME = 'RhythmManiaDB';
 const DB_VERSION = 3;
 
 class SimpleBlobCache {
-  private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string }>();
+  private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string; hitSoundUrls: Record<string, string> }>();
   private order: string[] = [];
 
   constructor(private capacity = 8) {}
@@ -56,7 +250,7 @@ class SimpleBlobCache {
     return this.cache.get(key)!;
   }
 
-  public put(id: string, urls: { audioUrl: string; videoUrl: string; bgUrl: string }) {
+  public put(id: string, urls: { audioUrl: string; videoUrl: string; bgUrl: string; hitSoundUrls?: Record<string, string> }) {
     const key = getMediaCacheKey(id);
     if (this.cache.has(key)) {
       const prev = this.cache.get(key)!;
@@ -64,12 +258,15 @@ class SimpleBlobCache {
       if (prev.audioUrl && prev.audioUrl !== urls.audioUrl) AssetLifecycleManager.releaseSpecific(prev.audioUrl);
       if (prev.videoUrl && prev.videoUrl !== urls.videoUrl) AssetLifecycleManager.releaseSpecific(prev.videoUrl);
       if (prev.bgUrl && prev.bgUrl !== urls.bgUrl) AssetLifecycleManager.releaseSpecific(prev.bgUrl);
+      for (const [name, url] of Object.entries(prev.hitSoundUrls)) {
+        if (url && url !== urls.hitSoundUrls?.[name]) AssetLifecycleManager.releaseSpecific(url);
+      }
       this.order = this.order.filter(k => k !== key);
     } else if (this.order.length >= this.capacity) {
       const oldest = this.order.shift();
       if (oldest) this.evict(oldest);
     }
-    this.cache.set(key, urls);
+    this.cache.set(key, { ...urls, hitSoundUrls: urls.hitSoundUrls || {} });
     this.order.push(key);
   }
 
@@ -80,13 +277,14 @@ class SimpleBlobCache {
       if (urls.audioUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.audioUrl);
       if (urls.videoUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.videoUrl);
       if (urls.bgUrl?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(urls.bgUrl);
+      for (const url of Object.values(urls.hitSoundUrls)) AssetLifecycleManager.releaseSpecific(url);
     }
     this.cache.delete(key);
     this.order = this.order.filter(k => k !== key);
   }
 
   public clearAll() {
-    this.order.forEach(id => this.evict(id));
+    for (const id of [...this.order]) this.evict(id);
     this.cache.clear();
     this.order = [];
   }
@@ -98,7 +296,10 @@ class StorageManager {
   public lruMediaCache = new SimpleBlobCache(3);
 
   constructor() {
-    this.initPromise = this.init();
+    // Keep pure sanitizers and replay helpers importable in Node/test contexts.
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      this.initPromise = this.init();
+    }
   }
 
   private init(): Promise<IDBDatabase> {
@@ -141,27 +342,60 @@ class StorageManager {
   }
 
   public async savePackage(id: string, name: string, zipBlob: Blob): Promise<void> {
+    if (!id || id.length > 300 || !name || name.length > 512 || !(zipBlob instanceof Blob) || zipBlob.size > MAX_COMPRESSED_SIZE_BYTES) {
+      throw new Error('Security Exception: Invalid or oversized beatmap package.');
+    }
     const database = await this.getDB();
     const arrayBuffer = await zipBlob.arrayBuffer();
-    TempMemoryCache.set(id, arrayBuffer);
 
-    return new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const tx = database.transaction('packages', 'readwrite');
       const store = tx.objectStore('packages');
       store.put({ id, name, zipData: arrayBuffer.slice(0) });
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to save beatmap package.'));
+      tx.onabort = () => reject(tx.error || new Error('Beatmap package transaction aborted.'));
     });
+    TempMemoryCache.set(id, arrayBuffer);
   }
 
-  public async saveBeatmap(beatmap: SavedBeatmap): Promise<void> {
+  /** Atomically stages a package and all of its validated difficulties. */
+  public async savePackageWithBeatmaps(
+    id: string,
+    name: string,
+    zipBlob: Blob,
+    beatmaps: Beatmap[],
+  ): Promise<void> {
+    if (!id || id.length > 300 || !name || name.length > 512 || !(zipBlob instanceof Blob) || zipBlob.size > MAX_COMPRESSED_SIZE_BYTES) {
+      throw new Error('Security Exception: Invalid or oversized beatmap package.');
+    }
+    const records = beatmaps.map(sanitizeSavedBeatmap);
+    if (records.some(record => record === null) || records.length !== beatmaps.length || records.length === 0) {
+      throw new Error('Security Exception: Invalid beatmap package contents.');
+    }
+    const arrayBuffer = await zipBlob.arrayBuffer();
     const database = await this.getDB();
-    const record: SavedBeatmap = { ...beatmap, importedAt: beatmap.importedAt ?? Date.now() };
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction(['packages', 'beatmaps'], 'readwrite');
+      tx.objectStore('packages').put({ id, name, zipData: arrayBuffer.slice(0) });
+      for (const record of records) tx.objectStore('beatmaps').put({ ...record!, importedAt: record!.importedAt ?? Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Failed to stage beatmap package.'));
+      tx.onabort = () => reject(tx.error || new Error('Beatmap package transaction aborted.'));
+    });
+    TempMemoryCache.set(id, arrayBuffer);
+  }
+
+  public async saveBeatmap(beatmap: Beatmap): Promise<void> {
+    const clean = sanitizeSavedBeatmap(beatmap);
+    if (!clean) throw new Error('Security Exception: Invalid beatmap record.');
+    const database = await this.getDB();
+    const record: SavedBeatmap = { ...clean, importedAt: clean.importedAt ?? Date.now() };
     return new Promise<void>((resolve, reject) => {
       const tx = database.transaction('beatmaps', 'readwrite');
       tx.objectStore('beatmaps').put(record);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to save beatmap record.'));
     });
   }
 
@@ -170,7 +404,7 @@ class StorageManager {
     return new Promise((resolve, reject) => {
       const tx = database.transaction('beatmaps', 'readonly');
       const req = tx.objectStore('beatmaps').getAll();
-      req.onsuccess = () => resolve(req.result || []);
+      req.onsuccess = () => resolve((req.result as unknown[] || []).map(sanitizeSavedBeatmap).filter((map): map is SavedBeatmap => map !== null));
       req.onerror = () => reject(req.error);
     });
   }
@@ -181,9 +415,9 @@ class StorageManager {
       const tx = database.transaction('packages', 'readonly');
       const req = tx.objectStore('packages').get(id);
       req.onsuccess = () => {
-        const record = req.result as PackageRecord | undefined;
-        if (record?.zipData) {
-          resolve(new Blob([record.zipData], { type: 'application/octet-stream' }));
+        const record: unknown = req.result;
+        if (isPackageRecord(record, id)) {
+          resolve(new Blob([record.zipData!], { type: 'application/octet-stream' }));
         } else {
           resolve(null);
         }
@@ -199,7 +433,7 @@ class StorageManager {
     const beatmap: SavedBeatmap | null = await new Promise((resolve, reject) => {
       const tx = database.transaction('beatmaps', 'readonly');
       const req = tx.objectStore('beatmaps').get(id);
-      req.onsuccess = () => resolve(req.result || null);
+      req.onsuccess = () => resolve(sanitizeSavedBeatmap(req.result));
       req.onerror = () => reject(req.error);
     });
 
@@ -224,6 +458,7 @@ class StorageManager {
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         });
+        TempMemoryCache.remove(pkgId);
       }
     }
   }

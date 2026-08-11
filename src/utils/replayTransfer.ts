@@ -58,6 +58,9 @@ export function parseReplayImport(
   defaultSettings: GameSettings,
   availableBeatmaps: Beatmap[] = []
 ): { records: PlayHistoryRecord[]; rejectedCount: number } {
+  if (typeof text !== 'string' || new TextEncoder().encode(text).byteLength > MAX_IMPORT_FILE_BYTES) {
+    return { records: [], rejectedCount: 1 };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -78,12 +81,13 @@ export function parseReplayImport(
   }
 
   if (rawRecords.length === 0) return { records: [], rejectedCount: 1 };
+  let rejectedCount = 0;
   if (rawRecords.length > MAX_IMPORT_RECORDS) {
+    rejectedCount = rawRecords.length - MAX_IMPORT_RECORDS;
     rawRecords = rawRecords.slice(0, MAX_IMPORT_RECORDS);
   }
 
   const records: PlayHistoryRecord[] = [];
-  let rejectedCount = 0;
   for (const raw of rawRecords) {
     const clean = sanitizeHistoryRecord(raw, defaultSettings, availableBeatmaps);
     if (clean && clean.id) {

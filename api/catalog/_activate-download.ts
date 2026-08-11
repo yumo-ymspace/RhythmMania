@@ -1,26 +1,120 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionFromReq } from '../_lib/auth.js';
-import { query } from '../_lib/db.js';
-import { handleCors, sendError, sendJson } from '../_lib/response.js';
+import { withTransaction } from '../_lib/db.js';
+import { canActivatePendingRegistration, isPendingRegistrationExpired } from '../_lib/catalogRegistration.js';
+import { verifyMirrorArchive, type MirrorChartExpectation } from '../_lib/replayVerification.js';
+import { handleCors, requireSameOrigin, sendError, sendJson } from '../_lib/response.js';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function pendingResponse(res: VercelResponse, cloudSetId: string) {
+  return sendJson(res, 202, {
+    success: true,
+    data: {
+      cloudSetId,
+      state: 'pending' as const,
+      retryable: true,
+      message: 'The mirror archive could not be independently verified yet',
+    },
+  });
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
   if (req.method !== 'POST') return sendError(res, 405, 'Method Not Allowed');
+  if (!requireSameOrigin(req, res)) return;
   const session = await getSessionFromReq(req);
   if (!session) return sendError(res, 401, 'Sign in to activate a cloud download');
-  const cloudSetId = req.body?.cloudSetId;
-  const token = req.body?.token;
-  const charts = req.body?.charts;
-   if (typeof cloudSetId !== 'string' || !/^osuapi_\d+$/.test(cloudSetId) || typeof token !== 'string' || !token || !Array.isArray(charts) || charts.length === 0 || charts.some((chart: any) => !Number.isInteger(chart?.beatmapId) || chart.beatmapId < 1 || typeof chart?.checksum !== 'string' || !chart.checksum)) return sendError(res, 400, 'Invalid activation request');
-  const result = await query<{ source_metadata: any; catalog_state: string; source_set_id: number }>('SELECT source_metadata, catalog_state, source_set_id FROM beatmap_sets WHERE id = $1 AND source = \'osuapi\'', [cloudSetId]);
-  const row = result.rows[0];
-   if (!row) return sendError(res, 404, 'Pending cloud set not found');
-  if (row.source_metadata?.token !== token || row.source_metadata?.userId !== session.userId) return sendError(res, 403, 'Activation token is invalid or expired');
-  const expected = Array.isArray(row.source_metadata.charts) ? row.source_metadata.charts : [];
-  const submitted = charts.map((chart: any) => `${chart.beatmapId}:${String(chart.checksum || '').toLowerCase()}`).sort();
-  const authoritative = expected.map((chart: any) => `${chart.id}:${String(chart.checksum || '').toLowerCase()}`).sort();
-  if (submitted.length !== authoritative.length || submitted.some((value: string, index: number) => value !== authoritative[index])) return sendError(res, 422, 'Downloaded archive did not match official osu! chart checksums');
-  await query(`UPDATE beatmap_sets SET catalog_state='active', updated_at=NOW(), source_metadata = source_metadata - 'token' - 'userId' WHERE id=$1`, [cloudSetId]);
-  await query(`UPDATE beatmap_chart_revisions SET is_active=TRUE, is_current=TRUE WHERE beatmap_set_id=$1`, [cloudSetId]);
-  return sendJson(res, 200, { success: true, data: { cloudSetId, state: 'active' } });
+
+  const body: unknown = req.body;
+  const cloudSetId = isRecord(body) && typeof body.cloudSetId === 'string' ? body.cloudSetId : '';
+  const token = isRecord(body) && typeof body.token === 'string' ? body.token : '';
+  if (!/^osuapi_\d+$/.test(cloudSetId) || token.length < 1 || token.length > 128) return sendError(res, 400, 'Invalid activation request');
+
+  try {
+    const result = await withTransaction(async (client) => {
+      const pending = await client.query<{
+        source_metadata: unknown;
+        catalog_state: 'pending' | 'active';
+        source_set_id: number;
+      }>(
+        `SELECT source_metadata, catalog_state, source_set_id
+          FROM beatmap_sets WHERE id = $1 AND source = 'osuapi' FOR UPDATE`,
+        [cloudSetId],
+      );
+      const row = pending.rows[0];
+      if (!row) return { kind: 'missing' as const };
+      if (row.catalog_state === 'active') return { kind: 'active' as const };
+      const metadata = isRecord(row.source_metadata) ? row.source_metadata : null;
+      if (isPendingRegistrationExpired(metadata) || !canActivatePendingRegistration(row.catalog_state, false, metadata, token, session.userId) || !Array.isArray(metadata?.charts)) return { kind: 'forbidden' as const };
+      const expectations: MirrorChartExpectation[] = [];
+      for (const rawChart of metadata.charts) {
+        const sourceChartId = isRecord(rawChart) && typeof rawChart.id === 'number' ? rawChart.id : null;
+        const keyCount = isRecord(rawChart) && typeof rawChart.keyCount === 'number' ? rawChart.keyCount : null;
+        if (!isRecord(rawChart) || sourceChartId === null || !Number.isInteger(sourceChartId) || sourceChartId < 1 || typeof rawChart.filename !== 'string' || rawChart.filename.length < 1 || rawChart.filename.length > 512 || typeof rawChart.checksum !== 'string' || !rawChart.checksum || keyCount === null || !Number.isInteger(keyCount) || keyCount < 2 || keyCount > 8) return { kind: 'invalid' as const };
+        expectations.push({
+          sourceChartId,
+          filename: rawChart.filename,
+          checksum: rawChart.checksum,
+          keyCount,
+          chartRevisionId: `osuapi_${row.source_set_id}_b${rawChart.id}_${rawChart.checksum}`,
+        });
+      }
+      if (expectations.length === 0) return { kind: 'invalid' as const };
+      return { kind: 'verify' as const, sourceSetId: row.source_set_id, expectations };
+    });
+
+    if (result.kind === 'missing') return sendError(res, 404, 'Pending cloud set not found');
+    if (result.kind === 'forbidden') return sendError(res, 403, 'Activation token is invalid or expired');
+    if (result.kind === 'invalid') return pendingResponse(res, cloudSetId);
+    if (result.kind === 'active') return sendJson(res, 200, { success: true, data: { cloudSetId, state: 'active' as const } });
+
+    let canonicalCharts;
+    try {
+      canonicalCharts = await verifyMirrorArchive(result.sourceSetId, result.expectations);
+    } catch (error: unknown) {
+      console.error('Catalog mirror verification failed:', error instanceof Error ? error.name : 'unknown');
+      return pendingResponse(res, cloudSetId);
+    }
+
+    const activated = await withTransaction(async (client) => {
+      const locked = await client.query<{
+        source_metadata: unknown;
+        catalog_state: 'pending' | 'active';
+      }>(
+        `SELECT source_metadata, catalog_state
+           FROM beatmap_sets WHERE id = $1 AND source = 'osuapi' FOR UPDATE`,
+        [cloudSetId],
+      );
+      const lockedRow = locked.rows[0];
+      const lockedMetadata = isRecord(lockedRow?.source_metadata) ? lockedRow.source_metadata : null;
+      if (isPendingRegistrationExpired(lockedMetadata) || !canActivatePendingRegistration(lockedRow?.catalog_state, false, lockedMetadata, token, session.userId)) return false;
+
+      await client.query(`UPDATE beatmap_chart_revisions SET is_active = FALSE, is_current = FALSE WHERE beatmap_set_id = $1`, [cloudSetId]);
+      for (const chart of canonicalCharts) {
+        const updated = await client.query(
+          `UPDATE beatmap_chart_revisions
+           SET is_active = TRUE, is_current = TRUE, canonical_chart = $2
+           WHERE id = $1 AND beatmap_set_id = $3 AND checksum = $4 AND key_count = $5 AND mode = 3`,
+          [chart.chartRevisionId, JSON.stringify(chart), cloudSetId, chart.checksum, chart.keyCount],
+        );
+        if (updated.rowCount !== 1) throw new Error('Verified chart revision is not registered');
+      }
+      await client.query(
+        `UPDATE beatmap_sets
+            SET catalog_state = 'active', updated_at = NOW(),
+                source_metadata = source_metadata - 'token' - 'userId' - 'registrationExpiresAt'
+          WHERE id = $1`,
+        [cloudSetId],
+      );
+      return true;
+    });
+    if (!activated) return pendingResponse(res, cloudSetId);
+    return sendJson(res, 200, { success: true, data: { cloudSetId, state: 'active' as const } });
+  } catch (error: unknown) {
+    console.error('Catalog activation failed:', error instanceof Error ? error.name : 'unknown');
+    return sendError(res, 500, 'Catalog activation unavailable');
+  }
 }

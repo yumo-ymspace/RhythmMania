@@ -11,27 +11,13 @@
  */
 
 import { IPlayfieldRenderer, PlayfieldFrame, InitOpts, VisibleNote } from './types';
-import { hexToRgba } from '../components/GameplayCanvas';
+import { hexToRgba } from './color';
 import { getLaneColors } from './skinTheme';
 import { getNoteVisualY } from './playfieldLayout';
+import { isHoldBodyAnchored } from './noteState';
 
 function applyFade(colorStr: string, stopOpacity: number) {
-  if (colorStr.startsWith('#')) {
-    return hexToRgba(colorStr, stopOpacity);
-  }
-  if (colorStr.startsWith('rgba(')) {
-    const parts = colorStr.substring(5, colorStr.length - 1).split(',');
-    if (parts.length === 4) {
-      const existingAlpha = parseFloat(parts[3]);
-      parts[3] = (existingAlpha * stopOpacity).toFixed(3);
-      return `rgba(${parts.join(',')})`;
-    }
-  }
-  if (colorStr.startsWith('rgb(')) {
-    const parts = colorStr.substring(4, colorStr.length - 1).split(',');
-    return `rgba(${parts.join(',')},${stopOpacity})`;
-  }
-  return colorStr;
+  return hexToRgba(colorStr, stopOpacity);
 }
 
 export class Canvas2DRenderer implements IPlayfieldRenderer {
@@ -78,6 +64,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 
     // Lane background rails & column glows
     const separatorOpacity = settingsSlice.laneSeparatorOpacity ?? 0.30;
+    const isDynamicStyle = settingsSlice.squareRenderStyle === 'rhythmplus-dynamic';
     for (let i = 0; i < this.keyCount; i++) {
       const col = columns[i];
       if (!col) continue;
@@ -112,6 +99,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 
     // Last border outline
     ctx.strokeStyle = `rgba(71,85,105,${separatorOpacity * 1.5})`;
+    ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, width, height);
 
     const isCircleMode = settingsSlice.playfieldStyle === 'circle' ||
@@ -162,7 +150,17 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         ctx.shadowBlur = 12;
         ctx.fill();
         ctx.shadowBlur = 0;
-      } else {
+       } else if (isDynamicStyle && !isCircleMode) {
+         const dynamicColor = noteObj.isHoldFailed ? '#64748b' : noteColorFor(noteObj.column);
+         ctx.strokeStyle = dynamicColor;
+         ctx.lineWidth = 2;
+         ctx.shadowColor = dynamicColor;
+         ctx.shadowBlur = noteObj.isHoldFailed ? 0 : 7;
+         ctx.beginPath();
+         ctx.rect(rx, ry, rw, rh);
+         ctx.stroke();
+         ctx.shadowBlur = 0;
+       } else {
         ctx.beginPath();
         if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
           ctx.strokeStyle = noteColorFor(noteObj.column);
@@ -218,7 +216,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         // (head hit & held). A missed head must not ground the body — the LN keeps its
         // fixed length and scrolls off naturally; the release stays salvageable.
         let visualStartY = getNoteVisualY(n.y, colW, settingsSlice);
-        if (n.isHit && !n.isMissed && !n.isReleased && !n.isHoldFailed) {
+         if (isHoldBodyAnchored(n)) {
           visualStartY = receptorY;
         }
 
@@ -238,7 +236,11 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           const fadeStart = n.opacity;
           const fadeEnd = n.endOpacity ?? n.opacity;
 
-          if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+           if (isDynamicStyle && !isCircleMode) {
+              const dynamicHoldColor = n.isHoldFailed ? '#64748b' : noteColorFor(n.column);
+              holdGrad.addColorStop(0, applyFade(dynamicHoldColor, fadeStart * 0.55));
+              holdGrad.addColorStop(1, applyFade(dynamicHoldColor, fadeEnd * 0.55));
+           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
             const rpColor = noteColorFor(n.column);
             if (n.isHit && !n.isReleased) {
               if (n.releaseGraceUntil) {
@@ -301,21 +303,30 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
            const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
            const useNotePadding = settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode;
 
-           const basePadding = useNotePadding ? notePadding : padding;
+           const basePadding = isDynamicStyle
+             ? (isFocusMode ? 1.5 : 3)
+             : useNotePadding ? notePadding : padding;
            const rw = (colW - basePadding * 2) * noteScale;
            const rx = xPos + (colW - rw) / 2;
 
-          let drawY = Math.min(visualStartY, visualEndY);
-          let drawH = Math.abs(clipHeight);
+           let drawY = Math.min(visualStartY, visualEndY);
+           let drawH = Math.abs(clipHeight);
 
-          if (useNotePadding) {
-            drawY -= 4;
-            drawH += 8;
-          }
+           if (useNotePadding) {
+             drawY -= 4;
+             drawH += 8;
+           }
+           if (isDynamicStyle && !isCircleMode) {
+             const halfNoteHeight = ((20 / 3) * (settingsSlice.noteSizeMultiplier ?? 1)) / 2;
+             drawY -= halfNoteHeight;
+             drawH += halfNoteHeight * 2;
+           }
 
           ctx.beginPath();
-          if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-            ctx.rect(rx, drawY, rw, drawH);
+            if (isDynamicStyle && !isCircleMode) {
+              ctx.roundRect(rx, drawY, rw, drawH, 4);
+           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+             ctx.rect(rx, drawY, rw, drawH);
           } else {
             if (isCircleMode) {
               ctx.roundRect(rx, drawY, rw, drawH, rw / 2);
@@ -325,9 +336,19 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
               ctx.roundRect(rx, drawY, rw, drawH, 6);
             }
           }
-          ctx.fill();
+           ctx.fill();
 
-          if (!(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
+            if (isDynamicStyle && !isCircleMode) {
+              const dynamicHoldColor = n.isHoldFailed ? '#64748b' : noteColorFor(n.column);
+              ctx.strokeStyle = applyFade(dynamicHoldColor, Math.min(1, fadeStart));
+              ctx.lineWidth = 2;
+              ctx.shadowColor = dynamicHoldColor;
+              ctx.shadowBlur = n.isHoldFailed ? 0 : 7;
+              ctx.beginPath();
+              ctx.roundRect(rx, drawY, rw, drawH, 4);
+              ctx.stroke();
+              ctx.shadowBlur = 0;
+           } else if (!(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
             const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
             const baseStrokeColor = n.isHit && !n.isReleased
               ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
@@ -368,7 +389,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit && !n.isMissed);
 
       if (shouldDrawHead) {
-        if (!(n.type === 'hold' && settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle')) {
+         if (!(n.type === 'hold' && (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) && settingsSlice.playfieldStyle !== 'circle')) {
            const rw = (colW - notePadding * 2) * noteScale;
            const rh = 20 * noteScale;
            const rx = xPos + (colW - rw) / 2;
@@ -384,10 +405,13 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.globalAlpha = currentOpacity;
 
           const drawNoteShape = (radiusDefault: number) => {
-            ctx.beginPath();
-            if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
-               const barHeight = 8 * noteScale;
-               ctx.rect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight);
+             ctx.beginPath();
+              if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
+                 const barHeight = (20 / 3) * noteScale;
+                 ctx.roundRect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight, barHeight / 2);
+             } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
+                const barHeight = 8 * noteScale;
+                ctx.rect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight);
             } else {
               ctx.roundRect(rx, ry, rw, rh, radiusDefault);
             }
@@ -399,9 +423,9 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           if (isCircleMode) {
             noteFill = noteColorFor(n.column);
             noteStroke = noteColorFor(n.column);
-          } else if (settingsSlice.squareRenderStyle === 'rhythmplus') {
-            noteFill = noteColorFor(n.column);
-            noteStroke = noteColorFor(n.column);
+           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) {
+             noteFill = noteColorFor(n.column);
+             noteStroke = noteColorFor(n.column);
           } else {
             noteFill = noteColorFor(n.column);
             noteStroke = noteColorFor(n.column);
@@ -448,7 +472,27 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.stroke();
-          } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
+            } else if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
+              const isDynamicHold = n.type === 'hold';
+              const dynamicColor = noteColorFor(n.column);
+              ctx.fillStyle = isDynamicHold ? 'rgba(0,0,0,0)' : '#00dce8';
+              ctx.strokeStyle = dynamicColor;
+              ctx.lineWidth = isDynamicHold ? 2 : 1.5;
+              if (!isDynamicHold) {
+                ctx.shadowColor = dynamicColor;
+                ctx.shadowBlur = 8;
+              }
+              drawNoteShape(0);
+              if (!isDynamicHold) ctx.fill();
+              ctx.stroke();
+              if (!isDynamicHold) {
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#d9ffff';
+                ctx.beginPath();
+                ctx.roundRect(rx + 3, ry + rh / 2 - 1, rw - 6, 2, 1);
+                ctx.fill();
+              }
+           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
             grad.addColorStop(0, noteFill);
             grad.addColorStop(1, noteFill);
             ctx.fillStyle = grad;
@@ -493,7 +537,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         }
       }
 
-      if (n.type === 'hold' && n.endY !== undefined && !n.isReleased) {
+       if (n.type === 'hold' && n.endY !== undefined && !n.isReleased && !isDynamicStyle) {
          drawEndReceptor(getNoteVisualY(n.endY, colW, settingsSlice), xPos, colW, notePadding, n);
       }
     });
@@ -581,20 +625,19 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.fill();
           ctx.shadowBlur = 0;
         }
-      } else if (settingsSlice.squareRenderStyle === 'rhythmplus') {
+      } else if (isDynamicStyle || settingsSlice.squareRenderStyle === 'rhythmplus') {
         const receptorScale = settingsSlice.receptorSizeMultiplier ?? 1;
         const rw = (colW - 2) * receptorScale;
         const rh = 4 * receptorScale;
         const rx = xPos + (colW - rw) / 2;
         const ry = receptorY - rh / 2;
 
-         ctx.fillStyle = isPressed ? '#ffffff' : rcColor;
+        ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.rect(rx, ry, rw, rh);
         ctx.fill();
-
-         if (isPressed) {
-           ctx.shadowColor = rcColor;
+        if (isPressed) {
+          ctx.shadowColor = '#ffffff';
           ctx.shadowBlur = 10;
           ctx.fillStyle = '#ffffff';
           ctx.fill();

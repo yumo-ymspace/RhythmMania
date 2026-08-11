@@ -234,10 +234,10 @@ export interface GameSettings {
   videoOffset?: number; // manual user adjuster for video playback delay (milliseconds)
   disableParticles?: boolean; // completely disable particle visual burst generator
   limitDprToOne?: boolean; // cap canvas device pixel ratio to 1x to save GPU rendering cost
-  skinId?: string; // custom mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings')
+  skinId?: string; // custom mania / rhythm skin identifier ('neon' | 'classic-bar' | 'circles' | 'cyberpunk' | 'emerald' | 'minimalist' | 'custom' | 'glassy-spheres' | 'hollow-rings' | 'rhythmmania-3d')
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
-  squareRenderStyle?: 'rhythmmania' | 'rhythmplus';
+  squareRenderStyle?: 'rhythmmania' | 'rhythmplus' | 'rhythmplus-dynamic';
   receptorColorsByKeyCount?: Record<number, string[]>; // per-lane receptor colors for 2K-8K
   noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
   receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
@@ -254,16 +254,15 @@ export interface GameSettings {
   selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
   bindPause?: string; // gameplay pause/resume keybind
   bindRetry?: string; // gameplay quick retry keybind
-  renderEngine?: 'canvas' | 'pixi' | 'babylon';
+  renderEngine?: 'canvas' | 'babylon';
   babylonFloor?: boolean;
-  babylonQuality?: 'low' | 'medium' | 'high';
   enableMapSV?: boolean;
   disableLaneShake?: boolean;
   enableSongPreview?: boolean; // play an audio preview of the selected map on Song Select
   showFpsCounter?: boolean; // render a small FPS readout during gameplay
 }
 
-export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'calibrate' | 'history' | 'profile' | 'editprofile';
+export type GameScreen = 'menu' | 'select' | 'play' | 'results' | 'settings' | 'skins' | 'calibrate' | 'history' | 'profile' | 'editprofile';
 
 export interface ProfileSocialLinks {
   youtube?: string;
@@ -283,9 +282,4 @@ export interface ProfileEditData {
   activityMessage: string;
   avatarSource: 'preset' | 'uploaded' | 'google' | null;
   avatarPresetId?: string;
-}
-
-declare global {
-  const __APP_VERSION__: string;
-  const __BUILD_TIME__: string;
 }

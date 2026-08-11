@@ -11,6 +11,7 @@
  */
 
 import type { ProfileActivityStatus, ProfileEditData, ProfileSocialLinks } from '../types';
+import { withCsrfHeaders } from './csrfClient';
 
 export interface MyProfileResponse {
   user: {
@@ -39,20 +40,37 @@ export interface ProfileSearchResult {
   activityMessage: string;
 }
 
-export async function searchProfiles(search: string): Promise<ProfileSearchResult[]> {
+export type ProfileTarget = { kind: 'userId'; value: string } | { kind: 'handle'; value: string };
+export type ProfileTargetInput = ProfileTarget | string;
+
+export async function searchProfiles(search: string, signal?: AbortSignal): Promise<ProfileSearchResult[]> {
   const res = await fetch(`/api/profile/search?q=${encodeURIComponent(search)}`, {
     headers: { Accept: 'application/json' },
     credentials: 'include',
+    signal,
   });
   const json = await res.json();
   if (!res.ok || !json.success) throw new Error(json.error || 'Failed to search profiles');
   return json.data as ProfileSearchResult[];
 }
 
-export async function fetchMyProfile(): Promise<MyProfileResponse> {
+export async function fetchPublicProfile(target: ProfileTarget, signal?: AbortSignal): Promise<unknown> {
+  const parameter = target.kind === 'userId' ? 'userId' : 'handle';
+  const res = await fetch(`/api/profile/get?${parameter}=${encodeURIComponent(target.value)}`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) throw new Error(json.error || 'Unable to load profile');
+  return json.data;
+}
+
+export async function fetchMyProfile(signal?: AbortSignal): Promise<MyProfileResponse> {
   const res = await fetch('/api/profile/me', {
     headers: { Accept: 'application/json' },
     credentials: 'include',
+    signal,
   });
   const json = await res.json();
   if (!res.ok || !json.success) throw new Error(json.error || 'Failed to load profile');
@@ -69,7 +87,7 @@ export async function updateMyProfile(patch: {
 }): Promise<ProfileEditData> {
   const res = await fetch('/api/profile/me', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+     headers: withCsrfHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
     credentials: 'include',
     body: JSON.stringify(patch),
   });
@@ -79,10 +97,11 @@ export async function updateMyProfile(patch: {
   return json.data as ProfileEditData;
 }
 
-export async function checkHandleAvailability(handle: string): Promise<HandleCheckResult> {
+export async function checkHandleAvailability(handle: string, signal?: AbortSignal): Promise<HandleCheckResult> {
   const res = await fetch(`/api/profile/handle-check?handle=${encodeURIComponent(handle)}`, {
     headers: { Accept: 'application/json' },
     credentials: 'include',
+    signal,
   });
   const json = await res.json();
   if (!res.ok || !json.success) throw new Error(json.error || 'Failed to check handle');
@@ -92,7 +111,7 @@ export async function checkHandleAvailability(handle: string): Promise<HandleChe
 export async function uploadAvatar(dataUrl: string): Promise<string> {
   const res = await fetch('/api/profile/avatar', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+     headers: withCsrfHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
     credentials: 'include',
     body: JSON.stringify({ image: dataUrl }),
   });
@@ -104,7 +123,7 @@ export async function uploadAvatar(dataUrl: string): Promise<string> {
 export async function selectPresetAvatar(presetId: string): Promise<string> {
   const res = await fetch('/api/profile/avatar/preset', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+     headers: withCsrfHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
     credentials: 'include',
     body: JSON.stringify({ presetId }),
   });

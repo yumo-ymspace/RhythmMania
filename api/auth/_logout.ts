@@ -11,7 +11,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, sendJson } from '../_lib/response.js';
+import { handleCors, requireSameOrigin, sendJson } from '../_lib/response.js';
 import { clearSessionCookie, isSecureRequest, parseCookies, SESSION_COOKIE_NAME } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
 
@@ -21,6 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return sendJson(res, 405, { success: false, error: 'Method Not Allowed' });
   }
+  if (!requireSameOrigin(req, res)) return;
 
   try {
     const cookies = parseCookies(req);
@@ -37,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'Successfully logged out',
     });
   } catch (e: unknown) {
-    console.error('Logout error:', e);
+    console.error('Logout request failed:', e instanceof Error ? e.name : 'unknown');
     clearSessionCookie(res, isSecureRequest(req));
     return sendJson(res, 200, {
       success: true,

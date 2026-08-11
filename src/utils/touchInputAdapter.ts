@@ -27,9 +27,13 @@ export class TouchInputAdapter {
   }
 
   /**
-   * Translates the relative physical touch coordinates to the correct weighted lane column
+   * Translates coordinates in the interaction surface, not the projected
+   * runway width, into equal-width lanes.
    */
   public getLaneIndex(relativeX: number, containerWidth: number, keyCount: number): number {
+    if (!Number.isFinite(relativeX) || !Number.isFinite(containerWidth) || containerWidth <= 0 || keyCount <= 0) {
+      return -1;
+    }
     const clampedX = Math.max(0, Math.min(containerWidth - 1, relativeX));
     const laneWidth = containerWidth / keyCount;
     const index = Math.floor(clampedX / laneWidth);

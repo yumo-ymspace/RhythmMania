@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleCors, sendError, sendJson } from '../_lib/response.js';
 import { getSessionFromReq, isValidUserId } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
-import { sanitizeActivityStatus, sanitizeActivityMessage } from '../_lib/profile.js';
+import { sanitizeActivityStatus, sanitizeActivityMessage, sanitizeSocialLinks } from '../_lib/profile.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const displayName = profileRow?.display_name || profileUser.username;
     const bio = profileRow?.bio || '';
-    const socialLinks = profileRow?.social_links || {};
+    const socialLinks = sanitizeSocialLinks(profileRow?.social_links);
     const handle = profileRow?.handle || null;
     const activityStatus = sanitizeActivityStatus(profileRow?.activity_status);
     const activityMessage = sanitizeActivityMessage(profileRow?.activity_message);
@@ -103,15 +103,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 COUNT(*) FILTER (WHERE grade = 'S')::text AS s_count,
                 COUNT(*) FILTER (WHERE grade = 'A')::text AS a_count
          FROM replays
-         WHERE user_id = $1 AND is_failed = false`,
+          WHERE user_id = $1 AND is_failed = false AND upload_status = 'uploaded'
+            AND chart_revision_id IS NOT NULL`,
         [targetUserId]
       ),
       query<{ key_count: number; plays: string }>(
-        `SELECT COALESCE(bd.key_count, 0) AS key_count, COUNT(*)::text AS plays
-         FROM replays r
-         LEFT JOIN beatmap_difficulties bd ON bd.id = r.beatmap_difficulty_id
-         WHERE r.user_id = $1 AND r.is_failed = false
-         GROUP BY bd.key_count ORDER BY bd.key_count`,
+         `SELECT COALESCE(cr.key_count, bd.key_count, 0) AS key_count, COUNT(*)::text AS plays
+          FROM replays r
+          LEFT JOIN beatmap_difficulties bd ON bd.id = r.beatmap_difficulty_id
+          LEFT JOIN beatmap_chart_revisions cr ON cr.id = r.chart_revision_id
+          WHERE r.user_id = $1 AND r.is_failed = false AND r.upload_status = 'uploaded'
+            AND r.chart_revision_id IS NOT NULL
+          GROUP BY COALESCE(cr.key_count, bd.key_count, 0)
+          ORDER BY COALESCE(cr.key_count, bd.key_count, 0)`,
         [targetUserId]
       ),
       query<{ mod: string; plays: string }>(
@@ -120,7 +124,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          CROSS JOIN LATERAL jsonb_array_elements_text(
            CASE WHEN jsonb_typeof(r.mods) = 'array' THEN r.mods ELSE '[]'::jsonb END
          ) AS mods(mod)
-         WHERE r.user_id = $1 AND r.is_failed = false
+          WHERE r.user_id = $1 AND r.is_failed = false AND r.upload_status = 'uploaded'
+            AND r.chart_revision_id IS NOT NULL
          GROUP BY mod ORDER BY COUNT(*) DESC, mod`,
         [targetUserId]
       ),
@@ -136,11 +141,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }>(
         `SELECT r.id, r.score, r.accuracy, r.grade, r.created_at,
                 bs.title AS beatmap_title, bs.artist AS beatmap_artist,
-                bd.name AS difficulty
-         FROM replays r
-         LEFT JOIN beatmap_sets bs ON bs.id = r.beatmap_set_id
-         LEFT JOIN beatmap_difficulties bd ON bd.id = r.beatmap_difficulty_id
-         WHERE r.user_id = $1 AND r.is_failed = false
+                COALESCE(cr.difficulty_name, bd.name) AS difficulty
+          FROM replays r
+          LEFT JOIN beatmap_sets bs ON bs.id = r.beatmap_set_id
+          LEFT JOIN beatmap_difficulties bd ON bd.id = r.beatmap_difficulty_id
+          LEFT JOIN beatmap_chart_revisions cr ON cr.id = r.chart_revision_id
+          WHERE r.user_id = $1 AND r.is_failed = false AND r.upload_status = 'uploaded'
+            AND r.chart_revision_id IS NOT NULL
           ORDER BY r.created_at DESC LIMIT 3`,
         [targetUserId]
       ),
@@ -191,7 +198,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (error) {
-    console.error('Error fetching profile stats:', error);
+    console.error('Profile stats request failed:', error instanceof Error ? error.name : 'unknown');
     return sendError(res, 500, 'Failed to fetch profile statistics');
   }
 }

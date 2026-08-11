@@ -127,7 +127,7 @@ body {
 
 /* Settings shell */
 .settings-shell {
-  background-color: rgb(var(--settings-bg) / 0.95);
+  background: linear-gradient(to bottom, rgb(36 37 50 / 0.98), rgb(24 25 35 / 0.98));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-right: 1px solid rgb(var(--settings-border) / 0.06);

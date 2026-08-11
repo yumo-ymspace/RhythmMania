@@ -15,7 +15,6 @@ import {
   Gamepad2,
   Keyboard,
   Monitor,
-  Palette,
   SlidersHorizontal,
   Volume2,
   Wrench,
@@ -26,12 +25,13 @@ import {
   DEFAULT_SETTINGS,
   PLAYFIELD_WIDTH_MAX,
   PLAYFIELD_WIDTH_MIN,
+  SCROLL_SPEED_MAX,
+  SCROLL_SPEED_MIN,
 } from './defaultSettings';
 import BindingMatrix from './BindingMatrix';
-import LaneColorEditor from './LaneColorEditor';
 
 export type SectionId =
-  | 'general' | 'graphics' | 'gameplay' | 'audio' | 'skin' | 'input' | 'maintenance';
+  | 'general' | 'graphics' | 'gameplay' | 'audio' | 'input' | 'maintenance';
 
 export interface SectionDef {
   id: SectionId;
@@ -43,10 +43,9 @@ export interface SectionDef {
 
 export const SECTIONS: SectionDef[] = [
   { id: 'general',     label: 'General',     description: 'Account-agnostic preferences for the client.', icon: SlidersHorizontal },
-  { id: 'graphics',    label: 'Graphics',    description: 'Rendering, video, particles, and pixel ratio.',     icon: Monitor },
+  { id: 'graphics',    label: 'Graphics',    description: 'Display, video, particles, and pixel ratio.',        icon: Monitor },
   { id: 'gameplay',    label: 'Gameplay',    description: 'Scroll speed, scroll direction, and timing.',      icon: Gamepad2 },
   { id: 'audio',       label: 'Audio',       description: 'Volumes and the universal audio offset.',          icon: Volume2 },
-  { id: 'skin',        label: 'Skin',        description: 'Lane colors, note sizing, receptors, and judgement display.',  icon: Palette },
   { id: 'input',       label: 'Input',       description: 'Keyboard bindings per key count.',                 icon: Keyboard },
   { id: 'maintenance', label: 'Maintenance', description: 'Reset to defaults and other global actions.',      icon: Wrench },
 ];
@@ -156,17 +155,6 @@ export const ROWS: RowDef[] = [
     keywords: ['fps', 'frames', 'performance', 'counter'],
   },
   {
-    id: 'renderEngine', section: 'graphics', label: 'Rendering engine',
-    description: 'Choose the gameplay rendering engine. PixiJS v8 offers high-performance WebGL rendering; Babylon.js 3D is a PJ Sekai-style converging runway.',
-    control: { kind: 'select', options: [
-      { value: 'canvas', label: 'Canvas 2D' },
-      { value: 'pixi',  label: 'PixiJS v8' },
-      { value: 'babylon', label: 'Babylon.js 3D' },
-    ]},
-    defaultValue: DEFAULT_SETTINGS.renderEngine || 'canvas',
-    keywords: ['renderer', 'engine', 'pixi', 'canvas', 'babylon', 'graphics', 'webgl', '3d'],
-  },
-  {
     id: 'babylonFloor', section: 'graphics', label: 'Runway floor',
     description: 'Show the dark matte runway floor beneath the lanes.',
     control: { kind: 'toggle' },
@@ -174,24 +162,11 @@ export const ROWS: RowDef[] = [
     showWhen: (s) => s.renderEngine === 'babylon',
     keywords: ['babylon', 'floor', 'runway', 'matte', '3d'],
   },
-  {
-    id: 'babylonQuality', section: 'graphics', label: 'Babylon quality',
-    description: 'Bloom + particle quality preset. Low = no bloom, fewer particles; High = full bloom + particles.',
-    control: { kind: 'select', options: [
-      { value: 'low', label: 'Low' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'high', label: 'High' },
-    ]},
-    defaultValue: DEFAULT_SETTINGS.babylonQuality,
-    showWhen: (s) => s.renderEngine === 'babylon',
-    keywords: ['babylon', 'quality', 'bloom', 'performance', '3d'],
-  },
-
   // ── GAMEPLAY ──────────────────────────────────────────────────────────
   {
     id: 'scrollSpeed', section: 'gameplay', label: 'Scroll speed',
     description: 'How fast notes travel down the lanes. Higher = faster.',
-    control: { kind: 'slider', min: 5, max: 80, step: 1, format: num },
+    control: { kind: 'slider', min: SCROLL_SPEED_MIN, max: SCROLL_SPEED_MAX, step: 1, format: num },
     defaultValue: DEFAULT_SETTINGS.scrollSpeed,
   },
   {
@@ -254,82 +229,6 @@ export const ROWS: RowDef[] = [
     description: 'Tap along with a metronome to measure your audio latency.',
     control: { kind: 'button', label: 'Open wizard', action: 'openWizard' },
     defaultValue: null,
-  },
-
-  // ── SKIN ──────────────────────────────────────────────────────────────
-  {
-    id: 'playfieldStyle', section: 'skin', label: 'Skin Shape',
-    description: 'Pick the shape of the notes and receptors.',
-    control: { kind: 'select', options: [
-      { value: 'square',  label: 'Rectangular' },
-      { value: 'circle',  label: 'Circular' },
-    ]},
-    defaultValue: DEFAULT_SETTINGS.playfieldStyle,
-    showWhen: (s) => s.renderEngine !== 'babylon',
-  },
-  {
-    id: 'squareRenderStyle', section: 'skin', label: 'Note and Receptor Style',
-    description: 'Visual treatment for rectangular playfields.',
-    control: { kind: 'select', options: [
-      { value: 'rhythmmania', label: 'RhythmMania Style' },
-      { value: 'rhythmplus', label: 'RhythmPlus Style' },
-    ] },
-    defaultValue: DEFAULT_SETTINGS.squareRenderStyle,
-    showWhen: (s) => s.renderEngine !== 'babylon' && s.playfieldStyle === 'square',
-  },
-  {
-    id: 'receptorColorsByKeyCount', section: 'skin', label: 'Lane colors',
-    description: 'Set each lane color. Notes and receptors use the same color.',
-    control: { kind: 'custom', render: (api) => <LaneColorEditor {...api} /> },
-    defaultValue: DEFAULT_SETTINGS.receptorColorsByKeyCount,
-  },
-  {
-    id: 'noteSizeMultiplier', section: 'skin', label: 'Note size',
-    description: 'Scale falling notes up or down.',
-    control: { kind: 'slider', min: 0.85, max: 1.5, step: 0.01, format: pct },
-    defaultValue: DEFAULT_SETTINGS.noteSizeMultiplier,
-  },
-  {
-    id: 'receptorSizeMultiplier', section: 'skin', label: 'Receptor size',
-    description: 'Scale receptors relative to each lane width.',
-    control: { kind: 'slider', min: 0.85, max: 1.5, step: 0.01, format: pct },
-    defaultValue: DEFAULT_SETTINGS.receptorSizeMultiplier,
-  },
-  {
-    id: 'noteOpacity', section: 'skin', label: 'Note opacity',
-    description: 'Opacity of the falling notes.',
-    control: { kind: 'slider', min: 0.1, max: 1, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.noteOpacity,
-  },
-  {
-    id: 'receptorOpacity', section: 'skin', label: 'Receptor opacity',
-    description: 'Opacity of the receptors.',
-    control: { kind: 'slider', min: 0.1, max: 1, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.receptorOpacity,
-  },
-  {
-    id: 'judgementOpacity', section: 'skin', label: 'Judgement text opacity',
-    description: 'How visible the “PERFECT”, “GREAT” etc. text is.',
-    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.judgementOpacity,
-  },
-  {
-    id: 'judgementSize', section: 'skin', label: 'Judgement text size',
-    description: 'Scale the judgement text up or down.',
-    control: { kind: 'slider', min: 0.5, max: 1.5, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.judgementSize,
-  },
-  {
-    id: 'judgementPositionY', section: 'skin', label: 'Judgement text vertical position',
-    description: 'Move judgement text vertically. Higher percentages place it lower on the screen.',
-    control: { kind: 'slider', min: 20, max: 85, step: 1, suffix: '%' },
-    defaultValue: DEFAULT_SETTINGS.judgementPositionY,
-  },
-  {
-    id: 'laneSeparatorOpacity', section: 'skin', label: 'Lane separator opacity',
-    description: 'How visible the lane divider lines are.',
-    control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
-    defaultValue: DEFAULT_SETTINGS.laneSeparatorOpacity,
   },
 
   // ── INPUT ─────────────────────────────────────────────────────────────

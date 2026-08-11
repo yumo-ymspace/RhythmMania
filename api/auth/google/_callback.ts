@@ -36,11 +36,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   clearOAuthStateCookie(res, secure);
 
   if (error) {
-    return sendHtmlResult(res, requestOrigin, false, 'Google login was cancelled or denied.');
+    return sendHtmlResult(res, requestOrigin, false, 'Google login was cancelled or denied.', state);
   }
 
   if (!code) {
-    return sendHtmlResult(res, requestOrigin, false, 'Missing authorization code.');
+    return sendHtmlResult(res, requestOrigin, false, 'Missing authorization code.', state);
   }
 
   const env = getEnvConfig();
@@ -48,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const clientSecret = env.googleClientSecret;
 
   if (!clientId || !clientSecret) {
-    return sendHtmlResult(res, requestOrigin, false, 'Server Google OAuth credentials are not configured.');
+    return sendHtmlResult(res, requestOrigin, false, 'Server Google OAuth credentials are not configured.', state);
   }
 
   const redirectUri = `${requestOrigin}/api/auth/google/callback`;
@@ -69,8 +69,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const tokenData: unknown = await tokenRes.json();
     if (!isRecord(tokenData) || !tokenRes.ok || typeof tokenData.access_token !== 'string' || !tokenData.access_token) {
-      console.error('Google token exchange error:', tokenData);
-      return sendHtmlResult(res, requestOrigin, false, 'Failed to exchange the Google authorization code.');
+      console.error('Google token exchange failed: upstream rejected the authorization code');
+      return sendHtmlResult(res, requestOrigin, false, 'Failed to exchange the Google authorization code.', state);
     }
 
     // 2. Fetch user profile from Google
@@ -80,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const profile: unknown = await profileRes.json();
     if (!isRecord(profile) || !profileRes.ok || typeof profile.sub !== 'string' || !profile.sub) {
-      return sendHtmlResult(res, requestOrigin, false, 'Failed to retrieve your Google profile.');
+      return sendHtmlResult(res, requestOrigin, false, 'Failed to retrieve your Google profile.', state);
     }
 
     const googleId = profile.sub;
@@ -144,10 +144,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 5. Set HTTP-only session cookie
     setSessionCookie(res, sessionId, secure);
 
-    return sendHtmlResult(res, requestOrigin, true, 'Authentication successful.');
+    return sendHtmlResult(res, requestOrigin, true, 'Authentication successful.', state);
   } catch (error: unknown) {
-    console.error('Error during Google OAuth callback:', error);
-    return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while signing in.');
+    console.error('Google OAuth callback failed:', error instanceof Error ? error.name : 'unknown');
+    return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while signing in.', state);
   }
 }
 
@@ -169,10 +169,20 @@ function escapeHtml(value: string): string {
   })[char] || char);
 }
 
-function sendHtmlResult(res: VercelResponse, targetOrigin: string, success: boolean, message: string) {
-  res.setHeader('Content-Type', 'text/html');
+function sendHtmlResult(
+  res: VercelResponse,
+  targetOrigin: string,
+  success: boolean,
+  message: string,
+  state?: string,
+) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const payload = JSON.stringify({ success, message }).replace(/</g, '\\u003c');
   const safeMessage = escapeHtml(message);
+  const resultKey = state ? `rhythm_mania_google_auth_${state}` : null;
 
   return res.status(200).send(`
     <!DOCTYPE html>
@@ -193,8 +203,17 @@ function sendHtmlResult(res: VercelResponse, targetOrigin: string, success: bool
         </div>
         <script>
           const authData = ${payload};
+          const resultKey = ${JSON.stringify(resultKey)};
+          if (resultKey) {
+            try {
+              localStorage.setItem(resultKey, JSON.stringify(authData));
+              setTimeout(() => localStorage.removeItem(resultKey), 60000);
+            } catch {}
+          }
           if (window.opener) {
-            window.opener.postMessage({ type: 'GOOGLE_AUTH_RESULT', payload: authData }, ${JSON.stringify(targetOrigin)});
+            try {
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_RESULT', payload: authData }, ${JSON.stringify(targetOrigin)});
+            } catch {}
             setTimeout(() => window.close(), 1000);
           } else {
             setTimeout(() => { window.location.href = '/'; }, 1500);

@@ -14,6 +14,7 @@
  */
 
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { cssColorAlpha, cssColorToHex } from '../color';
 
 export const FAR_Z = 18;
 export const NEAR_Z = 0;
@@ -22,12 +23,14 @@ export const FLOOR_NEAR_Z = -3;
 export const FLOOR_FAR_Z = 28;
 export const SLAB_HEIGHT = 0.12;
 export const RUNWAY_CONVERGENCE = 0.4;
+export const MAX_NOTE_DEPTH = 1.5;
 
 export function safeHex(hex: string | undefined, fallback = '#00b0ff'): string {
-  if (!hex || typeof hex !== 'string') return fallback;
-  if (hex.startsWith('#') && (hex.length === 7 || hex.length === 4)) return hex;
-  if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex}`;
-  return fallback;
+  return cssColorToHex(hex, fallback);
+}
+
+export function safeColorAlpha(color: string | undefined, fallback = '#00b0ff'): number {
+  return cssColorAlpha(color, fallback);
 }
 
 // Convergence factor controls how aggressively
@@ -67,6 +70,10 @@ export function laneWidthAt(
 export function yToDepthFactor(y: number, receptorY: number): number {
   const maxTravel = Math.max(1, receptorY);
   return (receptorY - y) / maxTravel;
+}
+
+export function clampNoteDepth(depthFactor: number): number {
+  return Math.max(0, Math.min(MAX_NOTE_DEPTH, depthFactor));
 }
 
 // World position of a lane center at a given depth factor.

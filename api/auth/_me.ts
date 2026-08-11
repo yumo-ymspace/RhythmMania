@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (e: unknown) {
-    console.error('Error fetching current user session:', e);
+    console.error('Current user session request failed:', e instanceof Error ? e.name : 'unknown');
     return sendJson(res, 200, {
       success: true,
       data: { user: null },

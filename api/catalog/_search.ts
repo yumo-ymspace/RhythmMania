@@ -37,9 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'osu! search failed';
-    if (message.includes('invalid or expired')) return sendError(res, 401, message);
-    if (message.includes('rate limit')) return sendError(res, 429, message);
-    console.error('Catalog search failed:', error);
+    if (message.includes('invalid or expired')) return sendError(res, 401, 'osu! authorization failed');
+    if (message.includes('rate limit')) return sendError(res, 429, 'Catalog rate limit exceeded');
+    console.error('Catalog search failed:', error instanceof Error ? error.name : 'unknown');
     return sendError(res, 500, 'osu! catalog search failed');
   }
 }

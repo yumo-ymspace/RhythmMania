@@ -63,7 +63,7 @@ export interface PlayfieldVisualSettings {
   visualOffset: number;
   skinId?: string;
   customSkinColors?: string[];
-  squareRenderStyle?: 'rhythmmania' | 'rhythmplus';
+  squareRenderStyle?: 'rhythmmania' | 'rhythmplus' | 'rhythmplus-dynamic';
   receptorColorsByKeyCount?: Record<number, string[]>;
   noteOpacity?: number;
   receptorOpacity?: number;
@@ -79,7 +79,6 @@ export interface PlayfieldVisualSettings {
   disableLaneShake?: boolean;
   enableMapSV?: boolean;
   babylonFloor?: boolean;
-  babylonQuality?: 'low' | 'medium' | 'high';
   playfieldWidthPercent?: number;
 }
 

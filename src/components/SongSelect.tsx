@@ -17,19 +17,99 @@ import {
   Search, Upload, Sliders, Play, Compass, Info, Trash2,
   Loader, Cloud, CloudOff, FileText, Music,
   ChevronDown, Star, Check, SlidersHorizontal, Shuffle,
-  Clock, Heart, Award, X
+  Clock, Heart, Award, X, Infinity as InfinityIcon,
+  SquareSlash, Rewind, FastForward, ArrowUpToLine, Keyboard, Sparkles
 } from 'lucide-react';
 import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
 import { parseBeatmap, parseMediaPaths } from '../utils/beatmapParser';
 import { isBrowserPlayableVideoFilename } from '../utils/assetLifecycle';
-import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, validateZipEntrySize, sanitizeHistoryRecord, sanitizeCssUrl } from '../utils/securityLimits';
+import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, sanitizeHistoryRecord, sanitizeCssUrl, decodeBoundedUtf8, createZipExtractionBudget } from '../utils/securityLimits';
 import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import { storageManager } from '../utils/storageManager';
 import { unpackBeatmap } from '../utils/unpackHelper';
-import { computeBeatmapHash } from '../utils/replayManager';
+import { computeBeatmapHash, hasCatalogIdentity } from '../utils/replayManager';
+import { extractZipEntry } from '../utils/zipResolver';
 import { LeaderboardReplayItem, fetchLeaderboardReplays, fetchReplayDetail } from '../utils/replayClient';
 import { previewPlayer } from '../utils/previewPlayer';
+import { resolveStarRating } from '../utils/starRating';
+import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN } from './settings/defaultSettings';
 import metadata from '../../metadata.json';
+import { getCatalogSetMetadata } from '../utils/catalogSetMetadata';
+
+const DEFAULT_SONG_BANNER = '/backgrounds/Ferineon.webp';
+
+const MODIFIER_TILES = [
+  {
+    id: 'NF',
+    name: 'No Fail',
+    title: 'No Fail (NF)',
+    desc: 'Cannot fail the song even if you reach zero HP.',
+    multiplier: '0.50x',
+    icon: InfinityIcon,
+    activeClass: 'bg-emerald-500/25 text-emerald-300 shadow-[0_8px_24px_rgba(16,185,129,0.18)]',
+    exclusiveWith: undefined
+  },
+  {
+    id: 'EZ',
+    name: 'Easy',
+    title: 'Easy (EZ)',
+    desc: 'Larger difficulty hit windows with less HP drain.',
+    multiplier: '0.80x',
+    icon: Sparkles,
+    activeClass: 'bg-emerald-500/25 text-emerald-300 shadow-[0_8px_24px_rgba(16,185,129,0.18)]',
+    exclusiveWith: 'HR'
+  },
+  {
+    id: 'HT',
+    name: 'Half Time',
+    title: 'Half Time (HT)',
+    desc: 'Decreases playback speed and rate.',
+    multiplier: '0.50x',
+    icon: Rewind,
+    activeClass: 'bg-teal-500/25 text-teal-300 shadow-[0_8px_24px_rgba(20,184,166,0.18)]',
+    exclusiveWith: 'DT'
+  },
+  {
+    id: 'HR',
+    name: 'Hard Rock',
+    title: 'Hard Rock (HR)',
+    desc: 'Tighter timing windows and faster HP loss.',
+    multiplier: '1.10x',
+    icon: ArrowUpToLine,
+    activeClass: 'bg-rose-500/25 text-rose-300 shadow-[0_8px_24px_rgba(244,63,94,0.18)]',
+    exclusiveWith: 'EZ'
+  },
+  {
+    id: 'HD',
+    name: 'Hidden',
+    title: 'Hidden (HD)',
+    desc: 'Fades notes out before they reach the target.',
+    multiplier: '1.15x',
+    icon: SquareSlash,
+    activeClass: 'bg-purple-500/25 text-purple-300 shadow-[0_8px_24px_rgba(168,85,247,0.18)]',
+    exclusiveWith: undefined
+  },
+  {
+    id: 'DT',
+    name: 'Double Time',
+    title: 'Double Time (DT)',
+    desc: 'Increases playback and simulation rate.',
+    multiplier: '1.25x',
+    icon: FastForward,
+    activeClass: 'bg-pink-500/25 text-pink-300 shadow-[0_8px_24px_rgba(236,72,153,0.18)]',
+    exclusiveWith: 'HT'
+  },
+  {
+    id: 'AT',
+    name: 'Autoplay',
+    title: 'Autoplay (AP)',
+    desc: 'Plays every note with perfect timing. Unranked.',
+    multiplier: 'UNRANKED',
+    icon: Sparkles,
+    activeClass: 'bg-sky-500/25 text-sky-300 shadow-[0_8px_24px_rgba(14,165,233,0.18)]',
+    exclusiveWith: undefined
+  }
+] as const;
 
 interface SongSelectProps {
   settings: GameSettings;
@@ -38,6 +118,7 @@ interface SongSelectProps {
   onOpenSettings: () => void;
   customMaps: Beatmap[];
   onImportBeatmap: (map: Beatmap) => void;
+  onImportPackage: (packageId: string, name: string, blob: Blob, maps: Beatmap[]) => Promise<void>;
   onDeleteSongGroup?: (mapIds: string[]) => void;
   filterMode: number;
   setSongSelectBgUrl?: (url: string) => void;
@@ -58,6 +139,7 @@ export default function SongSelect({
   onOpenSettings,
   customMaps,
   onImportBeatmap,
+  onImportPackage,
   onDeleteSongGroup,
   filterMode,
   setSongSelectBgUrl,
@@ -197,6 +279,7 @@ export default function SongSelect({
   const [actionNotice, setActionNotice] = useState<{ id?: string; text: string; type: 'info' | 'success' | 'error' } | null>(null);
   const [downloadingReplayId, setDownloadingReplayId] = useState<string | null>(null);
   const [watchingReplayId, setWatchingReplayId] = useState<string | null>(null);
+  const leaderboardGeneration = useRef(0);
 
   // Clean raw local custom URL allocations prior to page reload/destruction
   useEffect(() => {
@@ -207,23 +290,7 @@ export default function SongSelect({
   }, []);
 
   // Determine actual star rating dynamically
-  const getStarRating = (map: any) => {
-    if (map.starRating !== undefined) return map.starRating;
-    const diffName = (map.difficulty || '').toLowerCase();
-    if (diffName.includes('easy') || diffName.includes('beginner')) return 1.5;
-    if (diffName.includes('doubtful')) return 2.33;
-    if (diffName.includes('normal')) return 2.1;
-    if (diffName.includes('hard') || diffName.includes('hyper')) return 3.65;
-    if (diffName.includes('insane') || diffName.includes('another')) return 4.8;
-    if (diffName.includes('expert') || diffName.includes('black')) return 5.85;
-    if (diffName.includes('extra') || diffName.includes('deluge')) return 6.4;
-    if (diffName.includes('master') || diffName.includes('zenith')) return 7.5;
-    
-    // Fallback deterministic star code
-    const hash = (map.id || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const calculated = 1.0 + (hash % 75) / 10; 
-    return Math.round(calculated * 100) / 100;
-  };
+  const getStarRating = (map: any) => resolveStarRating(map);
 
   const getDifficultyColor = (rating: number) => {
     if (rating < 2.0) return 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
@@ -275,6 +342,19 @@ export default function SongSelect({
     // Standalone imports have no package identity. Keep same-name imports
     // separate instead of collapsing them into one song group.
     return map.id ? `local_map_${map.id}` : getArtistTitleKey(map);
+  };
+
+  const getSlimCoverUrl = (map: any): string | undefined => {
+    const mapCoverUrl = typeof map?.coverUrl === 'string' ? map.coverUrl : undefined;
+    if (mapCoverUrl) return mapCoverUrl;
+
+    const sourceSetId = Number(
+      map?.sourceSetId || String(map?.catalogSetId || '').replace(/^osuapi_/, ''),
+    );
+    if (!Number.isInteger(sourceSetId) || sourceSetId < 1) return undefined;
+
+    return getCatalogSetMetadata(sourceSetId)?.slimCoverUrl
+      || `https://assets.ppy.sh/beatmaps/${sourceSetId}/covers/slimcover@2x.jpg`;
   };
 
   // Filter and prepare display beatmaps
@@ -379,6 +459,7 @@ export default function SongSelect({
       title: string;
       artist: string;
       creator?: string;
+      coverUrl?: string;
       packageId?: string;
       bgUrl?: string;
       difficultiesSummary?: string[];
@@ -397,6 +478,7 @@ export default function SongSelect({
           title: mapTitle,
           artist: mapArtist,
           creator: map.creator || (map as any).creator,
+            coverUrl: getSlimCoverUrl(map),
           packageId: (map as any).packageId,
           bgUrl: map.bgUrl,
           difficultiesSummary: (map as any).difficultiesSummary || (map as any).difficultsSummary || [],
@@ -405,6 +487,7 @@ export default function SongSelect({
         groupsMap.set(songKey, group);
       } else {
         if (!group.bgUrl && map.bgUrl) group.bgUrl = map.bgUrl;
+        if (!group.coverUrl) group.coverUrl = getSlimCoverUrl(map);
         if (!group.creator && map.creator) group.creator = map.creator;
       }
       
@@ -488,10 +571,9 @@ export default function SongSelect({
   };
 
   const selectedCustomMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId) || null;
-  const isServerLeaderboardMap = Boolean(
-    selectedCustomMap &&
-    (selectedCustomMap as any).isServerMap === true
-  );
+  // Catalog identity is enough to show the leaderboard shell. Verified server
+  // status remains separate and is enforced by replay upload verification.
+  const isServerLeaderboardMap = hasCatalogIdentity(selectedCustomMap);
 
   useEffect(() => {
     setLeaderboardTab(isServerLeaderboardMap ? 'online' : 'local');
@@ -512,18 +594,27 @@ export default function SongSelect({
     }
 
     const diffId = (currentMap as any).chartRevisionId || '';
+    const generation = ++leaderboardGeneration.current;
+    const controller = new AbortController();
 
     setIsLoadingOnlineReplays(true);
     setOnlineReplayError(null);
 
-    fetchLeaderboardReplays(diffId).then((res) => {
+    fetchLeaderboardReplays(diffId, controller.signal).then((res) => {
+      if (generation !== leaderboardGeneration.current || controller.signal.aborted) return;
       setIsLoadingOnlineReplays(false);
       if (res.success) {
         setOnlineReplays(res.replays);
+        setOnlineReplayError(null);
       } else {
+        setOnlineReplays([]);
         setOnlineReplayError(res.error || 'Failed to load online replays');
       }
     });
+    return () => {
+      controller.abort();
+      leaderboardGeneration.current++;
+    };
   }, [selectedCustomMapId, mergedCustomMaps, isServerLeaderboardMap]);
 
   const handleDownloadOnlineReplay = async (replayId: string) => {
@@ -536,7 +627,7 @@ export default function SongSelect({
     setDownloadingReplayId(replayId);
     setActionNotice({ id: replayId, text: 'Downloading replay file...', type: 'info' });
 
-    const res = await fetchReplayDetail(replayId);
+    const res = await fetchReplayDetail(replayId, undefined, 'download');
     setDownloadingReplayId(null);
 
     if (!res.success || !res.record) {
@@ -711,7 +802,10 @@ export default function SongSelect({
 
   // Song preview: play audio for the currently selected map once its media has
   // been unpacked (blob URL available).
+  const isStartingPlayRef = useRef(false);
+
   useEffect(() => {
+    if (isStartingPlayRef.current) return;
     if (!settings.enableSongPreview || !selectedCustomMapId) {
       previewPlayer.stop();
       return;
@@ -739,6 +833,9 @@ export default function SongSelect({
   const handleStartPlay = async (mapOverride?: Beatmap) => {
     const activeMap = mapOverride || selectedCustomMap;
     if (activeMap) {
+      isStartingPlayRef.current = true;
+      previewPlayer.stopImmediately();
+
       const isMobileDevice = typeof window !== 'undefined' && (
         window.innerWidth <= 1024 && (
           /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
@@ -765,6 +862,9 @@ export default function SongSelect({
       } catch (e) {
         console.error('Failed unpacking media prior to gameplay:', e);
       }
+      // Forced unpacking can retrigger the preview effect while this handler
+      // is awaiting media. Invalidate any preview again at the handoff point.
+      previewPlayer.stopImmediately();
       onSelectMap(activeMap);
     }
   };
@@ -804,7 +904,7 @@ export default function SongSelect({
 
     try {
       if (isSingleOsu) {
-        const text = await file.text();
+        const text = decodeBoundedUtf8(await file.arrayBuffer(), 'Beatmap text');
         const customId = `local_diff_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         const parsedMap = parseBeatmap(text, customId);
         if (parsedMap.notes.length === 0) {
@@ -832,13 +932,14 @@ export default function SongSelect({
         const zip = await JSZip.loadAsync(file);
         validateZipLimits(zip);
         
+         const extractionBudget = createZipExtractionBudget();
          const fileNames = Object.keys(zip.files);
         const beatmapFiles: { name: string; content: string }[] = [];
 
         for (const name of fileNames) {
           if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
-            validateZipEntrySize(zip.files[name], name);
-            const content = await zip.files[name].async('text');
+             const raw = await extractZipEntry(zip.files[name], name, extractionBudget);
+             const content = decodeBoundedUtf8(raw, `Beatmap file ${name}`);
             beatmapFiles.push({ name, content });
           }
         }
@@ -847,11 +948,9 @@ export default function SongSelect({
           throw new Error('Empty package structure. No beatmap files discovered.');
         }
 
-        // Save binary bundle to local storage
-        const packageId = `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-        await storageManager.savePackage(packageId, file.name, file);
-
-        let successCount = 0;
+         const packageId = `pkg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+         const stagedMaps: Beatmap[] = [];
+         let successCount = 0;
         let lastId = '';
 
         for (let i = 0; i < beatmapFiles.length; i++) {
@@ -873,14 +972,15 @@ export default function SongSelect({
             mapWithMeta.catalogMapId = null;
             mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
 
-            onImportBeatmap(parsedMap);
+             stagedMaps.push(parsedMap);
             successCount++;
             lastId = parsedMap.id;
           }
         }
 
         if (successCount > 0) {
-          setImportStatus({ type: 'ok', msg: `Successfully unpacked ${successCount} playable difficulties!` });
+           await onImportPackage(packageId, file.name, file, stagedMaps);
+           setImportStatus({ type: 'ok', msg: `Successfully unpacked ${successCount} playable difficulties!` });
           if (lastId) setSelectedCustomMapId(lastId);
         } else {
           throw new Error('No playable difficulties found in package.');
@@ -898,6 +998,29 @@ export default function SongSelect({
       const randomIndex = Math.floor(Math.random() * filteredCustomMaps.length);
       handleSelectCustomMap(filteredCustomMaps[randomIndex]);
     }
+  };
+
+  const toggleModifier = (id: string, exclusiveWith?: string) => {
+    const activeMods = settings.selectedMods || [];
+    if (activeMods.includes(id)) {
+      updateSettings({ selectedMods: activeMods.filter((mod) => mod !== id) });
+      return;
+    }
+
+    const nextMods = exclusiveWith
+      ? activeMods.filter((mod) => mod !== exclusiveWith)
+      : [...activeMods];
+    nextMods.push(id);
+    updateSettings({ selectedMods: nextMods });
+  };
+
+  const toggleKeyModifier = (keyCount: number) => {
+    const id = `K${keyCount}`;
+    const activeMods = settings.selectedMods || [];
+    const nextMods = activeMods.includes(id)
+      ? activeMods.filter((mod) => mod !== id)
+      : [...activeMods.filter((mod) => !/^K[2-8]$/.test(mod)), id];
+    updateSettings({ selectedMods: nextMods });
   };
 
   const handleDeleteSelectedSet = () => {
@@ -925,7 +1048,7 @@ export default function SongSelect({
 
         {/* 1. SELECTED SONG CARD */}
         {selectedCustomMap ? (
-          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-4 flex flex-col gap-3 shadow-2xl z-10 shrink-0">
+           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0c0c12]/70 backdrop-blur-md p-4 flex flex-col gap-3 shadow-2xl z-10 shrink-0">
             {/* Ambient Background Glow of Current Artwork */}
             {selectBgUrl && (
               <div 
@@ -985,7 +1108,7 @@ export default function SongSelect({
               {/* Big Solid Pink PLAY Button */}
               <button
                 onClick={() => handleStartPlay()}
-                className="px-6 py-2.5 bg-pink-500 hover:bg-pink-600 active:brightness-90 active:scale-95 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-pink-500/20 flex items-center justify-center gap-1.5 transform transition duration-150 cursor-pointer border border-white/10 select-none shrink-0"
+                 className="px-6 py-2.5 bg-pink-500/80 hover:bg-pink-500 active:brightness-90 active:scale-95 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-pink-500/20 flex items-center justify-center gap-1.5 transform transition duration-150 cursor-pointer border border-white/10 select-none shrink-0"
               >
                 <Play className="h-4 w-4 fill-current text-slate-950" />
                 <span>PLAY</span>
@@ -993,7 +1116,7 @@ export default function SongSelect({
               {selectedCustomMap && onDeleteSongGroup && (
                 <button
                   onClick={handleDeleteSelectedSet}
-                  className={`px-3 py-2.5 rounded-xl border text-[10px] font-sans font-black uppercase tracking-wider transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
+                   className={`px-3 py-2.5 rounded-xl border text-[10px] font-sans font-black uppercase tracking-wider transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/80 text-rose-100' : 'border-white/10 bg-[#12121a]/80 text-slate-300 hover:border-rose-500/50 hover:text-rose-200'}`}
                 >
                   {songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'Confirm Delete' : 'Delete Set'}
                 </button>
@@ -1002,11 +1125,20 @@ export default function SongSelect({
 
           </div>
           ) : (
-          <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/90 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
-            <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No song selected</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-3 inline-flex items-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-200 transition hover:bg-pink-500/20"
+           <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/70 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
+             <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No song selected</p>
+             {onOpenOnlineCatalog && (
+               <button
+                 type="button"
+                 onClick={onOpenOnlineCatalog}
+                 className="mt-3 inline-flex items-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-950 transition hover:bg-cyan-400"
+               >
+                 <Search className="h-3.5 w-3.5" /> Beatmap Listing
+               </button>
+             )}
+             <button
+               onClick={() => fileInputRef.current?.click()}
+               className="inline-flex items-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"
             >
               <Upload className="h-3.5 w-3.5" /> Import Songs
             </button>
@@ -1030,7 +1162,7 @@ export default function SongSelect({
           {onOpenOnlineCatalog && (
             <button
               onClick={onOpenOnlineCatalog}
-              className="px-3.5 py-2.5 bg-[#12121a] hover:brightness-110 active:scale-95 border border-pink-500/35 rounded-xl text-[10px] font-sans font-black tracking-wider text-white uppercase flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0"
+               className="px-3.5 py-2.5 bg-[#12121a]/80 hover:brightness-110 active:scale-95 border border-pink-500/35 rounded-xl text-[10px] font-sans font-black tracking-wider text-white uppercase flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0"
             >
               <Compass className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
               <span>ONLINE MAPS</span>
@@ -1055,6 +1187,15 @@ export default function SongSelect({
               return (
                 <div 
                   key={group.songKey}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isGroupActive}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSelectGroup(group);
+                    }
+                  }}
                   onClick={() => handleSelectGroup(group)}
                   className={`group relative border rounded-xl overflow-hidden cursor-pointer select-none transition-all p-3 flex items-center justify-between gap-3 shadow-md active:scale-[0.99] duration-150 ${
                     isGroupActive
@@ -1062,17 +1203,24 @@ export default function SongSelect({
                       : 'border-white/[0.05] bg-[#0c0c12]/85 hover:bg-[#12121a]/90 hover:border-white/10 text-slate-100'
                   }`}
                 >
-                  {group.bgUrl && (
-                    <div 
-                      className="absolute inset-0 bg-cover bg-center opacity-5 blur-sm pointer-events-none"
-                      style={{ backgroundImage: `url("${sanitizeCssUrl(group.bgUrl)}")` }}
-                    />
-                  )}
+                   {group.coverUrl ? (
+                     <img
+                       src={group.coverUrl}
+                       className="absolute inset-0 h-full w-full object-cover opacity-15 blur-sm pointer-events-none"
+                       referrerPolicy="no-referrer"
+                       alt=""
+                     />
+                   ) : group.bgUrl && (
+                     <div 
+                       className="absolute inset-0 bg-cover bg-center opacity-5 blur-sm pointer-events-none"
+                       style={{ backgroundImage: `url("${sanitizeCssUrl(group.bgUrl)}")` }}
+                     />
+                   )}
 
                   <div className="flex items-center gap-3 relative z-10 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-lg bg-slate-900 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                      {group.bgUrl ? (
-                        <img src={group.bgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
+                       {group.coverUrl || group.bgUrl ? (
+                         <img src={group.coverUrl || group.bgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
                       ) : (
                         <Music className="h-4 w-4 text-pink-500" />
                       )}
@@ -1096,7 +1244,7 @@ export default function SongSelect({
                         onClick={(e) => {
                           e.stopPropagation();
                           if (songDeleteConfirmKey === group.songKey) {
-                            void onDeleteSongGroup(group.maps.map((map) => map.id));
+                             void onDeleteSongGroup(mergedCustomMaps.filter((map) => getMapSongKey(map) === group.songKey).map((map) => map.id));
                             if (group.maps.some((map) => map.id === selectedCustomMapId)) setSelectedCustomMapId('');
                             setSongDeleteConfirmKey(null);
                           } else {
@@ -1185,17 +1333,27 @@ export default function SongSelect({
                 <div className="flex-none px-5 py-4 border-b border-white/5 flex items-center justify-between bg-black/20">
                   <div className="flex items-center gap-2">
                     <SlidersHorizontal className="h-5 w-5 text-[#ff80a5]" />
-                    <h1 className="text-sm font-black tracking-widest text-[#ff80a5] font-sans uppercase">
-                      GAMEPLAY MODS
-                    </h1>
+                     <h1 className="text-2xl font-semibold tracking-tight text-white font-sans">
+                       Gameplay Modifiers
+                     </h1>
                   </div>
 
-                  <button
-                    onClick={() => setShowModsModal(false)}
-                    className="p-1.5 rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                   <div className="flex items-center gap-2">
+                     <button
+                       type="button"
+                       disabled
+                       className="px-2.5 py-1.5 rounded-lg bg-white/5 text-[10px] font-semibold text-white/25 cursor-not-allowed"
+                       title="Practice mode coming soon"
+                     >
+                       Practice - Coming soon
+                     </button>
+                     <button
+                       onClick={() => setShowModsModal(false)}
+                       className="p-1.5 rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
+                     >
+                       <X className="h-4 w-4" />
+                     </button>
+                   </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-5 py-4 bg-black/5 flex flex-col gap-4">
@@ -1224,155 +1382,49 @@ export default function SongSelect({
                     </button>
                   </div>
 
-                  <div className="flex flex-col gap-2 text-left">
-                    <span className="text-[9px] font-black tracking-wider text-emerald-400 uppercase font-mono">REDUCTION MODS</span>
-                    <div className="grid grid-cols-1 gap-2">
-                      {[
-                        { id: 'NF', name: 'NoFail (NF)', desc: 'Cannot fail the song' },
-                        { id: 'EZ', name: 'Easy (EZ)', desc: 'Large windows, less HP drain', exclusiveWith: 'HR' },
-                        { id: 'HT', name: 'HalfTime (HT)', desc: '0.75x speed play speed', exclusiveWith: 'DT' }
-                      ].map((mod) => {
-                        const isActive = (settings.selectedMods || []).includes(mod.id);
-                        return (
-                          <button
-                            key={mod.id}
-                            onClick={() => {
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== mod.id);
-                              } else {
-                                if (mod.exclusiveWith) mods = mods.filter(m => m !== mod.exclusiveWith);
-                                mods.push(mod.id);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-emerald-500/10 border-emerald-500/60 text-emerald-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
-                          >
-                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
-                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 text-left">
-                    <span className="text-[9px] font-black tracking-wider text-rose-400 uppercase font-mono">CHALLENGE MODS</span>
-                    <div className="grid grid-cols-1 gap-2">
-                      {[
-                        { id: 'HR', name: 'HardRock (HR)', desc: 'Tighter timing, fast HP loss', exclusiveWith: 'EZ' },
-                        { id: 'HD', name: 'Hidden (HD)', desc: 'Notes fade out before hit' },
-                        { id: 'DT', name: 'DoubleTime (DT)', desc: '1.5x play speed simulation', exclusiveWith: 'HT' }
-                      ].map((mod) => {
-                        const isActive = (settings.selectedMods || []).includes(mod.id);
-                        return (
-                          <button
-                            key={mod.id}
-                            onClick={() => {
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== mod.id);
-                              } else {
-                                if (mod.exclusiveWith) mods = mods.filter(m => m !== mod.exclusiveWith);
-                                mods.push(mod.id);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-rose-500/10 border-rose-500/60 text-rose-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
-                          >
-                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
-                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 text-left">
-                    <span className="text-[9px] font-black tracking-wider text-cyan-400 uppercase font-mono">KEY CONVERSION</span>
-                    <div className="grid grid-cols-1 gap-2">
-                      {[2, 3, 4, 5, 6, 7, 8].map((k) => {
-                        const modId = `K${k}`;
-                        const isActive = (settings.selectedMods || []).includes(modId);
-                        const isDisabled = availableKeyCounts.includes(k);
-                        
-                        return (
-                          <button
-                            type="button"
-                            key={modId}
-                            disabled={isDisabled}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (isDisabled) return;
-                              
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== modId);
-                              } else {
-                                // Remove all other key change mods first
-                                mods = mods.filter(m => !/^K[2-8]$/.test(m));
-                                mods.push(modId);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${
-                              isDisabled
-                                ? 'bg-black/45 border-white/5 text-slate-600 opacity-45 cursor-not-allowed'
-                                : isActive 
-                                  ? 'bg-cyan-500/10 border-cyan-500/60 text-cyan-400' 
-                                  : 'bg-[#12121c] border-white/5 text-slate-350'
-                            }`}
-                          >
-                            <div className="min-w-0 flex-1 flex flex-col">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[11px] font-bold uppercase">{k} Keys (K{k})</span>
-                                {isDisabled ? (
-                                  <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
-                                ) : (
-                                  <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">1.00x Mult</span>
-                                )}
-                              </div>
-                              <span className="text-[8px] text-slate-500 font-mono mt-0.5">
-                                {isDisabled 
-                                  ? `Native ${k}K difficulty is already available` 
-                                  : `Forces playfield to utilize ${k}-lane layout.`}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 text-left">
-                    <span className="text-[9px] font-black tracking-wider text-sky-400 uppercase font-mono">AUTOMATION MODS</span>
-                    <div className="grid grid-cols-1 gap-2">
-                      {[
-                        { id: 'AT', name: 'Autoplay (AT)', desc: 'Plays with perfect timing. Unranked.' }
-                      ].map((mod) => {
-                        const isActive = (settings.selectedMods || []).includes(mod.id);
-                        return (
-                          <button
-                            type="button"
-                            key={mod.id}
-                            onClick={() => {
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== mod.id);
-                              } else {
-                                mods.push(mod.id);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-left transition-all ${isActive ? 'bg-sky-500/10 border-sky-500/60 text-sky-400' : 'bg-[#12121c] border-white/5 text-slate-350'}`}
-                          >
-                            <span className="text-[11px] font-bold uppercase">{mod.name}</span>
-                            <span className="text-[8px] text-slate-500 font-mono">{mod.desc}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-7 justify-items-center pb-2">
+                    {MODIFIER_TILES.map((mod) => {
+                      const isActive = (settings.selectedMods || []).includes(mod.id);
+                      const Icon = mod.icon;
+                      return (
+                        <button
+                          type="button"
+                          key={mod.id}
+                          title={`${mod.title}: ${mod.desc}`}
+                          onClick={() => toggleModifier(mod.id, mod.exclusiveWith)}
+                          className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0c0c12]"
+                        >
+                          <span className={`relative flex h-[88px] w-[88px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-hover:-translate-y-0.5 group-hover:bg-white/[.14] group-active:scale-95 ${isActive ? mod.activeClass : 'bg-white/[.08] text-white/80'}`}>
+                            <span className="absolute inset-x-0 top-2 text-center text-[9px] font-black tracking-wide text-white/70">{mod.multiplier}</span>
+                            <Icon className="h-9 w-9 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                            {isActive && <span className="absolute bottom-2 h-1 w-1 rounded-full bg-current" />}
+                          </span>
+                          <span className={`max-w-[96px] text-[11px] font-semibold leading-tight ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{mod.name}</span>
+                        </button>
+                      );
+                    })}
+                    {[2, 3, 4, 5, 6, 7, 8].map((keyCount) => {
+                      const id = `K${keyCount}`;
+                      const isActive = (settings.selectedMods || []).includes(id);
+                      const isDisabled = availableKeyCounts.includes(keyCount);
+                      return (
+                        <button
+                          type="button"
+                          key={id}
+                          disabled={isDisabled}
+                          title={isDisabled ? `${keyCount}K is already native to this map` : `Force ${keyCount}-key play`}
+                          onClick={() => !isDisabled && toggleKeyModifier(keyCount)}
+                          className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0c0c12]"
+                        >
+                          <span className={`relative flex h-[88px] w-[88px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 ${isDisabled ? 'bg-black/30 text-white/20 opacity-50' : isActive ? 'bg-cyan-500/25 text-cyan-300 shadow-[0_8px_24px_rgba(6,182,212,0.18)] group-hover:-translate-y-0.5' : 'bg-white/[.08] text-white/80 group-hover:-translate-y-0.5 group-hover:bg-white/[.14]'} group-active:scale-95`}>
+                            <span className="absolute inset-x-0 top-2 text-center text-[9px] font-black tracking-wide text-white/70">0.90x</span>
+                            <Keyboard className="h-9 w-9 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                            <span className="absolute bottom-2 text-[9px] font-black tracking-wider">K{keyCount}</span>
+                          </span>
+                          <span className={`max-w-[96px] text-[11px] font-semibold leading-tight ${isDisabled ? 'text-white/25' : isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{keyCount}K Mode</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1449,7 +1501,16 @@ export default function SongSelect({
             {/* Center Area (Logo circle spinner & details banner) */}
             <div className="lg:col-span-7 flex flex-col items-center justify-center text-center gap-6">
               {/* Spinning / Rippling interactive central logo trigger */}
-              <div 
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Play ${selectedCustomMap.title}`}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handleStartPlay();
+                  }
+                }}
                 onClick={() => handleStartPlay()}
                 className="relative cursor-pointer group flex items-center justify-center select-none active:scale-95 transition-all w-48 h-48 rounded-full shadow-2xl"
               >
@@ -1468,7 +1529,6 @@ export default function SongSelect({
                   </div>
                 </div>
               </div>
-
               {/* Text Info */}
               <div className="space-y-1 text-center">
                 <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-none">
@@ -1482,11 +1542,9 @@ export default function SongSelect({
                   <span className={`px-3 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-widest border shadow-lg transition-all ${
                     settings.renderEngine === 'babylon'
                       ? 'bg-purple-500/10 text-purple-300 border-purple-500/30 shadow-purple-500/5 animate-pulse'
-                      : settings.renderEngine === 'pixi'
-                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-cyan-500/5 animate-pulse'
                       : 'bg-amber-500/10 text-amber-400 border-amber-500/30 shadow-amber-500/5'
                   }`}>
-                    Engine: {settings.renderEngine === 'babylon' ? 'Babylon.js 3D' : settings.renderEngine === 'pixi' ? 'PixiJS v8 (WebGL)' : 'Canvas 2D'}
+                    Engine: {settings.renderEngine === 'babylon' ? 'Babylon.js 3D' : 'Canvas 2D'}
                   </span>
                 </div>
               </div>
@@ -1574,8 +1632,8 @@ export default function SongSelect({
                       </div>
                       <input 
                         type="range"
-                        min="5"
-                        max="80"
+                         min={SCROLL_SPEED_MIN}
+                         max={SCROLL_SPEED_MAX}
                         value={settings.scrollSpeed}
                         onChange={(e) => updateSettings({ scrollSpeed: parseInt(e.target.value) })}
                         className="w-full accent-amber-450 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
@@ -1619,41 +1677,6 @@ export default function SongSelect({
                     </button>
                   </div>
 
-                  <div className="flex justify-between items-center py-2 border-t border-white/[0.03]">
-                    <span className="text-[11px] font-mono uppercase tracking-wider text-slate-300">Gameplay Render Engine:</span>
-                    <div className="flex gap-1.5 select-none">
-                      <button 
-                        onClick={() => updateSettings({ renderEngine: 'canvas' })}
-                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
-                          settings.renderEngine === 'canvas'
-                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
-                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Canvas 2D
-                      </button>
-                      <button 
-                        onClick={() => updateSettings({ renderEngine: 'pixi' })}
-                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
-                          settings.renderEngine === 'pixi'
-                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
-                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        PixiJS v8
-                      </button>
-                      <button 
-                        onClick={() => updateSettings({ renderEngine: 'babylon' })}
-                        className={`px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider font-extrabold rounded border transition-all ${
-                          settings.renderEngine === 'babylon'
-                            ? 'bg-amber-450 border-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/15'
-                            : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Babylon 3D
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -1703,23 +1726,15 @@ export default function SongSelect({
         </div>
       )}
 
-      {/* SONGSELECT BIG MAIN HEADER ROW */}
-      <div className="w-full max-w-none px-4 lg:px-10 pt-2 pb-1.5 flex justify-between items-center gap-4 z-10 relative select-none border-b border-white/[0.03]">
-        <div className="flex flex-col text-left shrink-0 bg-[#09090d] border border-white/10 px-5 py-2 rounded-xl shadow-lg">
-          <h1 className="text-xl md:text-2xl font-black tracking-[0.2em] text-skin-accent leading-none font-sans">
-            SONG SELECT
-          </h1>
-        </div>
-      </div>
-
       {/* 3. MAIN BEATMAP SELECT SCREEN STAGE PANEL - 3-COLUMN RECONSTRUCTION */}
-      <div className="flex-1 w-full max-w-none px-4 lg:px-10 min-h-0 p-2 lg:p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 relative overflow-hidden">
+      <div className="flex-1 w-full max-w-none pl-0 pr-4 lg:pr-10 min-h-0 pt-0 pb-0 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 relative overflow-hidden">
         
         {/* =======================================================
             LEFT COLUMN: DISPLAY METRICS & PLAY HISTORIC STATISTICS 
             ======================================================= */}
-        <div className="lg:col-span-4 flex flex-col gap-4 text-left h-full overflow-y-auto pr-1 pb-[72px]">          {selectedCustomMap ? (
-            <div className="flex flex-col gap-5 bg-[#0c0c12] p-5 rounded-2xl border border-white/10 shadow-2xl relative z-10">
+         <div className="lg:col-span-4 flex flex-col gap-4 text-left h-full overflow-y-auto pr-1 pb-[72px] bg-[#0c0c12]/70 border border-white/10 rounded-none shadow-2xl">
+          {selectedCustomMap ? (
+            <div className="flex flex-col gap-5 p-5 relative z-10">
               
               {/* STAGE HEADER BANNER: title, artist */}
               <div className="space-y-1 text-left">
@@ -1764,22 +1779,22 @@ export default function SongSelect({
               <button
                 id="main-left-play-button"
                 onClick={() => handleStartPlay()}
-                className="w-full py-4 bg-skin-accent hover:brightness-110 active:scale-95 text-slate-950 font-sans font-black text-base uppercase tracking-widest rounded-xl shadow-lg shadow-skin-accent/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer border border-white/10 select-none"
+                 className="w-full py-4 bg-[#061a34]/80 hover:bg-[#193454] active:scale-95 text-white font-sans font-black text-base tracking-widest rounded-xl shadow-lg shadow-black/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer border border-white/10 select-none"
               >
-                <Play className="h-5 w-5 fill-current text-slate-950" />
-                <span>PLAY SONG</span>
+                <Play className="h-5 w-5 fill-current text-cyan-300" />
+                <span>Play beatmap</span>
               </button>
               {selectedCustomMap && onDeleteSongGroup && (
                 <button
                   onClick={handleDeleteSelectedSet}
-                  className={`w-full py-3 rounded-xl border text-xs font-sans font-black uppercase tracking-widest transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/20 text-rose-200' : 'border-white/10 bg-white/5 text-slate-400 hover:border-rose-500/50 hover:text-rose-300'}`}
+                   className={`w-full py-3 rounded-xl border text-xs font-sans font-black uppercase tracking-widest transition ${songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'border-rose-500 bg-rose-500/80 text-rose-100' : 'border-white/10 bg-[#12121a]/80 text-slate-300 hover:border-rose-500/50 hover:text-rose-200'}`}
                 >
                   {songDeleteConfirmKey === getMapSongKey(selectedCustomMap) ? 'Confirm Delete Beatmap Set' : 'Delete Beatmap Set'}
                 </button>
               )}
 
               {/* ONLINE & LOCAL LEADERBOARD REPLAYS PANEL */}
-              <div className="flex flex-col bg-[#08080d] rounded-2xl border border-white/10 shadow-2xl overflow-hidden mt-1">
+              <div className="flex flex-col mt-1">
                 {/* TAB BAR HEADER */}
                 <div className="flex border-b border-white/10 bg-black/40">
                 {isServerLeaderboardMap && (
@@ -1831,9 +1846,26 @@ export default function SongSelect({
                   {isServerLeaderboardMap && leaderboardTab === 'online' && (
                     <>
                       {isLoadingOnlineReplays ? (
-                        <div className="py-8 flex flex-col items-center justify-center text-slate-400 text-xs gap-2">
-                          <Loader className="h-5 w-5 animate-spin text-pink-400" />
-                          <span className="font-mono text-[10px] uppercase tracking-wider">Fetching Online Leaderboard...</span>
+                        <div className="space-y-2" aria-busy="true" aria-label="Loading online leaderboard">
+                          {Array.from({ length: 5 }, (_, index) => (
+                            <div
+                              key={`leaderboard-skeleton-${index}`}
+                              className="p-2.5 bg-black/40 border border-white/5 rounded-xl animate-pulse"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="h-4 w-7 rounded bg-white/10" />
+                                  <div className="h-4 w-4 rounded-full bg-pink-500/20 shrink-0" />
+                                  <div className="h-3 w-24 rounded bg-white/10" />
+                                </div>
+                                <div className="h-4 w-8 rounded bg-white/10" />
+                              </div>
+                              <div className="flex items-center justify-between mt-2 pl-9">
+                                <div className="h-2.5 w-28 rounded bg-white/[0.07]" />
+                                <div className="h-2.5 w-16 rounded bg-white/[0.07]" />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       ) : onlineReplayError ? (
                         <div className="py-6 px-3 text-center text-slate-400 text-[10px] font-mono uppercase space-y-1">
@@ -1841,12 +1873,21 @@ export default function SongSelect({
                           <button 
                             onClick={() => {
                               if (selectedCustomMap) {
-                                const diffId = (selectedCustomMap as any).chartRevisionId || '';
-                                setIsLoadingOnlineReplays(true);
-                                fetchLeaderboardReplays(diffId).then(res => {
-                                  setIsLoadingOnlineReplays(false);
-                                  if (res.success) setOnlineReplays(res.replays);
-                                });
+                                 const diffId = (selectedCustomMap as any).chartRevisionId || '';
+                                 setIsLoadingOnlineReplays(true);
+                                 setOnlineReplayError(null);
+                                 const generation = ++leaderboardGeneration.current;
+                                 fetchLeaderboardReplays(diffId).then(res => {
+                                   if (generation !== leaderboardGeneration.current) return;
+                                   setIsLoadingOnlineReplays(false);
+                                   if (res.success) {
+                                     setOnlineReplays(res.replays);
+                                     setOnlineReplayError(null);
+                                   } else {
+                                     setOnlineReplays([]);
+                                     setOnlineReplayError(res.error || 'Failed to load online replays');
+                                   }
+                                 });
                               }
                             }}
                             className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-[9px] text-slate-300 mt-2 cursor-pointer"
@@ -2049,13 +2090,15 @@ export default function SongSelect({
               </div>
 
               {/* Integrated file drag and drop area for a compact utility drop */}
-              <div 
+              <button
+                type="button"
+                aria-label="Import beatmap package"
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className="p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/20 hover:bg-black/40 transition flex flex-col items-center justify-center"
+                 className="p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/80 hover:bg-black/90 transition flex flex-col items-center justify-center"
               >
                 <input 
                   ref={fileInputRef}
@@ -2066,7 +2109,7 @@ export default function SongSelect({
                 />
                 <Upload className="h-4 w-4 text-slate-500 mb-1" />
                 <span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest">DRAG & DROP BEATMAP TO IMPORT</span>
-              </div>
+              </button>
 
               {importStatus && (
                 <div className={`p-2 rounded text-[9px] font-mono border ${
@@ -2077,23 +2120,32 @@ export default function SongSelect({
               )}
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center py-24 gap-4 opacity-75 bg-[#0c0c12] p-6 rounded-2xl border border-white/10 shadow-2xl relative z-10">
+             <div className="flex-1 flex flex-col items-center justify-center text-center py-24 gap-4 opacity-75 p-6 relative z-10">
               <span className="p-4 bg-pink-500/10 text-pink-500 rounded-full border border-pink-500/20 shadow animate-pulse">
                 <Music className="h-8 w-8 text-pink-500" />
               </span>
               <div className="flex flex-col gap-1.5">
-                <h3 className="text-xs font-sans font-black text-white tracking-widest uppercase">
-                  NO SONGS SELECTED
-                </h3>
-                <p className="text-[10px] text-slate-500 font-mono max-w-xs leading-relaxed uppercase">
-                  Download or select a song to play!
-                </p>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-200 transition hover:bg-pink-500/20"
-                >
-                  <Upload className="h-3.5 w-3.5" /> Import Songs
-                </button>
+                 <h3 className="text-lg font-sans font-black text-white tracking-widest uppercase">
+                   No Beatmap Selected
+                 </h3>
+                 <p className="text-sm text-slate-400 font-sans max-w-sm leading-relaxed">
+                   Select a song or use the beatmap listing to find new songs
+                 </p>
+                 {onOpenOnlineCatalog && (
+                   <button
+                     type="button"
+                     onClick={onOpenOnlineCatalog}
+                      className="mt-2 inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-950 transition hover:bg-cyan-400"
+                   >
+                     <Search className="h-3.5 w-3.5" /> Beatmap Listing
+                   </button>
+                 )}
+                 <button
+                   onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"
+                 >
+                   <Upload className="h-3.5 w-3.5" /> Import Songs Locally
+                 </button>
                 <input ref={fileInputRef} type="file" accept=".osu,.osz,.zip" onChange={handleFileSelect} className="hidden" />
               </div>
             </div>
@@ -2110,20 +2162,20 @@ export default function SongSelect({
         {/* =======================================================
             RIGHT COLUMN: SEARCH, STAR RATING SLIDER, BEATMAP LIST
             ======================================================= */}
-        <div className="lg:col-span-4 flex flex-col gap-3 h-full min-h-0 -mr-4 lg:-mr-10">
+         <div className="lg:col-span-4 flex flex-col gap-3 h-full min-h-0 pt-8 lg:pt-12 -mr-4 lg:-mr-10">
           
           {/* SEARCH INTERFACE */}
           <div className="px-4 lg:px-6 relative flex-shrink-0">
-            <Search className="absolute left-7 top-2.5 h-4 w-4 text-slate-400" />
+             <Search className="absolute left-7 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <input 
               id="song-search-input"
               type="text"
               placeholder="Search..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-6 py-2 bg-[#0f0e15] border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-skin-accent/50 focus:ring-1 focus:ring-skin-accent/30 transition-all shadow-lg"
+               className="w-full min-h-[54px] pl-12 pr-24 py-3 bg-[#0f0e15]/80 border border-white/10 rounded-xl font-sans text-base font-bold text-white placeholder-slate-400 focus:outline-none focus:border-skin-accent/50 focus:ring-1 focus:ring-skin-accent/30 transition-all shadow-lg"
             />
-            <span className="absolute right-7 top-2 px-2 py-0.5 bg-[#1b1c24] border border-white/10 text-[9px] font-mono text-slate-400 font-bold rounded">
+             <span className="absolute right-7 top-1/2 -translate-y-1/2 px-2 py-0.5 bg-[#1b1c24] border border-white/10 text-[9px] font-mono text-slate-400 font-bold rounded">
               {filteredCustomMaps.length} matches
             </span>
           </div>
@@ -2244,23 +2296,46 @@ export default function SongSelect({
               songGroups.map((group) => {
                 const isGroupActive = selectedGroup?.songKey === group.songKey;
                 const hasActiveMap = group.maps.some(m => m.id === selectedCustomMapId);
+                const groupBannerUrl = group.coverUrl || group.bgUrl || DEFAULT_SONG_BANNER;
 
                 return (
                   <div key={group.songKey} className="flex flex-col gap-0 transition-all pl-8">
                     
                     {/* GROUP HEADER ITEM CARD */}
                     <div 
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isGroupActive}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          handleSelectGroup(group);
+                        }
+                      }}
                       onClick={() => handleSelectGroup(group)}
                       className={`group transition-all duration-300 relative border-l border-t border-b cursor-pointer select-none overflow-hidden rounded-l-xl ${
                         isGroupActive 
-                          ? 'border-skin-accent shadow-skin-accent-glow bg-[#1a1726]/100 ml-[-20px]'
+                           ? 'border-skin-accent shadow-skin-accent-glow bg-[#1a1726]/70 ml-[-20px]'
                           : hasActiveMap
-                            ? 'border-skin-accent/30 bg-[#0e0c15]/95'
-                            : 'border-white/[0.03] bg-[#0c0c12]/95 hover:bg-[#12121a]/98 hover:border-white/10'
+                             ? 'border-skin-accent/30 bg-[#0e0c15]/70'
+                             : 'border-white/[0.03] bg-[#0c0c12]/70 hover:bg-[#12121a]/80 hover:border-white/10'
                       } border-r-0`}
                     >
-                      <div className="flex items-center justify-between p-4 py-3">
-                        <div className="flex flex-col text-left overflow-hidden min-w-0 pr-2 flex-1">
+                        <img
+                          src={groupBannerUrl}
+                          className="absolute inset-0 h-full w-full object-cover opacity-75 pointer-events-none"
+                          referrerPolicy="no-referrer"
+                          loading="eager"
+                          decoding="async"
+                          onError={(event) => {
+                            event.currentTarget.onerror = null;
+                            event.currentTarget.src = DEFAULT_SONG_BANNER;
+                          }}
+                          alt=""
+                        />
+                        <div className="absolute inset-0 bg-[#0c0c12]/60 pointer-events-none" />
+                       <div className="relative flex items-center justify-between p-4 py-3">
+                         <div className="flex flex-col text-left overflow-hidden min-w-0 pr-20 flex-1">
                           <span className="text-[10px] uppercase font-mono tracking-wider text-skin-accent mb-0.5 leading-none">
                             {group.artist || 'Unknown Artist'}
                           </span>
@@ -2301,7 +2376,7 @@ export default function SongSelect({
                                onClick={(e) => {
                                  e.stopPropagation();
                                  if (songDeleteConfirmKey === group.songKey) {
-                                   void onDeleteSongGroup(group.maps.map((map) => map.id));
+                                    void onDeleteSongGroup(mergedCustomMaps.filter((map) => getMapSongKey(map) === group.songKey).map((map) => map.id));
                                    if (group.maps.some((map) => map.id === selectedCustomMapId)) setSelectedCustomMapId('');
                                    setSongDeleteConfirmKey(null);
                                  } else {
@@ -2418,43 +2493,71 @@ export default function SongSelect({
             {/* Bottom drawer style popup matching settings and catalog designs but wider */}
             <motion.div
               key="mods-panel"
-              className="fixed inset-x-0 bottom-0 z-[110] w-full max-h-[85vh] md:max-h-[90vh] bg-gradient-to-t from-[#0c0c12]/98 to-[#06060a]/98 border-t border-white/10 shadow-[0_-20px_50px_rgba(0,0,0,0.85)] flex flex-col rounded-t-3xl overflow-hidden font-sans text-slate-200"
+              className="fixed inset-3 sm:inset-6 md:inset-8 lg:inset-[7vh_auto] lg:left-1/2 lg:-translate-x-1/2 z-[110] w-auto lg:w-[min(1080px,calc(100vw-64px))] max-h-[calc(100vh-24px)] md:max-h-[86vh] bg-[#292a2e]/[.98] border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.75)] flex flex-col rounded-lg overflow-hidden font-sans text-slate-200"
               initial={{ y: '100vh', opacity: 0.6 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: '100vh', opacity: 0 }}
               transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
               style={{ willChange: 'transform, opacity' }}
             >
-              {/* Top signature pink accent rail */}
-              <div className="h-1 w-full bg-[#ff80a5] shadow-[0_0_8px_rgba(255,128,165,0.3)] flex-none" />
-
-              {/* Header section with closing button */}
-              <div className="flex-none px-6 md:px-12 py-5 border-b border-white/5 flex flex-col lg:flex-row lg:items-center justify-between bg-black/10 gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-white/5 rounded-xl border border-white/10 shadow-inner">
-                    <SlidersHorizontal className="h-6 w-6 text-[#ff80a5]" />
-                  </div>
-                  <div>
-                    <h1 className="text-xl font-black tracking-widest text-[#ff80a5] font-sans uppercase">
-                      GAMEPLAY MODS SELECTOR
-                    </h1>
-                    <p className="text-[10px] text-slate-400 font-mono uppercase mt-0.5 tracking-wider">
-                      Select game modifiers to customize your scoring multiplier
-                    </p>
-                  </div>
+              {/* Header mirrors the compact mode switcher from the reference UI. */}
+              <div className="flex-none px-5 sm:px-8 py-5 border-b border-white/[.07] flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#303136]">
+                <div>
+                  <h1 className="text-2xl sm:text-[2rem] leading-none font-semibold tracking-[-.04em] text-white">
+                    Gameplay Modifiers
+                  </h1>
+                  <p className="text-[11px] text-white/45 mt-2 tracking-wide">Tune the chart to match the way you play.</p>
                 </div>
 
-                {/* Active mods span and scoring mult div moved to the top header area */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-[#1a1525]/85 border border-[#ff80a5]/20 px-4 py-2 rounded-xl">
-                  <span className="text-xs font-bold text-slate-300 font-mono uppercase">
-                    Active Mods: {(settings.selectedMods || []).length > 0 ? (
-                      <span className="text-[#ff80a5] font-black ml-1">
-                        {(settings.selectedMods || []).join(', ')}
-                      </span>
-                    ) : 'None'}
-                  </span>
-                  <div className="px-3.5 py-1.5 bg-[#ff80a5]/10 text-[#ff80a5] font-black font-mono text-xs rounded-full border border-[#ff80a5]/20 shadow-sm whitespace-nowrap">
-                    SCORING MULTIPLIER: {(() => {
+                <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    className="h-9 px-3 rounded-lg bg-white/25 text-white text-sm font-medium flex items-center gap-1.5 shadow-inner"
+                    aria-pressed="true"
+                  >
+                    <Play className="h-3.5 w-3.5 fill-current" /> Play
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const active = settings.selectedMods || [];
+                      updateSettings({ selectedMods: active.includes('AT') ? active.filter(mod => mod !== 'AT') : [...active, 'AT'] });
+                    }}
+                    className={`h-9 px-3 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
+                      (settings.selectedMods || []).includes('AT') ? 'bg-sky-400/25 text-sky-200' : 'text-white/65 hover:bg-white/10 hover:text-white'
+                    }`}
+                    aria-pressed={(settings.selectedMods || []).includes('AT')}
+                  >
+                     <span className="text-xs font-black">AP</span> Autoplay
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="h-9 px-3 rounded-lg text-sm font-medium flex items-center gap-1.5 text-white/25 cursor-not-allowed"
+                    title="Practice mode coming soon"
+                  >
+                    <span className="text-xs">--</span> Practice - Coming soon
+                  </button>
+                  <button
+                    onClick={() => setShowModsModal(false)}
+                    className="ml-2 h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white/75 hover:text-white transition duration-150 cursor-pointer flex items-center justify-center"
+                    title="Close modifiers"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto px-5 sm:px-8 py-6 min-h-0 bg-[#28292d] flex flex-col gap-5">
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[.07] pb-4">
+                  <div className="flex items-center gap-3 text-sm text-white/65">
+                    <span>Selected</span>
+                     <span className="text-white font-semibold">{(settings.selectedMods || []).length ? (settings.selectedMods || []).map((mod) => mod === 'AT' ? 'AP' : mod).join(' / ') : 'None'}</span>
+                  </div>
+                  <div className="text-xs font-medium text-[#ff9fba] bg-[#ff80a5]/10 border border-[#ff80a5]/20 rounded-full px-3 py-1.5">
+                    {(() => {
                       let factor = 1.0;
                       const active = settings.selectedMods || [];
                       if (active.includes('NF')) factor *= 0.5;
@@ -2464,36 +2567,19 @@ export default function SongSelect({
                       if (active.includes('HD')) factor *= 1.15;
                       if (active.includes('DT')) factor *= 1.25;
                       if (active.some(mod => /^K[2-8]$/.test(mod))) factor *= 0.9;
-                      const str = factor.toFixed(2) + 'x';
-                      if (active.includes('AT')) return str + ' (UNRANKED)';
-                      return str;
+                      return `Multiplier ${factor.toFixed(2)}x${active.includes('AT') ? ' / Unranked' : ''}`;
                     })()}
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setShowModsModal(false)}
-                  className="p-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition duration-150 cursor-pointer shadow-md"
-                  title="Close mods selector"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              {/* Scrollable Content Area */}
-              <div className="flex-1 overflow-y-auto px-6 md:px-12 py-6 min-h-0 bg-black/5 flex flex-col gap-6">
-
-                {/* MODS GRID GROUPS */}
-                <div className="grid grid-cols-1 xl:grid-cols-4 md:grid-cols-2 gap-4 pb-6 max-w-6xl mx-auto w-full">
+                 {/* MODS GRID */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-3 gap-y-7 pb-2 max-w-none w-full justify-items-center">
                   
                   {/* DIFFICULTY REDUCTION MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md max-w-xs w-full mx-auto">
-                    <span className="text-[10px] font-black tracking-wider text-emerald-400 uppercase font-mono border-b border-emerald-500/10 pb-2 flex items-center justify-between">
-                      <span>DIFFICULTY REDUCTION</span>
-                      <span className="text-[8px] text-slate-500 font-bold">MUTUALLY EXCLUSIVE</span>
-                    </span>
+                   <div className="contents">
+                    <span className="sr-only">Difficulty reduction mods</span>
                     
-                    <div className="flex flex-col gap-2">
+                     <div className="contents">
                       {[
                         {
                           id: 'NF',
@@ -2520,6 +2606,8 @@ export default function SongSelect({
                         }
                       ].map((mod) => {
                         const isActive = (settings.selectedMods || []).includes(mod.id);
+                        const tile = MODIFIER_TILES.find((item) => item.id === mod.id);
+                        const Icon = tile?.icon || Sparkles;
                         return (
                           <button
                             type="button"
@@ -2539,37 +2627,26 @@ export default function SongSelect({
                               }
                               updateSettings({ selectedMods: mods });
                             }}
-                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
-                              isActive 
-                                ? mod.activeBg 
-                                : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
-                            }`}
-                          >
-                            {/* Circle logo abbreviation */}
-                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
-                              {mod.id}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
-                                <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
-                            </div>
-                          </button>
+                             title={mod.title}
+                             className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#28292d]"
+                           >
+                              <span className={`relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-hover:-translate-y-0.5 group-hover:bg-white/[.14] group-active:scale-95 ${isActive ? tile?.activeClass || 'bg-white/20 text-white' : 'bg-white/[.08] text-white/80'}`}>
+                                <span className="absolute inset-x-0 top-2 text-center text-[10px] font-black tracking-wide text-white/70">{mod.mult}</span>
+                                <Icon className="h-10 w-10 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                                {isActive && <span className="absolute bottom-2 h-1 w-1 rounded-full bg-current" />}
+                              </span>
+                              <span className={`max-w-[112px] text-xs font-semibold leading-tight ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{tile?.name || mod.title}</span>
+                           </button>
                         );
                       })}
                     </div>
                   </div>
 
                   {/* DIFFICULTY INCREASE MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md max-w-xs w-full mx-auto">
-                    <span className="text-[10px] font-black tracking-wider text-rose-400 uppercase font-mono border-b border-rose-500/10 pb-2 flex items-center justify-between">
-                      <span>DIFFICULTY INCREASE</span>
-                      <span className="text-[8px] text-slate-500 font-bold">TRAINING CHALLENGES</span>
-                    </span>
+                   <div className="contents">
+                    <span className="sr-only">Difficulty increase mods</span>
                     
-                    <div className="flex flex-col gap-2">
+                     <div className="contents">
                       {[
                         {
                           id: 'HR',
@@ -2596,6 +2673,8 @@ export default function SongSelect({
                         }
                       ].map((mod) => {
                         const isActive = (settings.selectedMods || []).includes(mod.id);
+                        const tile = MODIFIER_TILES.find((item) => item.id === mod.id);
+                        const Icon = tile?.icon || Sparkles;
                         return (
                           <button
                             type="button"
@@ -2614,150 +2693,72 @@ export default function SongSelect({
                               }
                               updateSettings({ selectedMods: mods });
                             }}
-                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
-                              isActive 
-                                ? mod.activeBg 
-                                : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
-                            }`}
-                          >
-                            {/* Circle logo abbreviation */}
-                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
-                              {mod.id}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
-                                <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult} Multiplier</span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
-                            </div>
-                          </button>
+                             title={mod.title}
+                             className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#28292d]"
+                           >
+                              <span className={`relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-hover:-translate-y-0.5 group-hover:bg-white/[.14] group-active:scale-95 ${isActive ? tile?.activeClass || 'bg-white/20 text-white' : 'bg-white/[.08] text-white/80'}`}>
+                                <span className="absolute inset-x-0 top-2 text-center text-[10px] font-black tracking-wide text-white/70">{mod.mult}</span>
+                                <Icon className="h-10 w-10 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                                {isActive && <span className="absolute bottom-2 h-1 w-1 rounded-full bg-current" />}
+                              </span>
+                              <span className={`max-w-[112px] text-xs font-semibold leading-tight ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{tile?.name || mod.title}</span>
+                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* KEY CHANGE MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 max-w-xs w-full mx-auto">
-                    <span className="text-[10px] font-black tracking-wider text-cyan-400 uppercase font-mono border-b border-cyan-500/10 pb-2 flex items-center justify-between">
-                      <span>KEY CONVERSION</span>
-                      <span className="text-[8px] text-slate-500 font-bold">MUTUALLY EXCLUSIVE</span>
-                    </span>
-                    
-                    <div className="flex flex-col gap-1.5 max-h-[260px] overflow-y-auto pr-1">
-                      {[2, 3, 4, 5, 6, 7, 8].map((k) => {
-                        const modId = `K${k}`;
-                        const isActive = (settings.selectedMods || []).includes(modId);
-                        const isDisabled = availableKeyCounts.includes(k);
-                        
-                        return (
-                          <button
-                            type="button"
-                            key={modId}
-                            disabled={isDisabled}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              if (isDisabled) return;
-                              
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== modId);
-                              } else {
-                                // Remove all other key change mods first
-                                mods = mods.filter(m => !/^K[2-8]$/.test(m));
-                                mods.push(modId);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all ${
-                              isDisabled
-                                ? 'bg-black/40 border-white/2.5 text-slate-600 opacity-40 cursor-not-allowed'
-                                : isActive 
-                                  ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-400 cursor-pointer' 
-                                  : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350 cursor-pointer'
-                            }`}
-                          >
-                            {/* Circle logo abbreviation */}
-                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : isDisabled ? 'bg-white/2.5 text-slate-600' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
-                              {k}K
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[12px] font-black tracking-wide uppercase">{k} Keys (K{k})</span>
-                                {isDisabled ? (
-                                  <span className="text-[8px] font-mono text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/10 shrink-0">Map Native</span>
-                                ) : (
-                                  <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">1.00x Multiplier</span>
-                                )}
-                              </div>
-                              <p className="text-[9px] text-slate-500 mt-0.5 leading-normal font-mono uppercase">
-                                {isDisabled 
-                                  ? `Native ${k}K difficulty is already available` 
-                                  : `Forces playfield to utilize ${k}-lane layout.`}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                   {/* KEY CONVERSION MODS */}
+                   <div className="contents">
+                     <span className="sr-only">Key conversion</span>
+                     {[2, 3, 4, 5, 6, 7, 8].map((keyCount) => {
+                       const id = `K${keyCount}`;
+                       const isActive = (settings.selectedMods || []).includes(id);
+                       const isDisabled = availableKeyCounts.includes(keyCount);
+                       return (
+                         <button
+                           type="button"
+                           key={id}
+                           disabled={isDisabled}
+                           title={isDisabled ? `${keyCount}K is already native to this map` : `Force ${keyCount}-key play`}
+                           onClick={() => !isDisabled && toggleKeyModifier(keyCount)}
+                           className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#28292d]"
+                         >
+                           <span className={`relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-active:scale-95 ${isDisabled ? 'bg-black/30 text-white/20 opacity-50' : isActive ? 'bg-cyan-500/25 text-cyan-300 shadow-[0_8px_24px_rgba(6,182,212,0.18)] group-hover:-translate-y-0.5' : 'bg-white/[.08] text-white/80 group-hover:-translate-y-0.5 group-hover:bg-white/[.14]'}`}>
+                             <span className="absolute inset-x-0 top-2 text-center text-[10px] font-black tracking-wide text-white/70">0.90x</span>
+                             <Keyboard className="h-10 w-10 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                             <span className="absolute bottom-2 text-[10px] font-black tracking-wider">K{keyCount}</span>
+                           </span>
+                           <span className={`max-w-[112px] text-xs font-semibold leading-tight ${isDisabled ? 'text-white/25' : isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{keyCount}K Mode</span>
+                         </button>
+                       );
+                     })}
+                   </div>
 
-                  {/* AUTOMATION MODS */}
-                  <div className="bg-[#0e0e15] border border-white/5 p-4 rounded-2xl flex flex-col gap-3 shadow-md col-span-1 max-w-xs w-full mx-auto">
-                    <span className="text-[10px] font-black tracking-wider text-sky-400 uppercase font-mono border-b border-sky-500/10 pb-2 flex items-center justify-between">
-                      <span>AUTOMATION MODS</span>
-                      <span className="text-[8px] text-slate-500 font-bold">DEMO & PRACTICE</span>
-                    </span>
-                    
-                    <div className="flex flex-col gap-2">
-                      {[
-                        {
-                          id: 'AT',
-                          title: 'Autoplay (AT)',
-                          desc: 'Plays every note with perfect timing for demonstration. Unranked.',
-                          activeBg: 'bg-sky-500/20 border-sky-500/60 text-sky-400',
-                          mult: 'Unranked'
-                        }
-                      ].map((mod) => {
-                        const isActive = (settings.selectedMods || []).includes(mod.id);
-                        return (
-                          <button
-                            type="button"
-                            key={mod.id}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              let mods = [...(settings.selectedMods || [])];
-                              if (isActive) {
-                                mods = mods.filter(m => m !== mod.id);
-                              } else {
-                                mods.push(mod.id);
-                              }
-                              updateSettings({ selectedMods: mods });
-                            }}
-                            className={`py-1.5 px-2.5 rounded-xl border flex gap-2 text-left items-start transition-all cursor-pointer ${
-                              isActive 
-                                ? mod.activeBg 
-                                : 'bg-[#12121c] hover:bg-[#181826] border-white/5 text-slate-350'
-                            }`}
-                          >
-                            {/* Circle logo abbreviation */}
-                            <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center font-black font-sans text-xs ${isActive ? 'bg-black/30' : 'bg-white/5 border border-white/10 shadow-inner'}`}>
-                              {mod.id}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-[13px] font-black tracking-wide uppercase">{mod.title}</span>
-                                <span className="text-[8px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-white/5 shrink-0">{mod.mult}</span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed font-mono uppercase">{mod.desc}</p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                   {/* AUTOMATION MODS */}
+                   <div className="contents">
+                     <span className="sr-only">Autoplay</span>
+                     {(() => {
+                       const mod = MODIFIER_TILES.find((item) => item.id === 'AT')!;
+                       const isActive = (settings.selectedMods || []).includes(mod.id);
+                       const Icon = mod.icon;
+                       return (
+                         <button
+                           type="button"
+                           onClick={() => toggleModifier(mod.id)}
+                           title={`${mod.title}: ${mod.desc}`}
+                           className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#28292d]"
+                         >
+                           <span className={`relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-hover:-translate-y-0.5 group-hover:bg-white/[.14] group-active:scale-95 ${isActive ? mod.activeClass : 'bg-white/[.08] text-white/80'}`}>
+                             <span className="absolute inset-x-0 top-2 text-center text-[10px] font-black tracking-wide text-white/70">{mod.multiplier}</span>
+                             <Icon className="h-10 w-10 stroke-[2.25] transition-transform duration-150 group-hover:scale-110" />
+                             {isActive && <span className="absolute bottom-2 h-1 w-1 rounded-full bg-current" />}
+                           </span>
+                           <span className={`max-w-[112px] text-xs font-semibold leading-tight ${isActive ? 'text-white' : 'text-white/60 group-hover:text-white/85'}`}>{mod.name}</span>
+                         </button>
+                       );
+                     })()}
+                   </div>
 
                 </div>
 

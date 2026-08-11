@@ -29,6 +29,8 @@ import {
   BABYLON_PLAYFIELD_WIDTH_MIN,
   PLAYFIELD_WIDTH_MAX,
   PLAYFIELD_WIDTH_MIN,
+  SCROLL_SPEED_MAX,
+  SCROLL_SPEED_MIN,
 } from '../components/settings/defaultSettings';
 
 // SECURITY LIMIT CONSTANTS
@@ -39,9 +41,49 @@ export const MAX_SINGLE_ENTRY_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB max size f
 export const MAX_BEATMAP_NOTES = 20000; // 20k notes max to prevent infinite loops / memory exhaustion
 export const MAX_BEATMAP_TIMING_POINTS = 5000; // 5k timing points max
 export const MAX_OSU_TEXT_BYTES = 2 * 1024 * 1024; // 2 MB max size for the .osu text content
+export const MAX_REPLAY_FRAMES = 1_000_000;
+export const MAX_MEDIA_URL_LENGTH = 2048;
 
 type UnknownRecord = Record<string, unknown>;
 type ZipObjectWithData = JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
+
+export interface ZipExtractionBudget {
+  totalBytes: number;
+}
+
+export function createZipExtractionBudget(): ZipExtractionBudget {
+  return { totalBytes: 0 };
+}
+
+/** Decode hostile text only after checking its encoded UTF-8 byte length. */
+export function decodeBoundedUtf8(data: ArrayBuffer | ArrayBufferView, context = 'text'): string {
+  const bytes = data instanceof ArrayBuffer
+    ? new Uint8Array(data)
+    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (bytes.byteLength > MAX_OSU_TEXT_BYTES) {
+    throw new Error(`Security Exception: ${context} exceeds the UTF-8 size limit.`);
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(`Security Exception: ${context} is not valid UTF-8.`);
+  }
+}
+
+export function addExtractedZipBytes(
+  budget: ZipExtractionBudget,
+  byteLength: number,
+  name: string,
+): void {
+  if (!Number.isFinite(byteLength) || byteLength < 0 || byteLength > MAX_SINGLE_ENTRY_SIZE_BYTES) {
+    throw new Error(`Security Exception: File "${name}" exceeds the extracted entry size limit.`);
+  }
+  const nextTotal = budget.totalBytes + byteLength;
+  if (!Number.isSafeInteger(nextTotal) || nextTotal > MAX_TOTAL_UNCOMPRESSED_SIZE_BYTES) {
+    throw new Error('Security Exception: Package extracted size exceeds the total limit.');
+  }
+  budget.totalBytes = nextTotal;
+}
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -189,7 +231,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
   
   const clamp = (val: unknown, min: number, max: number, fallback: number): number => {
     const num = Number(val);
-    if (isNaN(num)) return fallback;
+    if (!Number.isFinite(num)) return fallback;
     return Math.max(min, Math.min(max, num));
   };
 
@@ -205,12 +247,13 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
   for (const k of Object.keys(rawBindings)) {
       const numKey = Number(k);
       const rawBinding = rawBindings[k] ?? rawBindings[String(numKey)];
-      if (!isNaN(numKey) && numKey >= 2 && numKey <= 8 && Array.isArray(rawBinding)) {
+       if (Number.isFinite(numKey) && numKey >= 2 && numKey <= 8 && Array.isArray(rawBinding)) {
         bindings[numKey] = rawBinding
           .slice(0, numKey)
           .map((b: unknown) => {
             if (typeof b !== 'string') return '';
-            const clean = b.trim();
+             // A literal space is the intentional center-lane binding in odd key modes.
+             const clean = b === ' ' ? b : b.trim();
             if (clean.length > 10) return clean.slice(0, 10);
             return clean;
           });
@@ -254,17 +297,17 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     return result;
   };
 
-  const renderEngine = settings.renderEngine === 'pixi' ? 'pixi' : settings.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+  const renderEngine = settings.skinId === 'rhythmmania-3d' || settings.renderEngine === 'babylon' ? 'babylon' : 'canvas';
   const sizeMax = renderEngine === 'babylon'
     ? 1.2
     : settings.playfieldStyle === 'circle'
       ? 1.5
-      : settings.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
+      : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
   const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
   const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
 
   return {
-    scrollSpeed: clamp(settings.scrollSpeed, 1, 40, defaultSettings.scrollSpeed),
+    scrollSpeed: clamp(settings.scrollSpeed, SCROLL_SPEED_MIN, SCROLL_SPEED_MAX, defaultSettings.scrollSpeed),
     audioOffset: clamp(settings.audioOffset, -1000, 1000, defaultSettings.audioOffset),
     visualOffset: clamp(settings.visualOffset, -1000, 1000, defaultSettings.visualOffset),
     hitsoundVolume: clamp(settings.hitsoundVolume, 0, 1, defaultSettings.hitsoundVolume),
@@ -273,7 +316,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     masterVolume: clamp(settings.masterVolume, 0, 1, defaultSettings.masterVolume),
     keyMode: clamp(settings.keyMode, 2, 8, defaultSettings.keyMode),
     bindings: bindings,
-    upsurfaceNoteMode: (settings.renderEngine === 'babylon' || String(settings.renderEngine) === 'babylon')
+    upsurfaceNoteMode: renderEngine === 'babylon'
       ? false
       : Boolean(settings.upsurfaceNoteMode),
     videoOpacity: 1.0,
@@ -284,10 +327,12 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     disableParticles: Boolean(settings.disableParticles),
     disableLaneShake: Boolean(settings.disableLaneShake),
     limitDprToOne: false,
-    skinId: sanitizeString(settings.skinId, defaultSettings.skinId || 'custom'),
+    skinId: renderEngine === 'babylon' ? 'rhythmmania-3d' : sanitizeString(settings.skinId, defaultSettings.skinId || 'custom'),
     customSkinColors: customSkinColors,
     customSkinName: settings.customSkinName ? sanitizeString(settings.customSkinName, 'custom', 30) : undefined,
-    squareRenderStyle: settings.squareRenderStyle === 'rhythmplus' ? 'rhythmplus' : 'rhythmmania',
+    squareRenderStyle: settings.squareRenderStyle === 'rhythmplus-dynamic'
+      ? 'rhythmplus-dynamic'
+      : settings.squareRenderStyle === 'rhythmplus' ? 'rhythmplus' : 'rhythmmania',
     receptorColorsByKeyCount: sanitizeLanePalettes(settings.receptorColorsByKeyCount, defaultSettings.receptorColorsByKeyCount),
     noteOpacity: clamp(settings.noteOpacity, 0, 1, defaultSettings.noteOpacity || 1.0),
     receptorOpacity: clamp(settings.receptorOpacity, 0, 1, defaultSettings.receptorOpacity || 1.0),
@@ -306,11 +351,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     bindRetry: sanitizeString(settings.bindRetry, defaultSettings.bindRetry || 'r', 15),
      renderEngine,
      babylonFloor: settings.babylonFloor !== undefined ? Boolean(settings.babylonFloor) : (defaultSettings.babylonFloor ?? true),
-    babylonQuality:
-       settings.babylonQuality === 'low' ? 'low'
-       : settings.babylonQuality === 'medium' ? 'medium'
-      : (defaultSettings.babylonQuality ?? 'high'),
-    enableMapSV: settings.enableMapSV !== undefined ? Boolean(settings.enableMapSV) : true,
+     enableMapSV: settings.enableMapSV !== undefined ? Boolean(settings.enableMapSV) : true,
     enableSongPreview: settings.enableSongPreview !== undefined ? Boolean(settings.enableSongPreview) : true,
     showFpsCounter: Boolean(settings.showFpsCounter),
   };
@@ -326,7 +367,7 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
 
   const clamp = (val: unknown, min: number, max: number, fallback: number): number => {
     const num = Number(val);
-    if (isNaN(num)) return fallback;
+    if (!Number.isFinite(num)) return fallback;
     return Math.max(min, Math.min(max, num));
   };
 
@@ -367,7 +408,8 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     scoreState.unstableRate = clamp(scoreInput.unstableRate, 0, 10000, 0);
   }
 
-  const keyCount = clamp(record.keyCount, 2, 8, 4);
+  const rawKeyCount = Number(record.keyCount);
+  const keyCount = Number.isInteger(rawKeyCount) && rawKeyCount >= 2 && rawKeyCount <= 8 ? rawKeyCount : 4;
   const columnJudgements: ColumnJudgementCounts[] = [];
   if (Array.isArray(scoreInput.columnJudgements)) {
     for (const item of scoreInput.columnJudgements) {
@@ -396,13 +438,21 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
   // Validate replayFrames
   const replayFrames: ReplayFrame[] = [];
   if (Array.isArray(record.replayFrames)) {
+    if (record.replayFrames.length > MAX_REPLAY_FRAMES) return null;
+    const framesByTime = new Map<number, ReplayFrame>();
     for (const frame of record.replayFrames) {
-      if (isRecord(frame)) {
-        replayFrames.push({
-          time: clamp(frame.time, 0, 10000000, 0),
-          keysPressed: Array.isArray(frame.keysPressed) ? frame.keysPressed.map(Boolean) : []
-        });
-      }
+      if (!isRecord(frame) || !Array.isArray(frame.keysPressed) || frame.keysPressed.length !== keyCount ||
+        !frame.keysPressed.every((key): key is boolean => typeof key === 'boolean')) return null;
+      const time = Number(frame.time);
+      if (!Number.isFinite(time) || time < 0 || time > 10000000) return null;
+      const keysPressed = [...frame.keysPressed];
+      // Sorting and last-write-wins make duplicate timestamps deterministic.
+      framesByTime.set(time, { time, keysPressed });
+    }
+    const sortedTimes = Array.from(framesByTime.keys()).sort((a, b) => a - b);
+    for (const time of sortedTimes) {
+      const frame = framesByTime.get(time);
+      if (frame) replayFrames.push(frame);
     }
   }
 
@@ -437,7 +487,7 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     beatmapId: sanitizeString(record.beatmapId, 100),
     beatmapTitle: sanitizeString(record.beatmapTitle, 100),
     beatmapArtist: sanitizeString(record.beatmapArtist, 100),
-    keyCount: clamp(record.keyCount, 2, 8, 4),
+    keyCount,
     score: clamp(record.score, 0, 1000000000, 0),
     accuracy: clamp(record.accuracy, 0, 100, 0),
     maxCombo: clamp(record.maxCombo, 0, 100000, 0),
@@ -452,6 +502,9 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     replaySource: isReplaySource(record.replaySource) ? record.replaySource : undefined,
     catalogSetId: typeof record.catalogSetId === 'string' || record.catalogSetId === null ? record.catalogSetId : undefined,
     catalogMapId: typeof record.catalogMapId === 'string' || record.catalogMapId === null ? record.catalogMapId : undefined,
+    chartRevisionId: typeof record.chartRevisionId === 'string' || record.chartRevisionId === null ? record.chartRevisionId : undefined,
+    checksum: typeof record.checksum === 'string' ? record.checksum.slice(0, 128) : undefined,
+    checksumAlgorithm: record.checksumAlgorithm === 'md5' || record.checksumAlgorithm === 'sha256' ? record.checksumAlgorithm : undefined,
     beatmapHash: typeof record.beatmapHash === 'string' ? record.beatmapHash : undefined,
     uploadEligibility: isUploadEligibility(record.uploadEligibility) ? record.uploadEligibility : undefined,
     uploadStatus: isUploadStatus(record.uploadStatus) ? record.uploadStatus : undefined,

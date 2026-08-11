@@ -12,18 +12,18 @@
 
 import JSZip from 'jszip';
 import type { Beatmap } from '../types';
-import { RobustZipResolver } from './zipResolver';
+import { extractZipEntry, RobustZipResolver } from './zipResolver';
 import { AssetLifecycleManager, isBrowserPlayableVideoFilename } from './assetLifecycle';
 import { storageManager, type SavedBeatmap } from './storageManager';
 import { TempMemoryCache } from './tempMemoryCache';
-import { validateZipLimits, validateZipEntrySize } from './securityLimits';
+import { createZipExtractionBudget, validateZipLimits } from './securityLimits';
 
 async function registerZipFile(
   file: JSZip.JSZipObject,
-  filename: string
+  filename: string,
+  budget: ReturnType<typeof createZipExtractionBudget>,
 ): Promise<string> {
-  validateZipEntrySize(file, filename);
-  const ab = await file.async('arraybuffer');
+  const ab = await extractZipEntry(file, filename, budget);
   return AssetLifecycleManager.registerArrayBuffer(ab, filename);
 }
 
@@ -36,13 +36,28 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
   // Clear stale mutated blob URLs if they are not in the active media cache
   const cached = storageManager.lruMediaCache.get(map.id);
   if (!cached) {
-    if (map.audioUrl?.startsWith('blob:')) map.audioUrl = '';
-    if (map.videoUrl?.startsWith('blob:')) map.videoUrl = '';
-    if (map.bgUrl?.startsWith('blob:')) map.bgUrl = '';
+    for (const url of [map.audioUrl, map.videoUrl, map.bgUrl, ...Object.values(map.hitSoundUrls || {})]) {
+      if (url?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(url);
+    }
+    map.audioUrl = '';
+    map.videoUrl = '';
+    map.bgUrl = '';
+    map.hitSoundUrls = undefined;
   } else {
+    for (const [current, retained] of [
+      [map.audioUrl, cached.audioUrl],
+      [map.videoUrl, cached.videoUrl],
+      [map.bgUrl, cached.bgUrl],
+    ] as Array<[string | undefined, string]>) {
+      if (current && current !== retained) AssetLifecycleManager.releaseSpecific(current);
+    }
+    for (const [name, current] of Object.entries(map.hitSoundUrls || {})) {
+      if (current !== cached.hitSoundUrls[name]) AssetLifecycleManager.releaseSpecific(current);
+    }
     map.audioUrl = cached.audioUrl || map.audioUrl;
     map.videoUrl = cached.videoUrl || map.videoUrl;
     map.bgUrl = cached.bgUrl || map.bgUrl;
+    map.hitSoundUrls = cached.hitSoundUrls;
   }
 
   if (!mapWithPkg.packageId) {
@@ -72,6 +87,7 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
 
   const zip = await JSZip.loadAsync(zipBuffer);
   validateZipLimits(zip);
+  const extractionBudget = createZipExtractionBudget();
 
   const resolver = new RobustZipResolver(zip);
   const audioFilename = mapWithPkg.audioFilename || '';
@@ -85,27 +101,31 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
   let parsedAudioUrl = (!force && cached?.audioUrl) || '';
   let parsedVideoUrl = (!force && cached?.videoUrl) || '';
   let parsedBgUrl = (!force && cached?.bgUrl) || '';
-  const parsedHitSoundUrls: Record<string, string> = {};
+  const parsedHitSoundUrls: Record<string, string> = (!force && cached?.hitSoundUrls) ? { ...cached.hitSoundUrls } : {};
+  const createdUrls: string[] = [];
 
-  if (audioFilename && !parsedAudioUrl) {
-    const file = resolver.findFile(audioFilename);
-    if (file) {
-      parsedAudioUrl = await registerZipFile(file, audioFilename);
+  const register = async (file: JSZip.JSZipObject, filename: string): Promise<string> => {
+    const url = await registerZipFile(file, filename, extractionBudget);
+    createdUrls.push(url);
+    return url;
+  };
+
+  try {
+    if (audioFilename && !parsedAudioUrl) {
+      const file = resolver.findFile(audioFilename);
+      if (file) parsedAudioUrl = await register(file, audioFilename);
     }
-  }
-  if (videoFilename && isBrowserPlayableVideoFilename(videoFilename) && !parsedVideoUrl) {
-    const file = resolver.findFile(videoFilename);
-    if (file) {
-      parsedVideoUrl = await registerZipFile(file, videoFilename);
+    if (videoFilename && isBrowserPlayableVideoFilename(videoFilename) && !parsedVideoUrl) {
+      const file = resolver.findFile(videoFilename);
+      if (file) parsedVideoUrl = await register(file, videoFilename);
     }
-  }
 
   if (!parsedAudioUrl) {
     const fallbackObj =
       (await resolver.findLargestFileByExtensions(['.mp3', '.ogg'])) ||
       resolver.findFallbackByExtensions(['.mp3', '.ogg'])?.file;
     if (fallbackObj) {
-      parsedAudioUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+      parsedAudioUrl = await register(fallbackObj, fallbackObj.name);
     }
   }
   if (!parsedVideoUrl) {
@@ -113,7 +133,7 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
       (await resolver.findLargestFileByExtensions(['.mp4', '.m4v', '.webm', '.ogv'])) ||
       resolver.findFallbackByExtensions(['.mp4', '.m4v', '.webm', '.ogv'])?.file;
     if (fallbackObj) {
-      parsedVideoUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+      parsedVideoUrl = await register(fallbackObj, fallbackObj.name);
     }
   }
 
@@ -122,7 +142,7 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
     if (file) {
       // Skip if the "background" is actually a video file — handled as video above
       if (!isBrowserPlayableVideoFilename(bgFilename)) {
-        parsedBgUrl = await registerZipFile(file, bgFilename);
+        parsedBgUrl = await register(file, bgFilename);
       }
     }
   }
@@ -130,34 +150,37 @@ export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> 
     const file = resolver.findFile(sampleName) ||
       resolver.findFile(`${sampleName}.wav`) ||
       resolver.findFile(`${sampleName}.ogg`);
-    if (file) {
-      parsedHitSoundUrls[sampleName] = await registerZipFile(file, file.name);
-    }
+     if (file && !parsedHitSoundUrls[sampleName]) parsedHitSoundUrls[sampleName] = await register(file, file.name);
   }
   if (!parsedBgUrl) {
     const fallbackObj =
       (await resolver.findLargestFileByExtensions(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])) ||
       resolver.findFallbackByExtensions(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])?.file;
     if (fallbackObj) {
-      parsedBgUrl = await registerZipFile(fallbackObj, fallbackObj.name);
+      parsedBgUrl = await register(fallbackObj, fallbackObj.name);
     }
   }
 
-  storageManager.lruMediaCache.put(map.id, {
-    audioUrl: parsedAudioUrl,
-    videoUrl: parsedVideoUrl,
-    bgUrl: parsedBgUrl,
-  });
+    storageManager.lruMediaCache.put(map.id, {
+      audioUrl: parsedAudioUrl,
+      videoUrl: parsedVideoUrl,
+      bgUrl: parsedBgUrl,
+      hitSoundUrls: parsedHitSoundUrls,
+    });
 
   if (parsedAudioUrl) map.audioUrl = parsedAudioUrl;
   if (parsedVideoUrl) map.videoUrl = parsedVideoUrl;
   if (parsedBgUrl) map.bgUrl = parsedBgUrl;
-  if (map.hitSoundUrls) {
-    for (const url of Object.values(map.hitSoundUrls)) {
-      if (url?.startsWith('blob:')) AssetLifecycleManager.releaseSpecific(url);
+    if (map.hitSoundUrls) {
+      for (const url of Object.values(map.hitSoundUrls)) {
+        if (url?.startsWith('blob:') && !Object.values(parsedHitSoundUrls).includes(url)) AssetLifecycleManager.releaseSpecific(url);
+      }
     }
+    map.hitSoundUrls = parsedHitSoundUrls;
+  } catch (error) {
+    for (const url of createdUrls) AssetLifecycleManager.releaseSpecific(url);
+    throw error;
+  } finally {
+    TempMemoryCache.remove(mapWithPkg.packageId);
   }
-  map.hitSoundUrls = parsedHitSoundUrls;
-
-  TempMemoryCache.remove(mapWithPkg.packageId);
 }

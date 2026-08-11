@@ -11,7 +11,7 @@
  */
 
 import pg from 'pg';
-import { getEnvConfig } from './env.js';
+import { getEnvConfig, isValidDbTlsConfig } from './env.js';
 
 const { Pool } = pg;
 
@@ -24,7 +24,11 @@ export function getDbPool(): pg.Pool {
 
   const env = getEnvConfig();
 
-  const sslOption = env.pgSslMode === 'disable' ? false : { rejectUnauthorized: false };
+  if (!isValidDbTlsConfig(env)) {
+    throw new Error('Invalid PostgreSQL TLS configuration');
+  }
+
+  const sslOption = env.pgSslMode === 'disable' ? false : { rejectUnauthorized: true };
 
   if (env.databaseUrl) {
     poolInstance = new Pool({
@@ -49,7 +53,7 @@ export function getDbPool(): pg.Pool {
   }
 
   poolInstance.on('error', (err) => {
-    console.error('Unexpected error on idle PostgreSQL client:', err);
+    console.error('Unexpected error on idle PostgreSQL client:', err instanceof Error ? err.name : 'unknown');
   });
 
   return poolInstance;

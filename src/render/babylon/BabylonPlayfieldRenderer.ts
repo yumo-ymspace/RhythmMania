@@ -31,7 +31,6 @@ import { ParticleLayer } from './layers/ParticleLayer';
 
 export interface RunwayContext {
   floor: boolean;                 // babylonFloor
-  quality: 'low' | 'medium' | 'high';
   nearWidth: number;              // world width of the full playfield at the near plane
   laneWidthNear: number;           // nearWidth / keyCount
   keyCount: number;
@@ -104,7 +103,6 @@ export class BabylonPlayfieldRenderer implements IPlayfieldRenderer {
 
     const ctx: RunwayContext = {
       floor: frame.settingsSlice.babylonFloor ?? true,
-      quality: frame.settingsSlice.babylonQuality ?? 'high',
       nearWidth,
       laneWidthNear: nearWidth / keyCount,
       keyCount,

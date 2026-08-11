@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (error) {
-    console.error('Failed to initialize Google OAuth URL:', error);
+    console.error('Google OAuth URL initialization failed:', error instanceof Error ? error.name : 'unknown');
     return sendError(res, 500, 'Failed to initialize Google OAuth on the server.');
   }
 }

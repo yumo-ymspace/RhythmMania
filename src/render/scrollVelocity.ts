@@ -16,6 +16,7 @@ export interface MultiplierSegment {
   timeMs: number;
   multiplier: number;
   cumulativeScroll: number; // S(timeMs) in ms-multiplier units
+  isFrozen: boolean;
 }
 
 export interface ScrollModel {
@@ -24,6 +25,8 @@ export interface ScrollModel {
   sliderMultiplier: number;
   isEnabled: boolean;
 }
+
+const FROZEN_SV_BEAT_LENGTH = 0.001;
 
 /**
  * Calculates dominant uninherited beat length as fallback when not pre-calculated
@@ -106,7 +109,9 @@ export function createScrollModel(beatmapLike: { timingPoints?: TimingControlPoi
         }
         currentSv = 1.0;
       } else {
-        currentSv = tp.svMultiplier;
+        // Near-zero inherited values are an explicit freeze marker. Do not
+        // let a finite-value clamp turn them into normal scroll.
+        currentSv = Math.abs(tp.beatLength) < FROZEN_SV_BEAT_LENGTH ? 0 : tp.svMultiplier;
       }
     }
     const safeBeatLength = (currentBeatLength !== 0 && isFinite(currentBeatLength))
@@ -127,7 +132,8 @@ export function createScrollModel(beatmapLike: { timingPoints?: TimingControlPoi
     segments.push({
       timeMs: t0,
       multiplier: mult0,
-      cumulativeScroll: 0
+      cumulativeScroll: 0,
+      isFrozen: mult0 === 0
     });
 
     for (let i = 1; i < uniqueTimes.length; i++) {
@@ -140,7 +146,8 @@ export function createScrollModel(beatmapLike: { timingPoints?: TimingControlPoi
       segments.push({
         timeMs: tCurrent,
         multiplier: multCurrent,
-        cumulativeScroll: nextAccum
+        cumulativeScroll: nextAccum,
+        isFrozen: multCurrent === 0
       });
     }
   }

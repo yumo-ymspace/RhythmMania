@@ -38,16 +38,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       max_combo: number;
       grade: string;
       mods: unknown;
-      created_at: Date;
+      created_at: Date | string;
       beatmap_set_id: string;
-       beatmap_difficulty_id: string | null;
        chart_revision_id: string;
       beatmap_hash: string;
       username: string | null;
       avatar_url: string | null;
       beatmap_title: string | null;
       beatmap_artist: string | null;
-      beatmap_difficulty: string | null;
+       beatmap_difficulty: string | null;
     }>(
       `SELECT 
         r.id,
@@ -59,19 +58,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         r.mods,
         r.created_at,
         r.beatmap_set_id,
-        r.beatmap_difficulty_id,
          r.beatmap_hash, r.chart_revision_id,
         u.username,
         u.avatar_url,
         bs.title as beatmap_title,
         bs.artist as beatmap_artist,
-        bd.name as beatmap_difficulty
-      FROM replays r
-      LEFT JOIN users u ON r.user_id = u.id
-      LEFT JOIN beatmap_sets bs ON r.beatmap_set_id = bs.id
-       LEFT JOIN beatmap_difficulties bd ON r.beatmap_difficulty_id = bd.id
-       WHERE r.chart_revision_id = $1
-        AND r.is_failed = false
+         cr.difficulty_name as beatmap_difficulty
+       FROM replays r
+       LEFT JOIN users u ON r.user_id = u.id
+       JOIN beatmap_sets bs ON r.beatmap_set_id = bs.id
+       JOIN beatmap_chart_revisions cr ON r.chart_revision_id = cr.id
+        WHERE r.chart_revision_id = $1
+         AND r.upload_status = 'uploaded'
+         AND r.is_failed = false
+         AND bs.catalog_state = 'active'
+         AND cr.is_active = true
+         AND cr.canonical_chart IS NOT NULL
       ORDER BY r.score DESC
       LIMIT 50`,
        [chartRevisionId]
@@ -84,9 +86,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       maxCombo: row.max_combo,
       grade: row.grade,
       mods: Array.isArray(row.mods) ? row.mods : [],
-      createdAt: row.created_at.toISOString(),
+       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString(),
       catalogSetId: row.beatmap_set_id,
-      catalogMapId: row.beatmap_difficulty_id,
+       catalogMapId: row.chart_revision_id,
       chartRevisionId: row.chart_revision_id,
       beatmapHash: row.beatmap_hash,
       userId: row.user_id,
@@ -106,7 +108,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (e: unknown) {
-    console.error('Error fetching replay list:', e);
-    return sendError(res, 500, e instanceof Error ? e.message : 'Failed to fetch leaderboard replays');
+    const databaseCode = typeof e === 'object' && e !== null && 'code' in e && typeof e.code === 'string' ? e.code : undefined;
+    console.error('Replay list request failed:', e instanceof Error ? e.name : 'unknown', databaseCode || 'no-code');
+    return sendError(res, 500, databaseCode === '42703' || databaseCode === '42P01'
+      ? 'Replay leaderboard database schema is unavailable'
+      : 'Replay leaderboard unavailable');
   }
 }

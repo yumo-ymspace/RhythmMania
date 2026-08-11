@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getEnvConfig } from '../../_lib/env.js';
-import { handleCors, sendError, sendJson } from '../../_lib/response.js';
+import { handleCors, requireSameOrigin, sendError, sendJson } from '../../_lib/response.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
   if (req.method !== 'POST') return sendError(res, 405, 'Method Not Allowed');
+  if (!requireSameOrigin(req, res)) return;
 
   const refreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
   if (!refreshToken || refreshToken.length > 4096) {
@@ -51,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (error) {
-    console.error('osu! token refresh failed:', error);
+    console.error('osu! token refresh failed:', error instanceof Error ? error.name : 'unknown');
     return sendError(res, 500, 'osu! token refresh failed');
   }
 }

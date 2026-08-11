@@ -15,14 +15,24 @@ export interface AudioEngineLike {
   reset: () => void;
 }
 
+export interface TeardownOptions {
+  timers?: Array<ReturnType<typeof setTimeout> | number>;
+  video?: HTMLVideoElement | null;
+  videoSync?: { destroy: () => void } | null;
+}
+
 export function executeTeardown(
   audioEngine: AudioEngineLike,
   rafId: number | null,
   keydown?: ((e: KeyboardEvent) => void) | null,
   keyup?: ((e: KeyboardEvent) => void) | null,
-  offset?: ((e: KeyboardEvent) => void) | null
+  offset?: ((e: KeyboardEvent) => void) | null,
+  options: TeardownOptions = {}
 ) {
-  if (rafId) cancelAnimationFrame(rafId);
+  if (rafId !== null) cancelAnimationFrame(rafId);
+  for (const timer of options.timers || []) clearTimeout(timer);
+  try { options.videoSync?.destroy(); } catch (_e) {}
+  try { options.video?.pause(); } catch (_e) {}
   try {
     audioEngine.stop();
     audioEngine.reset();

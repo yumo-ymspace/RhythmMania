@@ -14,19 +14,10 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
-import { readFileSync } from 'fs';
-
-const metadata = JSON.parse(readFileSync('./metadata.json', 'utf-8'));
-const appVersion = metadata.version || '1.0.0';
-const buildTime = new Date().toISOString();
 
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      __APP_VERSION__: JSON.stringify(appVersion),
-      __BUILD_TIME__: JSON.stringify(buildTime),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -37,7 +28,6 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules/@babylonjs/core')) return 'babylon';
-            if (id.includes('node_modules/pixi.js') || id.includes('node_modules/@pixi')) return 'pixi';
           },
         },
       },

@@ -12,6 +12,7 @@
 
 import crypto from 'crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { getEnvConfig } from './env.js';
 
 export interface UserSession {
   sessionId: string;
@@ -40,6 +41,8 @@ export function isValidUserId(value: unknown): value is string {
 }
 
 export const SESSION_COOKIE_NAME = 'rm_session_token';
+export const CSRF_COOKIE_NAME = 'rm_csrf_token';
+export const CSRF_HEADER_NAME = 'x-csrf-token';
 export const OAUTH_STATE_COOKIE_NAME = 'rm_oauth_state';
 export const OSU_OAUTH_STATE_COOKIE_NAME = 'rm_osu_oauth_state';
 
@@ -55,7 +58,11 @@ export function parseCookies(req: VercelRequest): Record<string, string> {
     if (!name) return;
     const value = rest.join('=').trim();
     if (!value) return;
-    list[name] = decodeURIComponent(value);
+    try {
+      list[name] = decodeURIComponent(value);
+    } catch {
+      // Ignore malformed cookies instead of allowing them to abort the request.
+    }
   });
 
   return list;
@@ -90,6 +97,40 @@ export function setSessionCookie(
 export function clearSessionCookie(res: VercelResponse, secure: boolean): void {
   const cookieStr = `${SESSION_COOKIE_NAME}=; ${getCookieAttributes(0, secure)}`;
   appendSetCookie(res, cookieStr);
+}
+
+function createCsrfToken(): string {
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const signature = crypto.createHmac('sha256', getEnvConfig().sessionSecret).update(nonce).digest('hex');
+  return `${nonce}.${signature}`;
+}
+
+function isValidSignedCsrfToken(token: string): boolean {
+  const [nonce, signature] = token.split('.');
+  if (!nonce || !signature || !/^[a-f0-9]{64}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(signature)) {
+    return false;
+  }
+  const expected = crypto.createHmac('sha256', getEnvConfig().sessionSecret).update(nonce).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+export function ensureCsrfCookie(req: VercelRequest, res: VercelResponse, secure: boolean): void {
+  const existing = parseCookies(req)[CSRF_COOKIE_NAME];
+  if (existing && isValidSignedCsrfToken(existing)) return;
+  appendSetCookie(
+    res,
+    `${CSRF_COOKIE_NAME}=${encodeURIComponent(createCsrfToken())}; Path=/; Max-Age=${60 * 60 * 24}; SameSite=Lax${secure ? '; Secure' : ''}`,
+  );
+}
+
+export function isValidCsrfToken(req: VercelRequest): boolean {
+  const header = req.headers[CSRF_HEADER_NAME];
+  const token = Array.isArray(header) ? header[0] : header;
+  const cookieToken = parseCookies(req)[CSRF_COOKIE_NAME];
+  if (!token || !cookieToken || token.length !== cookieToken.length || !isValidSignedCsrfToken(cookieToken)) {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(cookieToken));
 }
 
 export function generateSessionId(): string {
@@ -173,7 +214,7 @@ export async function getSessionFromReq(req: VercelRequest): Promise<UserSession
       expiresAt: new Date(row.expires_at),
     };
   } catch (e) {
-    console.error('Failed to validate session from DB:', e);
+    console.error('Session validation failed:', e instanceof Error ? e.name : 'unknown');
     return null;
   }
 }

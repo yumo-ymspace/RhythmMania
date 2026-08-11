@@ -11,7 +11,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, sendJson, sendError } from '../_lib/response.js';
+import { handleCors, requireSameOrigin, sendJson, sendError } from '../_lib/response.js';
 import { getSessionFromReq } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
 import { RESERVED_HANDLES, isValidHandle, sanitizeSocialLinks, sanitizeActivityStatus, sanitizeActivityMessage } from '../_lib/profile.js';
@@ -30,13 +30,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'PATCH') {
+      if (!requireSameOrigin(req, res)) return;
       return await handlePatchMe(req, res, session);
     }
 
     return sendError(res, 405, 'Method Not Allowed');
   } catch (e: unknown) {
-    console.error('Error in /api/profile/me:', e);
-    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
+    console.error('Profile update request failed:', e instanceof Error ? e.name : 'unknown');
+    return sendError(res, 500, 'Profile service unavailable');
   }
 }
 
@@ -76,7 +77,7 @@ async function handleGetMe(
             displayName: row.display_name,
             handle: row.handle,
             bio: row.bio,
-            socialLinks: row.social_links || {},
+             socialLinks: sanitizeSocialLinks(row.social_links),
             activityStatus: sanitizeActivityStatus(row.activity_status),
             activityMessage: sanitizeActivityMessage(row.activity_message),
             avatarSource: avatarUrl

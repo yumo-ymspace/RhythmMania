@@ -39,7 +39,7 @@ function getRoute(req: VercelRequest): string {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const route = getRoute(req);
-    console.log('[profile-router] route:', route, 'url:', req.url);
+    console.log('[profile-router] route:', route);
     switch (route) {
       case 'me':
         return handleMe(req, res);
@@ -58,7 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return sendJson(res, 404, { success: false, error: 'Not found' });
     }
   } catch (e: unknown) {
-    console.error('Error in profile-router:', e);
-    return sendJson(res, 500, { success: false, error: e instanceof Error ? e.message : 'Internal server error' });
+    console.error('[profile-router] request failed:', e instanceof Error ? e.name : 'unknown');
+    return sendJson(res, 500, { success: false, error: 'Profile service unavailable' });
   }
 }

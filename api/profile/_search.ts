@@ -3,12 +3,33 @@ import { handleCors, sendError, sendJson } from '../_lib/response.js';
 import { query } from '../_lib/db.js';
 import { sanitizeActivityMessage, sanitizeActivityStatus } from '../_lib/profile.js';
 
+const SEARCH_WINDOW_MS = 60_000;
+const SEARCH_LIMIT = 30;
+const MAX_QUERY_LENGTH = 64;
+const searchRateLimits = new Map<string, { startedAt: number; count: number }>();
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
   if (req.method !== 'GET') return sendError(res, 405, 'Method Not Allowed');
 
   const rawQuery = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (rawQuery.length > MAX_QUERY_LENGTH) return sendError(res, 400, 'Search query is too long');
   if (rawQuery.length < 2) return sendJson(res, 200, { success: true, data: [] });
+
+  const now = Date.now();
+  const key = getClientKey(req);
+  const current = searchRateLimits.get(key);
+  if (!current || now - current.startedAt >= SEARCH_WINDOW_MS) {
+    searchRateLimits.set(key, { startedAt: now, count: 1 });
+  } else {
+    current.count += 1;
+    if (current.count > SEARCH_LIMIT) return sendError(res, 429, 'Profile search rate limit exceeded');
+  }
+  if (searchRateLimits.size > 10_000) {
+    for (const [entryKey, entry] of searchRateLimits) {
+      if (now - entry.startedAt >= SEARCH_WINDOW_MS) searchRateLimits.delete(entryKey);
+    }
+  }
 
   try {
     const pattern = `%${rawQuery.replace(/[%_\\]/g, '\\$&')}%`;
@@ -53,7 +74,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })),
     });
   } catch (error) {
-    console.error('Error searching profiles:', error);
+    console.error('Profile search failed:', error instanceof Error ? error.name : 'unknown');
     return sendError(res, 500, 'Failed to search profiles');
   }
+}
+
+function getClientKey(req: VercelRequest): string {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const value = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  return (value || req.socket?.remoteAddress || 'unknown').split(',')[0].trim().slice(0, 128);
 }

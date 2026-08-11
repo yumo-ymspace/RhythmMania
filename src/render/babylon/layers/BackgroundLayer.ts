@@ -21,6 +21,8 @@ import { FAR_Z, FLOOR_FAR_Z, FLOOR_NEAR_Z, RECEPTOR_Z, RUNWAY_CONVERGENCE } from
 export class BackgroundLayer {
   private floor: Mesh | null = null;
   private floorMat: StandardMaterial | null = null;
+  private floorPositions: Float32Array | null = null;
+  private floorLayoutKey = '';
   private scene: Scene;
 
   constructor(scene: Scene) {
@@ -51,23 +53,32 @@ export class BackgroundLayer {
          const backDepth = (FLOOR_FAR_Z - RECEPTOR_Z) / (FAR_Z - RECEPTOR_Z);
          const farHalf = nearHalf * (1 - RUNWAY_CONVERGENCE);
          const backHalf = nearHalf * Math.max(0, 1 - backDepth * RUNWAY_CONVERGENCE);
-        const vertices = new VertexData();
-        vertices.positions = [
-          -nearHalf, 0, FLOOR_NEAR_Z,
-          nearHalf, 0, FLOOR_NEAR_Z,
-          nearHalf, 0, RECEPTOR_Z,
-           farHalf, 0, FAR_Z,
-           backHalf, 0, FLOOR_FAR_Z,
-           -backHalf, 0, FLOOR_FAR_Z,
-           -farHalf, 0, FAR_Z,
-          -nearHalf, 0, RECEPTOR_Z,
-        ];
-        vertices.indices = [
-          0, 1, 2,  0, 2, 7,
-          2, 3, 6,  2, 6, 7,
-          3, 4, 5,  3, 5, 6,
-        ];
-        vertices.applyToMesh(this.floor, true);
+         const layoutKey = `${ctx.nearWidth.toFixed(3)}|${FLOOR_NEAR_Z}|${FLOOR_FAR_Z}`;
+         if (layoutKey !== this.floorLayoutKey) {
+           this.floorLayoutKey = layoutKey;
+           if (!this.floorPositions) {
+             this.floorPositions = new Float32Array(24);
+             const vertices = new VertexData();
+             vertices.positions = this.floorPositions;
+             vertices.indices = [
+               0, 1, 2, 0, 2, 7,
+               2, 3, 6, 2, 6, 7,
+               3, 4, 5, 3, 5, 6,
+             ];
+             vertices.applyToMesh(this.floor, true);
+           }
+           this.floorPositions.set([
+             -nearHalf, 0, FLOOR_NEAR_Z,
+             nearHalf, 0, FLOOR_NEAR_Z,
+             nearHalf, 0, RECEPTOR_Z,
+             farHalf, 0, FAR_Z,
+             backHalf, 0, FLOOR_FAR_Z,
+             -backHalf, 0, FLOOR_FAR_Z,
+             -farHalf, 0, FAR_Z,
+             -nearHalf, 0, RECEPTOR_Z,
+           ]);
+           this.floor.updateVerticesData('position', this.floorPositions, false, false);
+         }
         this.floor.scaling.set(1, 1, 1);
         this.floor.position.z = 0;
       }
@@ -85,5 +96,7 @@ export class BackgroundLayer {
       this.floorMat.dispose();
       this.floorMat = null;
     }
+    this.floorPositions = null;
+    this.floorLayoutKey = '';
   }
 }

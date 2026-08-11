@@ -28,7 +28,7 @@ export default function OffsetWizardModal({ initial, onApply, onClose }: OffsetW
   const metronomeBpm = 120;
   
   const audioContextRef = useRef<AudioContext | null>(null);
-  const intervalRef = useRef<any>(null);
+  const intervalRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
   const sessionStartRef = useRef<number>(0);
   const lastBeepedBeatRef = useRef<number>(-1);
 
@@ -104,7 +104,7 @@ export default function OffsetWizardModal({ initial, onApply, onClose }: OffsetW
 
   const triggerWebBeep = (freq: number, duration: number) => {
     try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtxClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtxClass) return;
 
       if (!audioContextRef.current) {

@@ -18,8 +18,9 @@ const BEATMAP_CACHE_NAME = 'rhythm-mania-beatmaps-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/beatmaps/manifest.json',
-  '/metadata.json',
+  '/manifest.webmanifest',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
   '/backgrounds/Arushii.webp',
   '/backgrounds/Ferineon.webp',
   '/backgrounds/Kourihase.webp',
@@ -40,9 +41,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[Service Worker] Pre-caching core app shell assets');
-      return cache.addAll(STATIC_ASSETS).catch(err => {
-        console.warn('[Service Worker] Pre-cache warning (some files might be generated during build):', err);
-      });
+      // Fail installation when the shell is incomplete instead of activating
+      // an offline worker that cannot actually serve the application.
+      return cache.addAll(STATIC_ASSETS);
     })
   );
 });

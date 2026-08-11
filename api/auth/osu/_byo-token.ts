@@ -1,9 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, sendError, sendJson } from '../../_lib/response.js';
+import { handleCors, requireSameOrigin, sendError, sendJson } from '../../_lib/response.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
   if (req.method !== 'POST') return sendError(res, 405, 'Method Not Allowed');
+  if (!requireSameOrigin(req, res)) return;
 
   const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId.trim() : '';
   const clientSecret = typeof req.body?.clientSecret === 'string' ? req.body.clientSecret.trim() : '';

@@ -25,7 +25,5 @@ __pycache__/
 venv/
 env/
 .conda/
-!.env.example
-
 # VS Code
 .vscode/

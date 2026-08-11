@@ -12,6 +12,13 @@
 
 import { assertSafeAssetUrl } from '../utils/securityLimits';
 
+export type AudioTransportState =
+  | 'stopped'
+  | 'scheduled-lead-in'
+  | 'playing'
+  | 'paused-lead-in'
+  | 'paused-playback';
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private musicSource: AudioBufferSourceNode | null = null;
@@ -27,29 +34,63 @@ export class AudioEngine {
   // Synchronization variables
   private startTime: number = 0; // audioContext.currentTime when absolute playback started
   private pauseTime: number = 0; // elapsed time in seconds when paused
-  private isPlaying: boolean = false;
+  private transportState: AudioTransportState = 'stopped';
   private audioOffsetMs: number = 0; // Calibration offset
   private lastAudioTime: number = 0;
   private lastSystemTime: number = 0;
   private remainingStartDelayMs: number = 0;
-  public playbackRate: number = 1.0; // Playback rate scaling coefficient (DT/HT support)
+  private currentPlaybackRate = 1.0;
   /** When true, judgement clock subtracts measured output path latency (off by default — user audioOffset already calibrates) */
   public compensateOutputLatency: boolean = false;
   private cachedOutputLatencyMs: number = 0;
   private lastLatencySampleMs: number = 0;
 
   // Procedural backup synthesizer tracker
-  private synthInterval: any = null;
+  private synthInterval: ReturnType<typeof setInterval> | null = null;
+  private scheduledSources = new Set<AudioScheduledSourceNode>();
+  private loadGeneration = 0;
   private proceduralBpm: number = 120;
 
   constructor() {
     // Lazy initialize to bypass auto-play restrictions on script load
   }
 
+  public get playbackRate(): number {
+    return this.currentPlaybackRate;
+  }
+
+  public set playbackRate(rate: number) {
+    this.setPlaybackRate(rate);
+  }
+
+  private get isPlaying(): boolean {
+    return this.transportState === 'scheduled-lead-in' || this.transportState === 'playing';
+  }
+
+  public getTransportState(): AudioTransportState {
+    return this.transportState;
+  }
+
+  public beginLoadGeneration(): number {
+    this.loadGeneration++;
+    return this.loadGeneration;
+  }
+
+  public isLoadGenerationCurrent(generation: number): boolean {
+    return generation === this.loadGeneration;
+  }
+
+  private trackSource<T extends AudioScheduledSourceNode>(source: T): T {
+    this.scheduledSources.add(source);
+    source.addEventListener('ended', () => this.scheduledSources.delete(source), { once: true });
+    return source;
+  }
+
   public init() {
     if (this.ctx) return;
     try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtxClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtxClass) return;
       // Prefer interactive latency for tight hit feedback
       try {
         this.ctx = new AudioCtxClass({ latencyHint: 'interactive' });
@@ -150,7 +191,7 @@ export class AudioEngine {
     }
 
     if (this.hitsoundBuffer) {
-      const source = this.ctx.createBufferSource();
+      const source = this.trackSource(this.ctx.createBufferSource());
       source.buffer = this.hitsoundBuffer;
       source.connect(this.sfxGain);
       // Tiny schedule ahead reduces under-run clicks on some devices
@@ -158,7 +199,7 @@ export class AudioEngine {
       source.start(when);
     } else {
       // Fallback synthesizer hitsound if buffer failed to create
-      const osc = this.ctx.createOscillator();
+      const osc = this.trackSource(this.ctx.createOscillator());
       const gain = this.ctx.createGain();
       osc.type = 'triangle';
       const t0 = this.ctx.currentTime + 0.003;
@@ -176,21 +217,24 @@ export class AudioEngine {
 
   }
 
-  public async loadBeatmapHitsounds(urls: Record<string, string>): Promise<void> {
+  public async loadBeatmapHitsounds(urls: Record<string, string>, generation = this.loadGeneration): Promise<void> {
     this.init();
     if (!this.ctx) return;
-    this.beatmapHitsoundBuffers.clear();
     const entries = Object.entries(urls);
+    const decoded = new Map<string, AudioBuffer>();
     await Promise.all(entries.map(async ([key, url]) => {
       try {
         const response = await fetch(url, { referrerPolicy: 'no-referrer' });
         if (!response.ok) return;
         const buffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
-        this.beatmapHitsoundBuffers.set(key, buffer);
+        decoded.set(key, buffer);
       } catch (error) {
         console.warn('Could not decode beatmap hitsound:', key, error instanceof Error ? error.message : String(error));
       }
     }));
+    if (this.isLoadGenerationCurrent(generation)) {
+      this.beatmapHitsoundBuffers = decoded;
+    }
   }
 
   public playBeatmapHitsound(hitSound = 0, customFilename?: string): void {
@@ -208,7 +252,7 @@ export class AudioEngine {
     this.init();
     if (!this.ctx || !this.sfxGain) return;
     if (this.ctx.state === 'suspended') void this.ctx.resume();
-    const source = this.ctx.createBufferSource();
+    const source = this.trackSource(this.ctx.createBufferSource());
     source.buffer = buffer;
     source.connect(this.sfxGain);
     source.start(this.ctx.currentTime + 0.003);
@@ -217,7 +261,7 @@ export class AudioEngine {
   /**
    * Pre-load real track audio buffer from a URL, falls back to synthesized if failed
    */
-  public async loadTrack(url: string, onProgress?: (p: number) => void): Promise<boolean> {
+  public async loadTrack(url: string, onProgress?: (p: number) => void, generation = this.loadGeneration): Promise<boolean> {
     this.init();
     if (!this.ctx) return false;
 
@@ -229,22 +273,26 @@ export class AudioEngine {
 
       assertSafeAssetUrl(url, 'AudioEngine loadTrack');
 
-      onProgress?.(10);
+       if (this.isLoadGenerationCurrent(generation)) onProgress?.(10);
       const isBlob = url.startsWith('blob:');
       const res = await fetch(url, isBlob ? undefined : { referrerPolicy: 'no-referrer' });
       if (!res.ok) throw new Error('CORS or Network error loading file');
-      onProgress?.(40);
+       if (this.isLoadGenerationCurrent(generation)) onProgress?.(40);
       
       const arrayBuf = await res.arrayBuffer();
-      onProgress?.(70);
+       if (this.isLoadGenerationCurrent(generation)) onProgress?.(70);
       
-      this.musicBuffer = await this.ctx.decodeAudioData(arrayBuf);
-      onProgress?.(100);
+       const decodedBuffer = await this.ctx.decodeAudioData(arrayBuf);
+       if (!this.isLoadGenerationCurrent(generation)) return false;
+       this.musicBuffer = decodedBuffer;
+       onProgress?.(100);
       return true;
     } catch (err) {
       console.warn('Could not load original audio track, creating beautiful backup synth tracker:', err instanceof Error ? err.message : String(err));
-      this.musicBuffer = null;
-      onProgress?.(100);
+       if (this.isLoadGenerationCurrent(generation)) {
+         this.musicBuffer = null;
+         onProgress?.(100);
+       }
       return false; // Tells gameplay to fall back on the beautiful internal sequencer
     }
   }
@@ -264,7 +312,8 @@ export class AudioEngine {
     if (!this.ctx) return false;
     try {
       const arrayBuf = await file.arrayBuffer();
-      this.musicBuffer = await this.ctx.decodeAudioData(arrayBuf);
+      const decodedBuffer = await this.ctx.decodeAudioData(arrayBuf);
+      this.musicBuffer = decodedBuffer;
       return true;
     } catch (e) {
       console.error('Failed to parse dropped audio file:', e instanceof Error ? e.message : String(e));
@@ -286,11 +335,9 @@ export class AudioEngine {
 
     this.proceduralBpm = bpm;
     this.audioOffsetMs = offsetMs;
-    this.isPlaying = true;
-    
     if (startDelayMs > 0) {
-      this.remainingStartDelayMs = startDelayMs;
-    } else if (this.pauseTime === 0 && startDelayMs === 0) {
+      if (this.transportState === 'stopped' || this.pauseTime === 0) this.remainingStartDelayMs = startDelayMs;
+    } else if (this.transportState === 'stopped' && this.pauseTime === 0 && startDelayMs === 0) {
       this.remainingStartDelayMs = 0;
     }
     
@@ -299,7 +346,7 @@ export class AudioEngine {
     if (this.musicBuffer) {
       // Real Audio Buffer mode
       this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / this.playbackRate;
-      this.musicSource = this.ctx.createBufferSource();
+      this.musicSource = this.trackSource(this.ctx.createBufferSource());
       this.musicSource.buffer = this.musicBuffer;
       this.musicSource.connect(this.musicGain!);
       this.musicSource.playbackRate.value = this.playbackRate;
@@ -312,6 +359,7 @@ export class AudioEngine {
       this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / this.playbackRate;
       this.startBackupSynthSequencer();
     }
+    this.transportState = this.remainingStartDelayMs > 0 ? 'scheduled-lead-in' : 'playing';
 
     // Set high-precision clock baseline values
     this.lastAudioTime = this.ctx.currentTime;
@@ -321,61 +369,78 @@ export class AudioEngine {
 
   public pause() {
     if (!this.isPlaying || !this.ctx) return;
-    this.isPlaying = false;
-    
     const audioContextTime = this.ctx.currentTime;
     
     if (audioContextTime < this.startTime) {
       // Paused during the lead-in delay period!
-      this.remainingStartDelayMs = (this.startTime - audioContextTime) * this.playbackRate * 1000;
+      this.remainingStartDelayMs = Math.max(0, (this.startTime - audioContextTime) * this.playbackRate * 1000);
+      this.transportState = 'paused-lead-in';
       // pauseTime remains unchanged
     } else {
       // Paused after the audio had already started playing!
       this.remainingStartDelayMs = 0;
       this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
+      this.transportState = 'paused-playback';
     }
     
-    if (this.musicSource) {
-      try {
-        this.musicSource.stop();
-      } catch (e) {}
-      this.musicSource = null;
-    }
+    this.stopMusicSource();
     
     this.stopBackupSynthSequencer();
   }
 
   public setPlaybackRate(rate: number) {
-    if (this.playbackRate === rate) return;
+    if (!Number.isFinite(rate) || rate <= 0 || this.playbackRate === rate) return;
     
     // If playing, we need to precisely track elapsed time at the old rate before switching
     if (this.isPlaying && this.ctx) {
       const audioContextTime = this.ctx.currentTime;
-      this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
-      this.startTime = audioContextTime; // Reset baseline for the new rate
+      const inLeadIn = audioContextTime < this.startTime;
+      if (inLeadIn) {
+        this.remainingStartDelayMs = (this.startTime - audioContextTime) * this.playbackRate * 1000;
+        this.stopMusicSource();
+      } else {
+        this.pauseTime += (audioContextTime - this.startTime) * this.playbackRate;
+        this.startTime = audioContextTime;
+      }
       this.lastAudioTime = this.ctx.currentTime;
       this.lastSystemTime = performance.now();
+      this.currentPlaybackRate = rate;
+      if (inLeadIn) {
+        this.startTime = audioContextTime + (this.remainingStartDelayMs / 1000) / rate;
+        this.startMusicSource();
+      }
+    } else {
+      this.currentPlaybackRate = rate;
     }
-    
-    this.playbackRate = rate;
     
     if (this.musicSource) {
       this.musicSource.playbackRate.value = rate;
     }
   }
 
-  public seekTo(timeSeconds: number) {
+  private stopMusicSource(): void {
+    if (!this.musicSource) return;
+    try { this.musicSource.stop(); } catch (_e) {}
+    this.scheduledSources.delete(this.musicSource);
+    this.musicSource = null;
+  }
+
+  private startMusicSource(): void {
+    if (!this.ctx || !this.musicBuffer || !this.musicGain) return;
+    this.musicSource = this.trackSource(this.ctx.createBufferSource());
+    this.musicSource.buffer = this.musicBuffer;
+    this.musicSource.connect(this.musicGain);
+    this.musicSource.playbackRate.value = this.playbackRate;
+    this.musicSource.start(this.startTime, this.pauseTime);
+  }
+
+  private seekRawSeconds(timeSeconds: number): void {
     this.pauseTime = timeSeconds;
     this.remainingStartDelayMs = 0; // Seek cancels any remaining lead-in start delay!
     
     if (this.isPlaying && this.ctx) {
       // Stop current playback to restart it from the new seek point
-      if (this.musicSource) {
-        try {
-          this.musicSource.stop();
-        } catch (e) {}
-        this.musicSource = null;
-      }
+      this.stopMusicSource();
       this.stopBackupSynthSequencer();
       
       const audioContextTime = this.ctx.currentTime;
@@ -384,21 +449,27 @@ export class AudioEngine {
       this.lastSystemTime = performance.now();
       
       if (this.musicBuffer) {
-        this.musicSource = this.ctx.createBufferSource();
-        this.musicSource.buffer = this.musicBuffer;
-        this.musicSource.connect(this.musicGain!);
-        this.musicSource.playbackRate.value = this.playbackRate;
-        this.musicSource.start(this.startTime, this.pauseTime);
+        this.startMusicSource();
       } else {
         this.startBackupSynthSequencer();
       }
     }
   }
 
+  /** Seek in gameplay-clock milliseconds; offset and output latency are applied once. */
+  public seekGameplayTimeMs(gameplayTimeMs: number): void {
+    const latencyComp = this.compensateOutputLatency ? this.getOutputLatencyMs() : 0;
+    const rawSeconds = Math.max(0, (gameplayTimeMs + this.audioOffsetMs + latencyComp) / 1000);
+    this.seekRawSeconds(rawSeconds);
+  }
+
   public stop() {
     this.pause();
+    this.stopMusicSource();
+    this.stopBackupSynthSequencer();
     this.pauseTime = 0;
     this.remainingStartDelayMs = 0;
+    this.transportState = 'stopped';
   }
 
   public reset() {
@@ -407,15 +478,21 @@ export class AudioEngine {
     this.startTime = 0;
     this.pauseTime = 0;
     this.remainingStartDelayMs = 0;
-    this.isPlaying = false;
+    this.transportState = 'stopped';
     this.lastAudioTime = 0;
     this.lastSystemTime = 0;
+    this.beatmapHitsoundBuffers.clear();
+    this.beginLoadGeneration();
+    for (const source of this.scheduledSources) {
+      try { source.stop(); } catch (_e) {}
+    }
+    this.scheduledSources.clear();
   }
 
   public seek(posMs: number) {
     const isAlreadyPlaying = this.isPlaying;
     this.stop();
-    this.pauseTime = Math.max(0, posMs / 1000);
+    this.seekGameplayTimeMs(posMs);
     if (isAlreadyPlaying) {
       this.play(this.proceduralBpm, this.audioOffsetMs);
     }
@@ -428,9 +505,11 @@ export class AudioEngine {
   public getCurrentTimeMs(): number {
     if (!this.isPlaying || !this.ctx) {
       if (this.remainingStartDelayMs > 0) {
-        return -this.remainingStartDelayMs;
+        const latencyComp = this.compensateOutputLatency ? this.getOutputLatencyMs() : 0;
+        return -this.remainingStartDelayMs - this.audioOffsetMs - latencyComp;
       }
-      return this.pauseTime * 1000;
+      const latencyComp = this.compensateOutputLatency ? this.getOutputLatencyMs() : 0;
+      return this.pauseTime * 1000 - this.audioOffsetMs - latencyComp;
     }
     
     const now = performance.now();
@@ -511,7 +590,7 @@ export class AudioEngine {
 
   private triggerKickDrum(time: number) {
     if (!this.ctx || !this.musicGain) return;
-    const osc = this.ctx.createOscillator();
+    const osc = this.trackSource(this.ctx.createOscillator());
     const gain = this.ctx.createGain();
     
     osc.frequency.setValueAtTime(120, time);
@@ -536,7 +615,7 @@ export class AudioEngine {
       data[i] = Math.random() * 2 - 1;
     }
     
-    const noise = this.ctx.createBufferSource();
+    const noise = this.trackSource(this.ctx.createBufferSource());
     noise.buffer = buffer;
     
     const filter = this.ctx.createBiquadFilter();
@@ -557,7 +636,7 @@ export class AudioEngine {
 
   private triggerMelodySynth(freq: number, time: number) {
     if (!this.ctx || !this.musicGain) return;
-    const osc = this.ctx.createOscillator();
+    const osc = this.trackSource(this.ctx.createOscillator());
     const gain = this.ctx.createGain();
     
     osc.type = 'sawtooth';

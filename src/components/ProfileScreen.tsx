@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, ExternalLink, Loader2, Pencil, Search, Trophy, UserRound } from 'lucide-react';
 import type { ProfileActivityStatus } from '../types';
 import type { AuthUser } from '../utils/authClient';
-import { searchProfiles, type ProfileSearchResult } from '../utils/profileClient';
+import { fetchPublicProfile, searchProfiles, type ProfileSearchResult, type ProfileTarget, type ProfileTargetInput } from '../utils/profileClient';
 
 interface ProfileData {
   user: {
@@ -50,19 +50,19 @@ const SOCIAL_LABELS = [
 ] as const;
 
 export default function ProfileScreen({
-  profileId,
+  profileTarget,
   onBack,
   onEditProfile,
   onOpenProfile,
 }: {
   user: AuthUser | null;
-  profileId: string | null;
+  profileTarget: ProfileTarget | null;
   onBack: () => void;
   onEditProfile?: () => void;
-  onOpenProfile: (id: string) => void;
+  onOpenProfile: (target: ProfileTargetInput) => void;
 }) {
   const [data, setData] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(Boolean(profileId));
+  const [loading, setLoading] = useState(Boolean(profileTarget));
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ProfileSearchResult[]>([]);
@@ -70,27 +70,23 @@ export default function ProfileScreen({
   const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!profileId) return;
-    let active = true;
+    if (!profileTarget) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetch(`/api/profile/get?userId=${encodeURIComponent(profileId)}`, {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    })
-      .then(async response => {
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load profile');
-        return payload.data as ProfileData;
-      })
-      .then(profile => { if (active) setData(profile); })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Unable to load profile'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [profileId]);
+    fetchPublicProfile(profileTarget, controller.signal)
+      .then(profile => setData(profile as ProfileData))
+      .catch(reason => { if (reason instanceof DOMException && reason.name === 'AbortError') return; setError(reason instanceof Error ? reason.message : 'Unable to load profile'); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [profileTarget]);
 
   useEffect(() => {
-    if (profileId) return;
+    if (profileTarget) return;
     const query = search.trim();
     if (query.length < 2) {
       setResults([]);
@@ -98,18 +94,19 @@ export default function ProfileScreen({
       setSearchError(null);
       return;
     }
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setSearching(true);
       setSearchError(null);
-      searchProfiles(query)
+      searchProfiles(query, controller.signal)
         .then(setResults)
-        .catch(reason => setSearchError(reason instanceof Error ? reason.message : 'Search failed'))
+        .catch(reason => { if (reason instanceof DOMException && reason.name === 'AbortError') return; setSearchError(reason instanceof Error ? reason.message : 'Search failed'); })
         .finally(() => setSearching(false));
     }, 260);
-    return () => window.clearTimeout(timer);
-  }, [profileId, search]);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [profileTarget, search]);
 
-  if (!profileId) {
+  if (!profileTarget) {
     return <ProfileSearchScreen search={search} setSearch={setSearch} results={results} searching={searching} error={searchError} onBack={onBack} onOpenProfile={onOpenProfile} />;
   }
 
@@ -168,7 +165,7 @@ export default function ProfileScreen({
   );
 }
 
-function ProfileSearchScreen({ search, setSearch, results, searching, error, onBack, onOpenProfile }: { search: string; setSearch: (value: string) => void; results: ProfileSearchResult[]; searching: boolean; error: string | null; onBack: () => void; onOpenProfile: (id: string) => void }) {
+function ProfileSearchScreen({ search, setSearch, results, searching, error, onBack, onOpenProfile }: { search: string; setSearch: (value: string) => void; results: ProfileSearchResult[]; searching: boolean; error: string | null; onBack: () => void; onOpenProfile: (target: ProfileTargetInput) => void }) {
   return <PageShell onBack={onBack}><div className="mx-auto max-w-3xl"><div className="mb-10 text-center"><p className="font-mono text-[10px] font-bold uppercase tracking-[0.4em] text-cyan-300">Player index</p><h1 className="mt-3 text-4xl font-black tracking-tight text-white">Find a player</h1><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-400">Search by display name, handle, or player ID. Profiles remain public to signed-out visitors.</p></div><div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" /><input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players..." className="h-14 w-full rounded-2xl border border-white/10 bg-[#12121b] pl-12 pr-12 text-base font-bold text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10" />{searching && <Loader2 className="absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-cyan-300" />}</div>{error && <p className="mt-4 rounded-xl border border-rose-300/20 bg-rose-950/20 p-4 text-sm text-rose-200">{error}</p>}{search.length < 2 ? <p className="mt-8 text-center text-xs font-mono uppercase tracking-widest text-slate-600">Type at least two characters</p> : results.length === 0 && !searching ? <p className="mt-8 text-center text-sm text-slate-500">No matching players found.</p> : <div className="mt-5 space-y-2">{results.map(result => <button key={result.id} onClick={() => onOpenProfile(result.id)} className="flex min-h-[4.5rem] w-full items-center gap-4 rounded-2xl border border-white/10 bg-[#12121b] px-4 text-left transition hover:border-fuchsia-300/40 hover:bg-fuchsia-300/5"><Avatar url={result.avatarUrl} name={result.displayName} /><span className="min-w-0 flex-1"><span className="block truncate font-bold text-white">{result.displayName}</span><span className="mt-1 block truncate text-xs font-mono text-fuchsia-200">{result.handle ? `@${result.handle}` : result.id}</span></span><span className="hidden text-xs text-slate-500 sm:block">{result.activityStatus === 'custom' ? result.activityMessage : STATUS_LABELS[result.activityStatus]}</span></button>)}</div>}</div></PageShell>;
 }
 

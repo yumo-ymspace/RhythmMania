@@ -17,6 +17,7 @@ import { sanitizeCssUrl } from '../utils/securityLimits';
 import { downloadReplayExport } from '../utils/replayTransfer';
 import { computeGradeFromScoreState } from '../utils/scoreCalculator';
 import HitErrorGraph from './HitErrorGraph';
+import { resolveStarRating } from '../utils/starRating';
 
 interface ResultsScreenProps {
   scoreState: ScoreState;
@@ -25,7 +26,7 @@ interface ResultsScreenProps {
   currentMods?: string[];
   hitErrors?: number[] | null;
   onRetry: () => void;
-  onWatchReplay?: (record: PlayHistoryRecord) => void;
+  onWatchReplay?: (record: PlayHistoryRecord) => Promise<{ success: boolean; error?: string }> | void;
   onBack: () => void;
   onBackToHistory?: () => void;
   onDeleteRecord?: (id: string) => void;
@@ -43,25 +44,6 @@ export default function ResultsScreen({
   onBackToHistory,
   onDeleteRecord
 }: ResultsScreenProps) {
-  // Determine actual star rating dynamically
-  const getStarRating = (map: any) => {
-    if (map.starRating !== undefined) return map.starRating;
-    const diffName = (map.difficulty || '').toLowerCase();
-    if (diffName.includes('easy') || diffName.includes('beginner')) return 1.5;
-    if (diffName.includes('doubtful')) return 2.33;
-    if (diffName.includes('normal')) return 2.1;
-    if (diffName.includes('hard') || diffName.includes('hyper')) return 3.65;
-    if (diffName.includes('insane') || diffName.includes('another')) return 4.8;
-    if (diffName.includes('expert') || diffName.includes('black')) return 5.85;
-    if (diffName.includes('extra') || diffName.includes('deluge')) return 6.4;
-    if (diffName.includes('master') || diffName.includes('zenith')) return 7.5;
-    
-    // Fallback deterministic star code
-    const hash = (map.id || '').split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const calculated = 1.0 + (hash % 75) / 10; 
-    return Math.round(calculated * 100) / 100;
-  };
-
   // 1. Gather play runs for this beatmap
   const mapRecords = useMemo(() => {
     const baseId = beatmap.id.includes('_converted_')
@@ -82,6 +64,7 @@ export default function ResultsScreen({
   // 2. Local selection state for inspecting runs
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
 
   // 3. Resolve active run or fallback to raw scoreState
   const activeRecord = useMemo(() => {
@@ -236,7 +219,7 @@ export default function ResultsScreen({
               {beatmap.title}
             </h2>
             <p className="text-[11px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5 truncate">
-              {beatmap.artist} • <span className="text-rose-400 font-extrabold">★ {getStarRating(beatmap).toFixed(2)}</span>
+               {beatmap.artist} • <span className="text-rose-400 font-extrabold">★ {resolveStarRating(beatmap).toFixed(2)}</span>
             </p>
           </div>
         </div>
@@ -430,10 +413,16 @@ export default function ResultsScreen({
             <span className="whitespace-nowrap">Retry Song</span>
           </button>
           
+          {replayError && <p role="alert" className="mt-3 text-center text-xs font-mono text-rose-300">{replayError}</p>}
+
           {onWatchReplay && activeRecord && activeRecord.replayFrames && activeRecord.replayFrames.length > 0 && (
             <button
               id="results-watch-replay-btn"
-              onClick={() => onWatchReplay(activeRecord)}
+              onClick={async () => {
+                setReplayError(null);
+                const result = await onWatchReplay(activeRecord);
+                if (result && !result.success) setReplayError(result.error || 'Replay playback could not be started.');
+              }}
               className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-cyan-600/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
             >
               <Video className="h-4 w-4" />

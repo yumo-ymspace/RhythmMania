@@ -57,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       data: { handle, available, reason: available ? 'ok' : 'taken' },
     });
   } catch (e: unknown) {
-    console.error('Error in /api/profile/handle-check:', e);
-    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
+    console.error('Profile handle-check request failed:', e instanceof Error ? e.name : 'unknown');
+    return sendError(res, 500, 'Profile service unavailable');
   }
 }

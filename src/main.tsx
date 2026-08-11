@@ -39,14 +39,6 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       });
   });
 
-  // Automatically refresh pages when a new service worker takes active control
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    console.log('[Service Worker] Activating new version... Refreshing page.');
-    window.location.reload();
-  });
 }
 
 createRoot(document.getElementById('root')!).render(

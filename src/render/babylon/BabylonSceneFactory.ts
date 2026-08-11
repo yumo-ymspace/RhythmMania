@@ -4,7 +4,7 @@
  *
  * Babylon scene setup: a perspective camera looking down a converging runway
  * (near judgement line at the bottom, vanishing point toward the top), ambient
- * lights, and a bloom post-process driven by babylonQuality. The camera looks
+ * lights, and a consistent bloom post-process. The camera looks
  * along the +Z axis with no roll (right = +X), which keeps the near-plane
  * visible-width math in coords/RunwayContext exact.
  */
@@ -69,18 +69,12 @@ export class BabylonSceneFactory {
     dir.intensity = 0.55;
 
     let pipeline: DefaultRenderingPipeline | null = null;
-    const quality = settings.babylonQuality ?? 'high';
     try {
       pipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, [camera]);
-      pipeline.bloomEnabled = quality !== 'low';
-      if (quality === 'high') {
-        pipeline.bloomWeight = 0.6;
-        pipeline.bloomThreshold = 0.6;
-      } else if (quality === 'medium') {
-        pipeline.bloomWeight = 0.3;
-        pipeline.bloomThreshold = 0.75;
-      }
-      pipeline.samples = quality === 'high' ? 4 : 2;
+      pipeline.bloomEnabled = true;
+      pipeline.bloomWeight = 0.6;
+      pipeline.bloomThreshold = 0.6;
+      pipeline.samples = 4;
       pipeline.imageProcessingEnabled = false;
     } catch {
       pipeline = null;

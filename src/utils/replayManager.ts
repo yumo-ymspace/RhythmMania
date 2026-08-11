@@ -11,7 +11,7 @@
  */
 
 import { Beatmap, GameSettings, PlayHistoryRecord, ReplayFrame, ReplaySource, ScoreState, UploadEligibility, UploadStatus } from '../types';
-import { storageManager } from './storageManager';
+import { sanitizeSavedBeatmap, storageManager } from './storageManager';
 import { computeGradeFromScoreState } from './scoreCalculator';
 
 export const CURRENT_REPLAY_SCHEMA_VERSION = 2;
@@ -155,27 +155,42 @@ export function createPlayHistoryRecord(params: {
 /**
  * Migrates legacy unversioned or v1 records to the version 2 schema.
  */
-export function migrateHistoryRecord(rawRecord: any, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
-  if (!rawRecord || typeof rawRecord !== 'object') return null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function hasCatalogIdentity(beatmap: Beatmap | null): boolean {
+  return Boolean(beatmap?.catalogSetId && beatmap.catalogMapId && beatmap.chartRevisionId);
+}
+
+export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
+  if (!isRecord(rawRecord)) return null;
 
   const beatmapId = String(rawRecord.beatmapId || '');
   const baseId = beatmapId.includes('_converted_') ? beatmapId.split('_converted_')[0] : beatmapId;
   const matchedMap = availableBeatmaps.find(m => m.id === beatmapId || m.id === baseId);
 
   const catalogInfo = determineCatalogIdentity(matchedMap || null, beatmapId);
-  const hash = rawRecord.beatmapHash || (matchedMap ? computeBeatmapHash(matchedMap) : computeBeatmapHash({
-    title: rawRecord.beatmapTitle || '',
-    artist: rawRecord.beatmapArtist || '',
-    keyCount: rawRecord.keyCount || 4,
-  }));
+  const hash = typeof rawRecord.beatmapHash === 'string' && rawRecord.beatmapHash
+    ? rawRecord.beatmapHash
+    : (matchedMap ? computeBeatmapHash(matchedMap) : computeBeatmapHash({
+      title: typeof rawRecord.beatmapTitle === 'string' ? rawRecord.beatmapTitle : '',
+      artist: typeof rawRecord.beatmapArtist === 'string' ? rawRecord.beatmapArtist : '',
+      keyCount: typeof rawRecord.keyCount === 'number' ? rawRecord.keyCount : 4,
+    }));
 
   const replayFrames = Array.isArray(rawRecord.replayFrames) ? rawRecord.replayFrames : [];
-  const isAutoplay = Boolean(rawRecord.scoreState?.isAutoplay || (Array.isArray(rawRecord.mods) && rawRecord.mods.includes('AT')));
-  const isNoFail = Array.isArray(rawRecord.mods) && rawRecord.mods.some((mod: any) => typeof mod === 'string' && mod.toUpperCase() === 'NF');
-  const isFailed = isNoFail ? false : Boolean(rawRecord.isFailed || rawRecord.scoreState?.failed);
+  const rawScoreState = isRecord(rawRecord.scoreState) ? rawRecord.scoreState : {};
+  const rawMods = Array.isArray(rawRecord.mods) ? rawRecord.mods : [];
+  const isAutoplay = Boolean(rawScoreState.isAutoplay || rawMods.includes('AT'));
+  const isNoFail = rawMods.some(mod => typeof mod === 'string' && mod.toUpperCase() === 'NF');
+  const isFailed = isNoFail ? false : Boolean(rawRecord.isFailed || rawScoreState.failed);
 
-  const uploadEligibility: UploadEligibility = rawRecord.uploadEligibility && !(isNoFail && rawRecord.uploadEligibility === 'ineligible_failed')
-    ? rawRecord.uploadEligibility
+  const validEligibility = rawRecord.uploadEligibility === 'eligible' || rawRecord.uploadEligibility === 'ineligible_local_map' ||
+    rawRecord.uploadEligibility === 'ineligible_autoplay' || rawRecord.uploadEligibility === 'ineligible_failed' ||
+    rawRecord.uploadEligibility === 'ineligible_mode' || rawRecord.uploadEligibility === 'ineligible_no_replay_frames';
+  const uploadEligibility: UploadEligibility = validEligibility && !(isNoFail && rawRecord.uploadEligibility === 'ineligible_failed')
+     ? rawRecord.uploadEligibility as UploadEligibility
     : determineUploadEligibility({
     isServerCatalogMap: catalogInfo.isServerCatalogMap,
     isAutoplay,
@@ -184,32 +199,54 @@ export function migrateHistoryRecord(rawRecord: any, availableBeatmaps: Beatmap[
     mode: matchedMap?.mode,
   });
 
+  const rawKeyCount = typeof rawRecord.keyCount === 'number' && Number.isInteger(rawRecord.keyCount) && rawRecord.keyCount >= 2 && rawRecord.keyCount <= 8 ? rawRecord.keyCount : 4;
+  const rawReplaySource = rawRecord.replaySource === 'guest-local' || rawRecord.replaySource === 'account-local' || rawRecord.replaySource === 'server-remote' || rawRecord.replaySource === 'imported'
+    ? rawRecord.replaySource : 'guest-local';
+  const rawUploadStatus = rawRecord.uploadStatus === 'pending' || rawRecord.uploadStatus === 'uploaded' || rawRecord.uploadStatus === 'failed' || rawRecord.uploadStatus === 'local_only'
+    ? rawRecord.uploadStatus : 'local_only';
   return {
-    ...rawRecord,
+    id: typeof rawRecord.id === 'string' ? rawRecord.id : `replay_${Date.now()}`,
+    timestamp: typeof rawRecord.timestamp === 'number' && Number.isFinite(rawRecord.timestamp) ? rawRecord.timestamp : Date.now(),
+    beatmapId,
+    beatmapTitle: typeof rawRecord.beatmapTitle === 'string' ? rawRecord.beatmapTitle : '',
+    beatmapArtist: typeof rawRecord.beatmapArtist === 'string' ? rawRecord.beatmapArtist : '',
+    keyCount: rawKeyCount,
+    score: typeof rawRecord.score === 'number' ? rawRecord.score : 0,
+    accuracy: typeof rawRecord.accuracy === 'number' ? rawRecord.accuracy : 0,
+    maxCombo: typeof rawRecord.maxCombo === 'number' ? rawRecord.maxCombo : 0,
+    grade: typeof rawRecord.grade === 'string' ? rawRecord.grade : 'F',
+    replayFrames: replayFrames as ReplayFrame[],
+    recordedSettings: rawRecord.recordedSettings as PlayHistoryRecord['recordedSettings'],
+    mods: rawMods.filter((mod): mod is string => typeof mod === 'string'),
     schemaVersion: CURRENT_REPLAY_SCHEMA_VERSION,
-    replaySource: rawRecord.replaySource || 'guest-local',
-    catalogSetId: rawRecord.catalogSetId ?? catalogInfo.catalogSetId,
-    catalogMapId: rawRecord.catalogMapId ?? catalogInfo.catalogMapId,
+    replaySource: rawReplaySource,
+    catalogSetId: typeof rawRecord.catalogSetId === 'string' || rawRecord.catalogSetId === null ? rawRecord.catalogSetId : catalogInfo.catalogSetId,
+    catalogMapId: typeof rawRecord.catalogMapId === 'string' || rawRecord.catalogMapId === null ? rawRecord.catalogMapId : catalogInfo.catalogMapId,
     beatmapHash: hash,
     uploadEligibility,
     isFailed,
-    scoreState: { ...rawRecord.scoreState, failed: isFailed },
-    uploadStatus: (rawRecord.uploadStatus as UploadStatus) || 'local_only',
-    isServerCatalogMap: rawRecord.isServerCatalogMap ?? catalogInfo.isServerCatalogMap,
+    scoreState: { ...rawScoreState, failed: isFailed } as ScoreState,
+    uploadStatus: rawUploadStatus,
+    isServerCatalogMap: typeof rawRecord.isServerCatalogMap === 'boolean' ? rawRecord.isServerCatalogMap : catalogInfo.isServerCatalogMap,
+    chartRevisionId: typeof rawRecord.chartRevisionId === 'string' || rawRecord.chartRevisionId === null ? rawRecord.chartRevisionId : catalogInfo.chartRevisionId,
+    checksum: typeof rawRecord.checksum === 'string' ? rawRecord.checksum : undefined,
+    checksumAlgorithm: rawRecord.checksumAlgorithm === 'md5' || rawRecord.checksumAlgorithm === 'sha256' ? rawRecord.checksumAlgorithm : undefined,
   };
 }
 
 /**
   * Migrates loaded IndexedDB beatmaps to ensure catalog identity, canonical map IDs, and FNV hashes are populated.
   */
-export async function migrateAndNormalizeBeatmaps(rawMaps: Beatmap[]): Promise<{ maps: Beatmap[]; migratedCount: number }> {
+export async function migrateAndNormalizeBeatmaps(rawMaps: unknown[]): Promise<{ maps: Beatmap[]; migratedCount: number }> {
   let migratedCount = 0;
   const normalized = await Promise.all(
-    rawMaps.map(async (m) => {
-      const map = { ...m } as any;
+    rawMaps.map(async (raw) => {
+      const map = sanitizeSavedBeatmap(raw);
+      if (!map) return null;
       let dirty = false;
 
-      const isServer = Boolean(map.isServerMap && map.chartRevisionId);
+      const hasIdentity = hasCatalogIdentity(map);
+      const isServer = Boolean(map.isServerMap && hasIdentity);
 
       if (isServer) {
         const catalogSetId = map.catalogSetId || null;
@@ -222,10 +259,10 @@ export async function migrateAndNormalizeBeatmaps(rawMaps: Beatmap[]): Promise<{
           map.isServerMap = true;
           dirty = true;
         }
-      } else {
+      } else if (!hasIdentity) {
         if (map.catalogSetId !== null && map.catalogSetId !== undefined) { map.catalogSetId = null; dirty = true; }
         if (map.catalogMapId !== null && map.catalogMapId !== undefined) { map.catalogMapId = null; dirty = true; }
-        if (map.chartRevisionId !== null && map.chartRevisionId !== undefined) { map.chartRevisionId = null; dirty = true; }
+        if (map.chartRevisionId !== undefined) { map.chartRevisionId = undefined; dirty = true; }
         if (map.isServerMap !== false) { map.isServerMap = false; dirty = true; }
       }
 
@@ -238,15 +275,15 @@ export async function migrateAndNormalizeBeatmaps(rawMaps: Beatmap[]): Promise<{
       if (dirty) {
         migratedCount++;
         try {
-          await storageManager.saveBeatmap(map as any);
+          await storageManager.saveBeatmap(map);
         } catch (e) {
           console.warn('Failed to persist migrated beatmap record:', e);
         }
       }
 
-      return map as Beatmap;
+      return map;
     })
   );
 
-  return { maps: normalized, migratedCount };
+  return { maps: normalized.filter((map): map is NonNullable<typeof map> => map !== null), migratedCount };
 }

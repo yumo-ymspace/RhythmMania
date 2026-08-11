@@ -26,11 +26,13 @@ import { sanitizeCssUrl } from '../utils/securityLimits';
 import { downloadReplayExport, parseReplayImport, MAX_IMPORT_FILE_BYTES } from '../utils/replayTransfer';
 import { DEFAULT_SETTINGS } from './settings/defaultSettings';
 import metadata from '../../metadata.json';
+import { HISTORY_LIMIT_UNLIMITED } from './settings/defaultSettings';
+import { resolveStarRating } from '../utils/starRating';
 
 interface PersonalHistoryScreenProps {
   history: PlayHistoryRecord[];
   allBeatmaps: Beatmap[];
-  onWatchReplay: (record: PlayHistoryRecord) => void;
+  onWatchReplay: (record: PlayHistoryRecord) => Promise<{ success: boolean; error?: string }> | void;
   onViewResult?: (record: PlayHistoryRecord) => void;
   onClearHistory: () => void;
   onDeleteRecord: (id: string) => void;
@@ -121,7 +123,7 @@ export default function PersonalHistoryScreen({
         (rec.beatmapHash && b.beatmapHash === rec.beatmapHash)
       );
       const diffName = matchedMap?.difficulty || `${rec.keyCount}K Standard`;
-      const stars = matchedMap ? (Number(matchedMap.difficulty) * 0.5 + 2) : 4.50;
+       const stars = matchedMap ? resolveStarRating(matchedMap) : 4.50;
       
       return {
         ...rec,
@@ -159,6 +161,11 @@ export default function PersonalHistoryScreen({
       setSelectedRecordId(null);
     }
     onDeleteRecord(id);
+  };
+
+  const handleWatchRecord = async (record: PlayHistoryRecord) => {
+    const result = await onWatchReplay(record);
+    if (result && !result.success) setImportNotice(result.error || 'Replay playback could not be started.');
   };
 
   const formatDate = (timestamp: number) => {
@@ -239,7 +246,7 @@ export default function PersonalHistoryScreen({
   };
 
   return (
-    <div id="personal-history-view-container" className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent animate-fade-in">
+    <div id="personal-history-view-container" className="relative w-full min-h-[calc(100vh_-_64px)] lg:h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-y-auto lg:overflow-hidden flex flex-col bg-transparent animate-fade-in">
       
       <div 
         className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out scale-105 pointer-events-none z-0"
@@ -255,7 +262,7 @@ export default function PersonalHistoryScreen({
         </div>
       )}
 
-      <div className="w-full max-w-none px-4 lg:px-10 pt-2 pb-1.5 flex justify-between items-center gap-4 z-10 relative select-none border-b border-white/[0.03] bg-zinc-950/80 backdrop-blur-sm shrink-0">
+      <div className="w-full max-w-none px-4 lg:px-10 pt-2 pb-1.5 flex flex-wrap justify-between items-center gap-4 z-10 relative select-none border-b border-white/[0.03] bg-zinc-950/80 backdrop-blur-sm shrink-0">
         <div className="flex flex-col text-left shrink-0 bg-[#09090d] border border-white/10 px-5 py-2 rounded-xl shadow-lg">
           <h1 className="text-xl md:text-2xl font-black tracking-[0.2em] text-skin-accent leading-none font-sans uppercase">
             REPLAY SELECT
@@ -294,7 +301,7 @@ export default function PersonalHistoryScreen({
               <option value="25">Keep 25 runs</option>
               <option value="50">Keep 50 runs</option>
               <option value="100">Keep 100 runs</option>
-              <option value="9999">Unlimited</option>
+               <option value={HISTORY_LIMIT_UNLIMITED}>Unlimited</option>
             </select>
           </div>
 
@@ -343,9 +350,9 @@ export default function PersonalHistoryScreen({
           </p>
         </div>
       ) : (
-        <div className="flex-1 w-full max-w-none px-4 lg:px-10 min-h-0 p-2 lg:p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 relative overflow-hidden">
+        <div className="flex-none lg:flex-1 w-full max-w-none px-4 lg:px-10 min-h-0 p-2 lg:p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 relative overflow-visible lg:overflow-hidden">
           
-          <div className="lg:col-span-4 flex flex-col gap-4 text-left h-full overflow-y-auto pr-1 pb-[72px]">
+          <div className="lg:col-span-4 flex flex-col gap-4 text-left h-auto lg:h-full overflow-visible lg:overflow-y-auto pr-1 pb-[72px]">
             {selectedRecord ? (
               <div className="flex flex-col gap-4 bg-[#0c0c12] p-5 rounded-2xl border border-white/10 shadow-2xl relative z-10">
                 
@@ -414,7 +421,7 @@ export default function PersonalHistoryScreen({
                   </div>
 
                   <button
-                    onClick={() => onWatchReplay(selectedRecord)}
+                     onClick={() => void handleWatchRecord(selectedRecord)}
                     disabled={!selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0}
                     className="w-full py-4 bg-skin-accent hover:brightness-110 active:scale-95 text-slate-950 font-sans font-black text-base uppercase tracking-widest rounded-xl shadow-lg shadow-skin-accent/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer select-none border border-white/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:brightness-100"
                   >
@@ -468,7 +475,7 @@ export default function PersonalHistoryScreen({
 
           <div className="lg:col-span-4 hidden lg:flex flex-col justify-center items-center pointer-events-none relative select-none" />
 
-          <div className="lg:col-span-4 flex flex-col gap-3 h-full min-h-0 -mr-4 lg:-mr-10">
+          <div className="lg:col-span-4 flex flex-col gap-3 h-[65vh] lg:h-full min-h-0 -mr-4 lg:-mr-10">
             
             <div className="px-4 lg:px-6 relative flex-shrink-0 flex flex-col gap-2">
               <div className="relative">
@@ -499,7 +506,16 @@ export default function PersonalHistoryScreen({
                   return (
                     <div key={rec.id} className="flex flex-col gap-0 transition-all pl-8">
                       
-                      <div 
+                       <div
+                         role="button"
+                         tabIndex={0}
+                         aria-pressed={isSelected}
+                         onKeyDown={(event) => {
+                           if (event.key === 'Enter' || event.key === ' ') {
+                             event.preventDefault();
+                             setSelectedRecordId(rec.id);
+                           }
+                         }}
                         onClick={() => setSelectedRecordId(rec.id)}
                         className={`group transition-all duration-300 relative border-l border-t border-b cursor-pointer select-none overflow-hidden rounded-l-xl ${
                           isSelected 

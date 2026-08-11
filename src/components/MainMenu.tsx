@@ -12,9 +12,43 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings as SettingsIcon, Play, History, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Play, History, Loader2, Github, BookOpen, MessageSquareWarning } from 'lucide-react';
 import metadata from '../../metadata.json';
 import { AuthUser } from '../utils/authClient';
+
+const RESOURCE_LINKS = [
+  { label: 'Discord', href: 'https://discord.rhythm-mania.com', icon: 'discord' },
+  { label: 'Github', href: 'https://github.com/yumo-ymspace/RhythmMania', icon: Github },
+  { label: 'Wiki', href: 'https://wiki.rhythm-mania.com', icon: BookOpen },
+  { label: 'Bug Report', href: 'https://bug-report.rhythm-mania.com', icon: MessageSquareWarning },
+] as const;
+
+const DiscordIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-current">
+    <path d="M19.54 4.86A16.9 16.9 0 0 0 15.4 3.57l-.5 1.02a15.6 15.6 0 0 0-5.8 0l-.5-1.02a16.9 16.9 0 0 0-4.14 1.29C1.84 8.73 1.13 12.5 1.48 16.2a16.7 16.7 0 0 0 5.1 2.58l1.23-1.65c-.68-.25-1.33-.56-1.94-.92l.47-.36c3.74 1.75 8.03 1.75 11.72 0l.48.36c-.62.36-1.27.67-1.95.92l1.23 1.65a16.7 16.7 0 0 0 5.1-2.58c.41-4.29-.7-8.02-3.38-11.34ZM8.5 14.03c-1.1 0-2-.99-2-2.2s.88-2.2 2-2.2c1.12 0 2.02.99 2 2.2 0 1.21-.88 2.2-2 2.2Zm7 0c-1.1 0-2-.99-2-2.2s.88-2.2 2-2.2c1.12 0 2.02.99 2 2.2s-.88 2.2-2 2.2Z" />
+  </svg>
+);
+
+const ResourceLinks = () => (
+  <nav aria-label="Community and support links" className="flex items-center gap-2">
+    {RESOURCE_LINKS.map(({ label, href, icon: Icon }) => (
+      <a
+        key={label}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={label}
+        title={label}
+        className="group relative flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#263449]/90 text-white/90 shadow-[0_4px_12px_rgba(0,0,0,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:border-white/25 hover:bg-[#344762] hover:text-white hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80"
+      >
+        {Icon === 'discord' ? <DiscordIcon /> : <Icon className="h-6 w-6" strokeWidth={2.2} />}
+        <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#111827]/95 px-2 py-1 text-[10px] font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
+          {label}
+        </span>
+      </a>
+    ))}
+  </nav>
+);
 
 export const MainMenu = ({
   onNavigate,
@@ -80,7 +114,7 @@ export const MainMenu = ({
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff02_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none z-0" />
 
         {/* Top Account Bar (Mobile) */}
-        <div className="absolute top-4 inset-x-4 z-40 pointer-events-auto flex items-center justify-between bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-3.5 py-2 shadow-lg">
+        <div className="hidden absolute top-4 inset-x-4 z-40 pointer-events-auto items-center justify-between bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-3.5 py-2 shadow-lg">
           {authLoading ? (
             <div className="flex items-center gap-2 text-white/70 text-xs font-mono uppercase">
               <Loader2 className="h-4 w-4 animate-spin text-pink-400" />
@@ -137,7 +171,7 @@ export const MainMenu = ({
         </div>
 
         {authError && (
-          <div className="absolute top-16 inset-x-4 z-40 bg-red-950/80 border border-red-500/50 text-red-200 text-xs px-3 py-2 rounded-xl text-center shadow-lg">
+          <div className="hidden absolute top-16 inset-x-4 z-40 bg-red-950/80 border border-red-500/50 text-red-200 text-xs px-3 py-2 rounded-xl text-center shadow-lg">
             {authError}
           </div>
         )}
@@ -220,15 +254,9 @@ export const MainMenu = ({
           </div>
         </div>
 
-        {/* Bottom Wiki and Legal Notice on Mobile */}
+        {/* Bottom resources and legal notice on mobile */}
         <div className="absolute bottom-4 inset-x-6 flex flex-col items-center gap-1.5 z-30 pointer-events-auto">
-          <p className="text-[10px] text-white/50 font-sans text-center max-w-[300px]">
-            If you want to get started but don't know how, check out the{' '}
-            <a href="https://wiki.rhythm-mania.com" target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:text-pink-300 underline transition-colors font-medium">
-              wiki
-            </a>
-            .
-          </p>
+          <ResourceLinks />
           <p className="text-[9px] text-white/35 font-sans text-center max-w-[300px]">
             By using RhythmMania, you acknowledge and agree to the{' '}
             <a href="/tos" className="text-white/50 hover:text-white underline transition-colors">
@@ -261,7 +289,7 @@ export const MainMenu = ({
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-0 pointer-events-none" />
 
       {/* Top Right Account Panel (Desktop) */}
-      <div className="absolute top-6 right-6 z-40 pointer-events-auto flex items-center gap-3 bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2.5 shadow-xl">
+      <div className="hidden absolute top-6 right-6 z-40 pointer-events-auto items-center gap-3 bg-black/70 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2.5 shadow-xl">
         {authLoading ? (
           <div className="flex items-center gap-2 text-white/70 text-xs font-mono uppercase">
             <Loader2 className="h-4 w-4 animate-spin text-pink-400" />
@@ -316,7 +344,7 @@ export const MainMenu = ({
       </div>
 
       {authError && (
-        <div className="absolute top-20 right-6 z-40 bg-red-950/80 border border-red-500/50 text-red-200 text-xs px-3.5 py-2 rounded-xl text-center shadow-lg">
+        <div className="hidden absolute top-20 right-6 z-40 bg-red-950/80 border border-red-500/50 text-red-200 text-xs px-3.5 py-2 rounded-xl text-center shadow-lg">
           {authError}
         </div>
       )}
@@ -409,16 +437,10 @@ export const MainMenu = ({
           </motion.div>
         </motion.div>
 
-        {/* Bottom Left Version Tag and Wiki Info */}
+        {/* Bottom Left Version Tag and resource links */}
         <div className="absolute bottom-6 left-6 text-xs text-white/40 font-sans z-30 select-text text-left max-w-[280px] md:max-w-md pointer-events-auto flex flex-col gap-1">
           <div className="font-mono text-white/30">{metadata.version}</div>
-          <div className="text-[10px] md:text-xs">
-            If you want to get started but don't know how, check out the{' '}
-            <a href="https://wiki.rhythm-mania.com" target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:text-pink-300 underline transition-colors font-medium">
-              wiki
-            </a>
-            .
-          </div>
+          <ResourceLinks />
         </div>
 
         {/* Bottom Right Legal Notice */}

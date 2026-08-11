@@ -9,9 +9,10 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
-import { laneWidthAt, runwayPosition, RUNWAY_CONVERGENCE, safeHex, yToDepthFactor } from '../coords';
+import { clampNoteDepth, laneWidthAt, runwayPosition, RUNWAY_CONVERGENCE, safeColorAlpha, safeHex, yToDepthFactor } from '../coords';
+import { isHoldBodyAnchored } from '../../noteState';
 
-const MAX_FRUSTUMS = 64;
+const MAX_FRUSTUMS = 128;
 const POSITION_KIND = 'position';
 const NOTE_WIDTH_FRAC = 0.82;
 
@@ -24,7 +25,7 @@ export class HoldLayer {
 
   constructor(private readonly scene: Scene) {}
 
-  private acquire(key: string): HoldMesh {
+  private acquire(key: string): HoldMesh | null {
     const existing = this.active.get(key);
     if (existing) return existing;
 
@@ -53,9 +54,9 @@ export class HoldLayer {
       this.pool.push(mesh);
     }
 
-    // More than 64 simultaneous holds is exceptional. Reuse the first mesh
-    // rather than allocating unbounded geometry; normal maps never approach it.
-    if (!mesh) mesh = this.pool[0];
+    // Excess visuals are skipped. Reusing an active mesh would make two note
+    // IDs mutate the same geometry and corrupt the free list on release.
+    if (!mesh) return null;
     mesh.setEnabled(true);
     this.active.set(key, mesh);
     return mesh;
@@ -74,7 +75,6 @@ export class HoldLayer {
   update(frame: PlayfieldFrame, ctx: RunwayContext): void {
     const { notes, columns, receptorY, settingsSlice } = frame;
     const keep = new Set<string>();
-    const noteOpacity = settingsSlice.noteOpacity ?? 1;
 
     for (const note of notes) {
       if (note.type !== 'hold' || note.endY === undefined) continue;
@@ -82,15 +82,16 @@ export class HoldLayer {
       if (!column) continue;
 
       const key = note.id;
-      keep.add(key);
       const mesh = this.acquire(key);
+      if (!mesh) continue;
+      keep.add(key);
       const material = mesh.material as StandardMaterial;
 
       // An engaged hold is anchored at the receptor. A missed head is clamped
       // to the near plane because the portion behind the camera is invisible.
-      const headY = note.isHit ? receptorY : note.y;
-      const headDepth = Math.max(0, Math.min(1.5, yToDepthFactor(headY, receptorY)));
-      const tailDepth = Math.max(0, Math.min(1.5, yToDepthFactor(note.endY, receptorY)));
+      const headY = isHoldBodyAnchored(note) ? receptorY : note.y;
+      const headDepth = clampNoteDepth(yToDepthFactor(headY, receptorY));
+      const tailDepth = clampNoteDepth(yToDepthFactor(note.endY, receptorY));
       const head = runwayPosition(note.column, ctx.keyCount, headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
       const tail = runwayPosition(note.column, ctx.keyCount, tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
 
@@ -116,7 +117,8 @@ export class HoldLayer {
         mesh.updateVerticesData(POSITION_KIND, positions, false, false);
       }
 
-      let alpha = note.opacity * noteOpacity * 0.62;
+      const holdColor = settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[note.column] || column.color;
+      let alpha = note.opacity * safeColorAlpha(holdColor) * 0.62;
       if (note.isHoldFailed) alpha *= 0.35;
        material.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[note.column] || column.color)).scale(0.7);
       material.alpha = alpha;
@@ -126,7 +128,7 @@ export class HoldLayer {
   }
 
   dispose(): void {
-    this.pool.forEach((mesh) => mesh.dispose());
+    this.pool.forEach((mesh) => mesh.dispose(false, true));
     this.pool = [];
     this.free = [];
     this.active.clear();

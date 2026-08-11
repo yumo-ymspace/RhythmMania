@@ -89,11 +89,17 @@ CREATE TABLE IF NOT EXISTS beatmap_chart_revisions (
     checksum_algorithm VARCHAR(8) NOT NULL CHECK (checksum_algorithm IN ('md5', 'sha256')),
     is_current BOOLEAN NOT NULL DEFAULT TRUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Server-produced canonical chart; client checksums are never sufficient
+    -- to make a revision active or a replay competitive.
+    canonical_chart JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     retired_at TIMESTAMPTZ,
     UNIQUE (source_chart_id, checksum),
     UNIQUE (beatmap_set_id, original_osu_filename, checksum)
 );
+
+ALTER TABLE beatmap_chart_revisions
+    ADD COLUMN IF NOT EXISTS canonical_chart JSONB;
 
 CREATE TABLE IF NOT EXISTS replays (
     id VARCHAR(64) PRIMARY KEY, -- Unique record UUID/identifier
@@ -146,6 +152,9 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_beatmap_diffs_set ON beatmap_difficulties(beatmap_set_id);
 CREATE INDEX IF NOT EXISTS idx_replays_diff_score ON replays(beatmap_difficulty_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_replays_revision_score ON replays(chart_revision_id, score DESC) WHERE is_failed = FALSE;
+CREATE INDEX IF NOT EXISTS idx_replays_verified_revision_score
+    ON replays(chart_revision_id, score DESC)
+    WHERE is_failed = FALSE AND upload_status = 'uploaded';
 CREATE INDEX IF NOT EXISTS idx_replays_user ON replays(user_id);
 CREATE INDEX IF NOT EXISTS idx_replays_hash ON replays(beatmap_hash);
 CREATE INDEX IF NOT EXISTS idx_replays_user_created ON replays(user_id, created_at DESC);

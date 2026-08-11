@@ -11,8 +11,22 @@
  */
 
 import JSZip from 'jszip';
+import {
+  addExtractedZipBytes,
+  type ZipExtractionBudget,
+  validateZipEntrySize,
+} from './securityLimits';
 
 type ZipObjectWithData = JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
+type ZipEntryStream = {
+  on(event: 'data', listener: (chunk: Uint8Array) => void): ZipEntryStream;
+  on(event: 'error' | 'end', listener: (error?: unknown) => void): ZipEntryStream;
+  pause(): ZipEntryStream;
+  resume(): ZipEntryStream;
+};
+type ZipObjectWithStream = JSZip.JSZipObject & {
+  internalStream?: (type: string) => ZipEntryStream;
+};
 
 export class RobustZipResolver {
   constructor(private zip: JSZip) {}
@@ -88,4 +102,59 @@ export class RobustZipResolver {
     }
     return null;
   }
+}
+
+/**
+ * Extract one entry while enforcing both JSZip's advertised size and the
+ * actual bytes returned by decompression. The caller shares a budget across
+ * all entries selected from the archive.
+ */
+export async function extractZipEntry(
+  file: JSZip.JSZipObject,
+  name: string,
+  budget: ZipExtractionBudget,
+): Promise<ArrayBuffer> {
+  validateZipEntrySize(file, name);
+  const internalStream = (file as ZipObjectWithStream).internalStream;
+  if (!internalStream) {
+    const data = await file.async('arraybuffer');
+    addExtractedZipBytes(budget, data.byteLength, name);
+    return data;
+  }
+
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let failed = false;
+    const stream = internalStream.call(file, 'uint8array');
+    stream
+      .on('data', (chunk) => {
+        if (failed) return;
+        try {
+          addExtractedZipBytes(budget, chunk.byteLength, name);
+          chunks.push(chunk);
+        } catch (error) {
+          failed = true;
+          stream.pause();
+          reject(error);
+        }
+      })
+      .on('error', (error) => {
+        if (!failed) {
+          failed = true;
+          reject(error instanceof Error ? error : new Error(`Failed to extract "${name}".`));
+        }
+      })
+      .on('end', () => {
+        if (failed) return;
+        const totalBytes = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+        const result = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+          result.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        resolve(result.buffer);
+      })
+      .resume();
+  });
 }

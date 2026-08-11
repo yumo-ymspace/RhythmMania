@@ -31,7 +31,6 @@ import SettingsToggle from './controls/SettingsToggle';
 import SettingsSlider from './controls/SettingsSlider';
 import SettingsSelect from './controls/SettingsSelect';
 import SettingsButton from './controls/SettingsButton';
-import ColorSwatchRow from './controls/ColorSwatchRow';
 
 interface SettingsDrawerProps {
   open: boolean;
@@ -67,11 +66,11 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !confirmOpen && !wizardOpen) onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+  }, [open, onClose, confirmOpen, wizardOpen]);
 
   const resetRow = (id: string) => {
     // If it's a complex object like bindings, we need to deep copy from DEFAULT_SETTINGS
@@ -111,7 +110,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
           {open && (
             <motion.div
               key="mobile-settings"
-              className="fixed inset-0 z-50 bg-[#08080c] flex flex-col font-sans select-none overflow-hidden"
+              className="fixed inset-0 z-50 bg-gradient-to-b from-[#242532]/98 to-[#181923]/98 flex flex-col font-sans select-none overflow-hidden"
               initial={{ x: '100vw' }}
               animate={{ x: 0 }}
               exit={{ x: '100vw' }}
@@ -181,7 +180,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         ? 1.2
                         : settings.playfieldStyle === 'circle'
                           ? 1.5
-                          : settings.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
+                          : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
                       const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                         ? BABYLON_PLAYFIELD_WIDTH_MIN
                         : row.control.min;
@@ -212,16 +211,6 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                             value={currentValue !== undefined ? String(currentValue) : (row.defaultValue !== undefined ? String(row.defaultValue) : '')}
                             options={row.control.options}
                             onChange={(v) => updateSettings({ [row.id]: v })}
-                          />
-                        </div>
-                      );
-                    } else if (row.control.kind === 'color-grid') {
-                      controlNode = (
-                        <div className="w-full mt-2">
-                          <ColorSwatchRow
-                            keys={row.control.keys}
-                            value={Array.isArray(currentValue) ? currentValue : []}
-                            onChange={(next) => updateSettings({ [row.id]: next })}
                           />
                         </div>
                       );
@@ -287,7 +276,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
               </div>
 
               {/* Restore Defaults & Version Sticky Footer */}
-              <div className="absolute bottom-0 inset-x-0 p-4 pb-6 bg-gradient-to-t from-[#08080c] via-[#08080c]/95 to-transparent border-t border-white/5 flex flex-col items-center">
+              <div className="absolute bottom-0 inset-x-0 p-4 pb-6 bg-gradient-to-t from-[#181923] via-[#181923]/95 to-transparent border-t border-white/5 flex flex-col items-center">
                 <button
                   onClick={handleRestoreRequest}
                   className="w-full py-3.5 bg-red-650 hover:bg-red-750 active:scale-95 text-white font-sans font-black text-xs uppercase tracking-widest rounded-xl transition shadow-lg"

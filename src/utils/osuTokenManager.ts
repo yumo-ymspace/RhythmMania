@@ -1,3 +1,5 @@
+import { withCsrfHeaders } from './csrfClient';
+
 const STORAGE_KEY = 'rhythm_mania_v1_osu_oauth';
 
 export type OsuAuthMode = 'auth_code' | 'byo';
@@ -80,7 +82,7 @@ export async function waitForOsuSlot(kind: OsuRequestKind): Promise<void> {
 async function mintByoToken(clientId: string, clientSecret: string): Promise<OsuTokenState> {
   const res = await fetch('/api/auth/osu/byo-token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: withCsrfHeaders({ Accept: 'application/json', 'Content-Type': 'application/json' }),
     body: JSON.stringify({ clientId, clientSecret }),
   });
   const json = await res.json().catch(() => ({}));
@@ -102,7 +104,7 @@ async function mintByoToken(clientId: string, clientSecret: string): Promise<Osu
 async function refreshAuthCode(refreshToken: string): Promise<OsuTokenState> {
   const res = await fetch('/api/auth/osu/refresh', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: withCsrfHeaders({ Accept: 'application/json', 'Content-Type': 'application/json' }),
     body: JSON.stringify({ refreshToken }),
   });
   const json = await res.json().catch(() => ({}));
@@ -167,23 +169,16 @@ export async function initiateOsuAuthCode(
   onSuccess: () => void,
   onError: (message: string) => void,
 ): Promise<void> {
+  let popup: Window | null = null;
   try {
-    const res = await fetch('/api/auth/osu/url', {
-      headers: { Accept: 'application/json' },
-      credentials: 'include',
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json.success || !json.data?.url) {
-      onError(json.error || 'osu! OAuth is not configured on the server');
-      return;
-    }
-
+    // Open synchronously while the click's user activation is still active.
+    // Navigating the popup after the URL request avoids browser popup blocking.
     const width = 520;
     const height = 720;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
-    const popup = window.open(
-      json.data.url,
+    popup = window.open(
+      'about:blank',
       'rhythm_mania_osu_auth',
       `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`,
     );
@@ -192,17 +187,46 @@ export async function initiateOsuAuthCode(
       return;
     }
 
+    const res = await fetch('/api/auth/osu/url', {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success || !json.data?.url) {
+      popup.close();
+      onError(json.error || 'osu! OAuth is not configured on the server');
+      return;
+    }
+
+    const popupUrl = json.data.url;
+    const state = new URL(popupUrl).searchParams.get('state');
+    if (!state) {
+      popup.close();
+      onError('osu! OAuth response did not include a valid state');
+      return;
+    }
+    const resultKey = `rhythm_mania_osu_auth_${state}`;
+
     let timeoutId: number | undefined;
     const cleanup = () => {
       window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
 
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type !== 'OSU_AUTH_RESULT') return;
+    const handleResult = (result: {
+      success?: boolean;
+      message?: string;
+      accessToken?: string;
+      refreshToken?: string;
+      expiresIn?: number;
+    }) => {
       cleanup();
-      const result = event.data.payload;
+      try {
+        window.localStorage.removeItem(resultKey);
+      } catch {
+        // Storage may be unavailable in a restricted browser context.
+      }
       if (result?.success && typeof result.accessToken === 'string') {
         saveAuthCodeTokens({
           accessToken: result.accessToken,
@@ -215,12 +239,36 @@ export async function initiateOsuAuthCode(
       }
     };
 
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'OSU_AUTH_RESULT') return;
+      handleResult(event.data.payload);
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== resultKey || !event.newValue) return;
+      try {
+        handleResult(JSON.parse(event.newValue) as {
+          success?: boolean;
+          message?: string;
+          accessToken?: string;
+          refreshToken?: string;
+          expiresIn?: number;
+        });
+      } catch {
+        onError('osu! authorization returned an invalid result');
+      }
+    };
+
     window.addEventListener('message', handleMessage);
+    window.addEventListener('storage', handleStorage);
     timeoutId = window.setTimeout(() => {
       cleanup();
       onError('osu! sign-in timed out. Please try again.');
     }, 5 * 60 * 1000);
+    popup.location.href = popupUrl;
   } catch (error) {
+    popup?.close();
     onError(error instanceof Error ? error.message : 'Failed to start osu! authorization');
   }
 }

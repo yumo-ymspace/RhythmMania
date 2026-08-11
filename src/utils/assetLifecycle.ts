@@ -122,7 +122,7 @@ export class AssetLifecycleManager {
    */
   public static releaseSpecific(url: string | undefined) {
     if (!url) return;
-    if (this.activeBlobUrls.has(url)) {
+    if (url.startsWith('blob:')) {
       try {
         URL.revokeObjectURL(url);
       } catch (e) {

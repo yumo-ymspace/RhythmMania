@@ -129,6 +129,15 @@ class PreviewPlayer {
       }
     });
   }
+
+  /** Stop synchronously before handing audio focus to gameplay. */
+  public stopImmediately(): void {
+    const a = this.audio;
+    this.clearFade();
+    this.audio = null;
+    this.src = null;
+    if (a) this.releaseElement(a);
+  }
 }
 
 export const previewPlayer = new PreviewPlayer();

@@ -9,14 +9,14 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.12
+**HIGH DENSITY MATRIX** · v0.8.13
 
-RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and a triple rendering engine (**HTML5 Canvas 2D** default, **PixiJS v8** WebGL option, and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
+RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and two rendering engines (**HTML5 Canvas 2D** default and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
 ### 🕹️ Play Now : **[https://www.rhythm-mania.com/](https://www.rhythm-mania.com/)**
 
 [![License: PolyForm Perimeter](https://img.shields.io/badge/License-PolyForm_Perimeter-green)](https://polyformproject.org/licenses/perimeter/1.0.1)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 
@@ -26,7 +26,7 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 
 ## Overview
 
-RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, triple Canvas2D/PixiJS v8/Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools — all without any server-side runtime.
+RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, Canvas2D and Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools. Local gameplay runs entirely in the browser; optional Vercel Functions and PostgreSQL provide accounts, profiles, catalog registration, and online replay records.
 
 RhythmMania is an **18+ service**. Minors may not use the game or any connected account, profile, catalog, or replay features, even with parental permission. See the in-app [Terms of Service](https://www.rhythm-mania.com/tos) and [Privacy Policy](https://www.rhythm-mania.com/privacypolicy).
 
@@ -37,7 +37,7 @@ RhythmMania is an **18+ service**. Minors may not use the game or any connected 
 ### Gameplay
 - **2K – 8K lane modes** with per-key-count default bindings and full rebind support
 - **Upward & downward scroll** direction toggle
-- **Triple playfield renderers**: Canvas2D (immediate-mode default), PixiJS v8 (WebGL scene-graph with sprite pooling and texture atlasing), and Babylon.js 3D (PJ Sekai-style converging runway with bloom post-processing)
+- **Dual playfield renderers**: Canvas2D (immediate-mode default) and Babylon.js 3D (PJ Sekai-style converging runway with bloom post-processing)
 - **Six-tier judgement system**: Marvelous → Perfect → Great → Good → Bad → Miss, each with tuned timing windows, score weights, and HP deltas derived from `overallDifficulty`
 - **Real-time precision diagnostics**: Live hit error meter, Unstable Rate (UR) metric calculation (population standard deviation of hit timing errors × 10), and post-play timing feedback
 - **Hold notes** with early-release detection and a configurable release grace period to absorb brief key bounces
@@ -87,7 +87,7 @@ the browser:
 - **Disable video** toggle
 - **Progress bar position** toggle (top or bottom) and an optional **FPS counter** overlay
 - **Disable particles** and **disable lane shake** toggles for performance and comfort
-- **Skin section**: rectangular or circular playfield, RhythmMania/RhythmPlus rectangular styles, per-element colors, opacity sliders (notes, receptors, judgement text, lane separators), note and receptor size scaling, a custom five-colour lane palette, and a live skin preview
+- **Skins menu**: choose RhythmMania Style Rectangular, RhythmPlus Classic Style Rectangular, RhythmPlus Dynamic Style Rectangular, or Circular Style, then adjust per-lane colors, opacity sliders (notes, receptors, judgement text, lane separators), note and receptor size scaling, and the live skin preview
 
 ### Background Video Sync
 A PI (proportional-integral) sync controller (`VideoSyncController`) continuously monitors audio/video drift:
@@ -146,7 +146,7 @@ The API surface is:
 | `GET /api/replays/get` | Retrieve a replay by ID |
 | `GET /api/catalog/search` | Proxy osu!mania search with the user's osu! token |
 | `POST /api/catalog/register-download` | Pending catalog registration (Google + osu! token) |
-| `POST /api/catalog/activate-download` | Activate charts after client checksum verify |
+| `POST /api/catalog/activate-download` | Activate charts after private mirror verification; returns pending when verification cannot complete |
 | `GET, PATCH /api/profile/me` | Read or update the signed-in user's profile |
 | `GET /api/profile/handle-check` | Check whether a handle is available |
 | `GET /api/profile/get` | Read a public profile by `userId` or `handle` |
@@ -154,11 +154,10 @@ The API surface is:
 | `POST /api/profile/avatar/preset` | Select a preset avatar |
 
 Create the PostgreSQL schema (users, sessions, beatmap_sets,
-beatmap_difficulties, replays, user_profiles, and user_avatars) with
-`database/schema.sql`. Databases created before the profile feature can add
-the profile/avatar tables with the idempotent `database/update.sql`.
-Existing databases that still carry the removed `privacy_flags` column can
-drop it with `database/drop_privacy_flags.sql`. The
+beatmap_difficulties, chart revisions, replays, user_profiles, and user_avatars) with
+`database/schema.sql`. The repository currently ships the complete schema, but
+no migration runner or separate migration files; existing deployments must
+apply approved schema changes manually with PostgreSQL tooling. The
 backend accepts either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/
 `POSTGRES_*` connection variables. Google OAuth uses `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET`. osu! catalog OAuth uses `OSU_CLIENT_ID` and
@@ -190,10 +189,10 @@ Media blob URLs are tracked and revoked through `AssetLifecycleManager`.
 | Layer | Technology |
 |---|---|
 | Framework | React 19 (functional components, hooks) |
-| Language | TypeScript 5.8 (strict) |
+| Language | TypeScript 5.9 (strict) |
 | Build | Vite 6 |
 | Styling | Tailwind CSS v4 (Vite plugin) |
-| Rendering | Triple Engine: HTML5 Canvas 2D (default), PixiJS v8 (WebGL), Babylon.js 3D (runway) |
+| Rendering | Dual Engine: HTML5 Canvas 2D (default), Babylon.js 3D (runway) |
 | Audio | Web Audio API |
 | ZIP parsing | JSZip 3 |
 | Icons | lucide-react |
@@ -205,8 +204,9 @@ Media blob URLs are tracked and revoked through `AssetLifecycleManager`.
 
 ## Settings and controls
 
-The settings drawer covers general, graphics, gameplay, audio, skin, input,
-and maintenance sections. Important defaults include:
+The settings drawer covers general, graphics, gameplay, audio, input, and
+maintenance sections. Skin styles and playfield tuning live in the header's
+Skins menu. Important defaults include:
 
 - 4K mode with `D F J K` bindings.
 - Scroll speed `21`, audio and visual offsets `0 ms`.
@@ -273,7 +273,7 @@ RhythmMania-Beta/
 │   ├── App.tsx                  Screen router and application state
 │   ├── audio/AudioEngine.ts     Web Audio transport and fallback synth
 │   ├── components/              Screens, gameplay host, and settings UI
-│   ├── render/                  Shared math and Canvas2D/Pixi/Babylon renderers
+│   ├── render/                  Shared math and Canvas2D/Babylon renderers
 │   ├── utils/                   Parsing, storage, replay, preview, input, and media
 │   └── types.ts                 Domain types
 ├── metadata.json                Build-time application metadata
@@ -283,17 +283,17 @@ RhythmMania-Beta/
 
 `GameplayCanvas.tsx` owns live timing, input, scoring, replay recording,
 media synchronization, and renderer hosting. Shared visual math belongs in
-`src/render/`; update the Canvas2D, Pixi, and Babylon renderers when changing
+`src/render/`; update the Canvas2D and Babylon renderers when changing
 playfield visuals.
 
 ---
 
 ## Development notes
 
-There is no automated unit or end-to-end test suite wired into `package.json`.
-The normal validation commands are `npm run lint` and `npm run build`, followed
-by manual play checks for importing, 4K play, hold notes, modifiers, replay
-history, video, touch input, and all three render engines.
+Focused Node-only tests are available with `npm test`. The normal validation
+commands are `npm run lint`, `npm test`, and `npm run build`, followed by manual
+play checks for importing, 4K play, hold notes, modifiers, replay history,
+video, touch input, and both render engines.
 
 ---
 

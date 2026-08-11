@@ -4,6 +4,7 @@ export interface OsuChart {
   version: string;
   keyCount: number;
   checksum: string;
+  starRating: number;
 }
 
 export interface EligibleOsuSet {
@@ -12,6 +13,7 @@ export interface EligibleOsuSet {
   creator: string;
   status: string;
   coverUrl?: string;
+  slimCoverUrl?: string;
   charts: OsuChart[];
 }
 
@@ -32,8 +34,9 @@ function asRecords(value: unknown): UnknownRecord[] {
 function toChart(value: UnknownRecord, filename: string): OsuChart | null {
   const id = Number(value.id);
   const keyCount = Number(value.cs);
+  const starRating = Number(value.difficulty_rating);
   const checksum = typeof value.checksum === 'string' ? value.checksum : '';
-  if (!Number.isInteger(id) || id < 1 || !checksum || keyCount < 2 || keyCount > 8) return null;
+  if (!Number.isInteger(id) || id < 1 || !checksum || !Number.isInteger(keyCount) || keyCount < 2 || keyCount > 8) return null;
 
   const osuFile = isRecord(value.osu_file) ? value.osu_file : undefined;
   return {
@@ -42,13 +45,21 @@ function toChart(value: UnknownRecord, filename: string): OsuChart | null {
     version: typeof value.version === 'string' ? value.version : 'Normal',
     keyCount,
     checksum,
+    starRating: Number.isFinite(starRating) ? starRating : 0,
   };
 }
 
 function coverFromSet(rawSet: UnknownRecord): string | undefined {
+  if (isRecord(rawSet.covers) && typeof rawSet.covers['list@2x'] === 'string') return rawSet.covers['list@2x'];
+  if (isRecord(rawSet.covers) && typeof rawSet.covers.list === 'string') return rawSet.covers.list;
   if (isRecord(rawSet.covers) && typeof rawSet.covers.card === 'string') return rawSet.covers.card;
   if (isRecord(rawSet.cover) && typeof rawSet.cover.url === 'string') return rawSet.cover.url;
   return undefined;
+}
+
+function slimCoverFromSet(rawSet: UnknownRecord): string | undefined {
+  if (isRecord(rawSet.covers) && typeof rawSet.covers.slimcover === 'string') return rawSet.covers.slimcover;
+  return coverFromSet(rawSet);
 }
 
 function parseEligibleSet(rawSet: UnknownRecord, requireEligibleStatus: boolean): (EligibleOsuSet & { sourceSetId: number }) | null {
@@ -70,6 +81,7 @@ function parseEligibleSet(rawSet: UnknownRecord, requireEligibleStatus: boolean)
     creator: String(rawSet.creator || 'Unknown Mapper'),
     status,
     coverUrl: coverFromSet(rawSet),
+    slimCoverUrl: slimCoverFromSet(rawSet),
     charts,
   };
 }
@@ -107,6 +119,7 @@ export async function fetchEligibleOsuSetWithToken(accessToken: string, setId: n
     creator: parsed.creator,
     status: parsed.status,
     coverUrl: parsed.coverUrl,
+    slimCoverUrl: parsed.slimCoverUrl,
     charts: parsed.charts,
   };
 }

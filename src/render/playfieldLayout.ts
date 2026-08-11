@@ -10,10 +10,10 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { getColumnStyles } from '../components/GameplayCanvas';
 import { PlayfieldVisualSettings, ColumnLayout } from './types';
 import { ScrollModel, getScrollDelta } from './scrollVelocity';
 import { isCircleSkinMode } from './skinTheme';
+import { getColumnStyles } from './laneLayout';
 
 export function updateColumnsLayout(
   existingColumns: ColumnLayout[],
@@ -93,9 +93,11 @@ export function getNoteVisualY(
   const noteScale = settings.noteSizeMultiplier ?? 1;
   const noteHeight = isCircleSkinMode(settings)
     ? columnWidth * (2 / 3) * noteScale
-    : settings.squareRenderStyle === 'rhythmplus'
-      ? 8 * noteScale
-      : 20 * noteScale;
+      : settings.squareRenderStyle === 'rhythmplus'
+        ? 8 * noteScale
+        : settings.squareRenderStyle === 'rhythmplus-dynamic'
+          ? (20 / 3) * noteScale
+        : 20 * noteScale;
   const halfHeight = noteHeight / 2;
   return settings.upsurfaceNoteMode ? timingY + halfHeight : timingY - halfHeight;
 }

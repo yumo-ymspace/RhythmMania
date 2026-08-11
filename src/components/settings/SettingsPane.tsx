@@ -20,7 +20,6 @@ import SettingsToggle from './controls/SettingsToggle';
 import SettingsSlider from './controls/SettingsSlider';
 import SettingsSelect from './controls/SettingsSelect';
 import SettingsButton from './controls/SettingsButton';
-import ColorSwatchRow from './controls/ColorSwatchRow';
 
 interface SettingsPaneProps {
   activeSection: SectionId;
@@ -99,7 +98,7 @@ export default function SettingsPane({
                 ? 1.2
                 : settings.playfieldStyle === 'circle'
                   ? 1.5
-                  : settings.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
+                  : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
               const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                 ? BABYLON_PLAYFIELD_WIDTH_MIN
                 : row.control.min;
@@ -130,14 +129,6 @@ export default function SettingsPane({
                   value={currentValue !== undefined ? String(currentValue) : (row.defaultValue !== undefined ? String(row.defaultValue) : '')}
                   options={row.control.options}
                   onChange={(v) => update({ [row.id]: v })}
-                />
-              );
-            } else if (row.control.kind === 'color-grid') {
-              controlNode = (
-                <ColorSwatchRow
-                  keys={row.control.keys}
-                  value={Array.isArray(currentValue) ? currentValue : []}
-                  onChange={(next) => update({ [row.id]: next })}
                 />
               );
             } else if (row.control.kind === 'button') {

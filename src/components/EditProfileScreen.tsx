@@ -43,10 +43,10 @@ export default function EditProfileScreen({
   const [initial, setInitial] = useState<string>('');
 
   useEffect(() => {
-    let active = true;
-    fetchMyProfile()
+    const controller = new AbortController();
+    fetchMyProfile(controller.signal)
       .then((data) => {
-        if (!active) return;
+        if (controller.signal.aborted) return;
         setAvatarUrl(data.user.avatarUrl || null);
         setAvatarSource(data.profile.avatarSource);
         setDisplayName(data.profile.displayName);
@@ -65,9 +65,9 @@ export default function EditProfileScreen({
         }));
         setHandleStatus(data.profile.handle ? 'ok' : 'idle');
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load profile'))
-      .finally(() => setLoading(false));
-    return () => { active = false; };
+      .catch((e) => { if (e instanceof DOMException && e.name === 'AbortError') return; setError(e instanceof Error ? e.message : 'Failed to load profile'); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, []);
 
   // Track unsaved changes
@@ -82,12 +82,13 @@ export default function EditProfileScreen({
     if (!handle) { setHandleStatus('idle'); return; }
     if (!HANDLE_RE.test(handle)) { setHandleStatus('invalid'); return; }
     setHandleStatus('checking');
+    const controller = new AbortController();
     handleDebounceRef.current = setTimeout(() => {
-      checkHandleAvailability(handle)
+      checkHandleAvailability(handle, controller.signal)
         .then((r) => setHandleStatus(r.available ? 'ok' : r.reason === 'reserved' ? 'reserved' : 'taken'))
-        .catch(() => setHandleStatus('idle'));
+        .catch((error) => { if (!(error instanceof DOMException && error.name === 'AbortError')) setHandleStatus('idle'); });
     }, 400);
-    return () => { if (handleDebounceRef.current) clearTimeout(handleDebounceRef.current); };
+    return () => { if (handleDebounceRef.current) clearTimeout(handleDebounceRef.current); controller.abort(); };
   }, [handle]);
 
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {

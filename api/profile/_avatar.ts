@@ -11,7 +11,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, sendError } from '../_lib/response.js';
+import { handleCors, requireSameOrigin, sendError } from '../_lib/response.js';
 import { getSessionFromReq, isValidUserId } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
 
@@ -33,13 +33,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
+      if (!requireSameOrigin(req, res)) return;
       return await handleUploadAvatar(req, res);
     }
 
     return sendError(res, 405, 'Method Not Allowed');
   } catch (e: unknown) {
-    console.error('Error in /api/profile/avatar:', e);
-    return sendError(res, 500, e instanceof Error ? e.message : 'Internal server error');
+    console.error('Profile avatar request failed:', e instanceof Error ? e.name : 'unknown');
+    return sendError(res, 500, 'Profile avatar service unavailable');
   }
 }
 

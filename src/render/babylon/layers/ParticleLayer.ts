@@ -5,7 +5,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
-import { RECEPTOR_Z, SLAB_HEIGHT, safeHex } from '../coords';
+import { RECEPTOR_Z, SLAB_HEIGHT, safeColorAlpha, safeHex } from '../coords';
 
 export class ParticleLayer {
   private pool: Mesh[] = [];
@@ -34,10 +34,8 @@ export class ParticleLayer {
     this.active = [];
     if (frame.settingsSlice.disableParticles || frame.particles.length === 0) return;
 
-    const multiplier = ctx.quality === 'low' ? 0.5 : ctx.quality === 'medium' ? 0.75 : 1;
-    const max = Math.min(frame.particles.length, ctx.quality === 'low' ? 40 : 80);
+    const max = Math.min(frame.particles.length, 80);
     for (let i = 0; i < max; i++) {
-      if (Math.random() > multiplier) continue;
       const particle = frame.particles[i];
       const mesh = this.acquire();
       const material = mesh.material as StandardMaterial;
@@ -50,12 +48,12 @@ export class ParticleLayer {
       const size = Math.max(0.035, particle.size * 0.018);
       mesh.scaling.setAll(size);
       material.emissiveColor = Color3.FromHexString(safeHex(particle.color, '#22d3ee'));
-      material.alpha = Math.max(0, Math.min(1, particle.alpha));
+       material.alpha = Math.max(0, Math.min(1, particle.alpha * safeColorAlpha(particle.color, '#22d3ee')));
     }
   }
 
   dispose(): void {
-    this.pool.forEach((mesh) => mesh.dispose());
+    this.pool.forEach((mesh) => mesh.dispose(false, true));
     this.pool = [];
     this.active = [];
   }

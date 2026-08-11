@@ -37,8 +37,15 @@ export function sanitizeSocialLinks(raw: unknown): Record<string, string> {
   const result: Record<string, string> = {};
   for (const key of ALLOWED_SOCIAL_KEYS) {
     const val = links[key];
-    if (typeof val === 'string' && val.length > 0 && val.length <= 256) {
-      result[key] = val;
+    if (typeof val !== 'string') continue;
+    const trimmed = val.trim();
+    if (!trimmed || trimmed.length > 256 || /[\u0000-\u001f\u007f]/.test(trimmed)) continue;
+    try {
+      const url = new URL(trimmed);
+      if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) continue;
+      result[key] = trimmed;
+    } catch {
+      // Invalid and protocol-relative values are not profile links.
     }
   }
   return result;

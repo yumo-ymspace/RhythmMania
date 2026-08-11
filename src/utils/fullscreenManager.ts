@@ -13,14 +13,18 @@
 export class FullscreenManager {
   public static async enterFocusMode(element: HTMLElement): Promise<void> {
     try {
-      const elem = element as any;
+      const elem = element as FullscreenElement;
       const requestMethod = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
       if (requestMethod) {
         await requestMethod.call(elem);
       }
 
-      if (window.screen && (window.screen as any).orientation?.lock) {
-        await (window.screen as any).orientation.lock('portrait').catch(() => {});
+      const orientation = window.screen.orientation as ScreenOrientation & {
+        lock?: (type: string) => Promise<void>;
+        unlock?: () => void;
+      };
+      if (orientation.lock) {
+        await orientation.lock('portrait').catch(() => {});
       }
     } catch {
       // Slient fail on focus failures
@@ -29,14 +33,15 @@ export class FullscreenManager {
 
   public static async exitFocusMode(): Promise<void> {
     try {
-      const doc = document as any;
+      const doc = document as FullscreenDocument;
       const exitMethod = doc.exitFullscreen || doc.webkitExitFullscreen || doc.mozCancelFullScreen || doc.msExitFullscreen;
       if (exitMethod) {
         await exitMethod.call(doc);
       }
 
-      if (window.screen && (window.screen as any).orientation?.unlock) {
-        (window.screen as any).orientation.unlock();
+      const orientation = window.screen.orientation as ScreenOrientation & { unlock?: () => void };
+      if (orientation.unlock) {
+        orientation.unlock();
       }
     } catch {
       // Silent fail
@@ -45,7 +50,22 @@ export class FullscreenManager {
 
   public static isFullscreenActive(): boolean {
     if (typeof document === 'undefined') return false;
-    const doc = document as any;
+    const doc = document as FullscreenDocument;
     return !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
   }
+}
+
+interface FullscreenElement extends HTMLElement {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+  mozRequestFullScreen?: () => Promise<void> | void;
+  msRequestFullscreen?: () => Promise<void> | void;
+}
+
+interface FullscreenDocument extends Document {
+  webkitExitFullscreen?: () => Promise<void> | void;
+  mozCancelFullScreen?: () => Promise<void> | void;
+  msExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+  mozFullScreenElement?: Element | null;
+  msFullscreenElement?: Element | null;
 }

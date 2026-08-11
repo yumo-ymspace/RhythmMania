@@ -16,6 +16,9 @@ export const PLAYFIELD_WIDTH_MIN = 20;
 export const PLAYFIELD_WIDTH_MAX = 50;
 export const BABYLON_PLAYFIELD_WIDTH_MIN = 40;
 export const BABYLON_PLAYFIELD_WIDTH_MAX = 90;
+export const SCROLL_SPEED_MIN = 5;
+export const SCROLL_SPEED_MAX = 80;
+export const HISTORY_LIMIT_UNLIMITED = -1;
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
   scrollSpeed: 21,
@@ -72,7 +75,6 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
   bindRetry: 'r',
   renderEngine: 'canvas',
   babylonFloor: true,
-  babylonQuality: 'high',
   enableMapSV: true,
   disableLaneShake: false,
   enableSongPreview: true,

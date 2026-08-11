@@ -17,6 +17,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     originalOsuFilename: row.original_osu_filename, checksum: row.checksum,
     checksumAlgorithm: row.checksum_algorithm, title: row.title, artist: row.artist,
     creator: row.creator, difficulty: row.difficulty, keyCount: row.key_count, mode: row.mode,
-    state: row.catalog_state, isActive: row.is_active,
+    state: row.catalog_state, isActive: row.catalog_state === 'active' && row.is_active && row.canonical_chart !== null,
   }});
 }

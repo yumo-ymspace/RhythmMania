@@ -11,6 +11,7 @@
  */
 
 import { ColumnJudgementCounts, JudgementType } from '../types';
+import { UnstableRateAccumulator } from './unstableRateAccumulator';
 
 /**
  * Initializes one ColumnJudgementCounts object for each key/column (0 to keyCount - 1).
@@ -88,33 +89,9 @@ export function incrementColumnJudgement(
  */
 export function calculateUnstableRate(errors: number[]): number | null {
   if (!Array.isArray(errors)) return null;
-
-  let sum = 0;
-  let count = 0;
-  for (let i = 0; i < errors.length; i++) {
-    const err = errors[i];
-    if (typeof err === 'number' && Number.isFinite(err)) {
-      sum += err;
-      count++;
-    }
+  const accumulator = new UnstableRateAccumulator();
+  for (const error of errors) {
+    if (typeof error === 'number') accumulator.add(error);
   }
-
-  if (count < 2) return null;
-
-  const mean = sum / count;
-  let varianceSum = 0;
-  for (let i = 0; i < errors.length; i++) {
-    const err = errors[i];
-    if (typeof err === 'number' && Number.isFinite(err)) {
-      const diff = err - mean;
-      varianceSum += diff * diff;
-    }
-  }
-
-  const populationVariance = varianceSum / count;
-  const stdDev = Math.sqrt(populationVariance);
-  const ur = stdDev * 10;
-
-  if (!Number.isFinite(ur) || ur < 0) return null;
-  return ur;
+  return accumulator.unstableRate;
 }

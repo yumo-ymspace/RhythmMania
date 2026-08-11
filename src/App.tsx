@@ -11,7 +11,25 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings as SettingsIcon, Keyboard, History, Compass, UserRound, Loader2 } from 'lucide-react';
+import {
+  Settings as SettingsIcon,
+  Music2,
+  RotateCcw,
+  Hammer,
+  Swords,
+  Compass,
+  UserRound,
+  MessageSquareWarning,
+  LogOut,
+  ChevronDown,
+  Loader2,
+  LogIn,
+  Maximize2,
+  Minimize2,
+  Volume2,
+  VolumeX,
+  Paintbrush,
+} from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
 import { AnimatePresence, motion, type Variants } from 'motion/react';
@@ -23,16 +41,21 @@ import PersonalHistoryScreen from './components/PersonalHistoryScreen';
 import ProfileScreen from './components/ProfileScreen';
 import EditProfileScreen from './components/EditProfileScreen';
 import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
+import SkinScreen from './components/SkinScreen';
 import JSZip from 'jszip';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
 import { unpackBeatmap } from './utils/unpackHelper';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
-import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES } from './utils/securityLimits';
+import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, createZipExtractionBudget, decodeBoundedUtf8 } from './utils/securityLimits';
 import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps } from './utils/replayManager';
+import { extractZipEntry } from './utils/zipResolver';
 import { uploadReplayRecord } from './utils/replayClient';
 import { AssetLifecycleManager } from './utils/assetLifecycle';
 import { AuthUser, fetchCurrentUser, logoutUser, initiateGoogleSignIn } from './utils/authClient';
+import { FullscreenManager } from './utils/fullscreenManager';
+import { previewPlayer } from './utils/previewPlayer';
+import type { ProfileTarget, ProfileTargetInput } from './utils/profileClient';
 
 
 const PAGE_TRANSITION_VARIANTS = {
@@ -50,25 +73,60 @@ import {
   DEFAULT_SETTINGS,
   PLAYFIELD_WIDTH_MAX,
   PLAYFIELD_WIDTH_MIN,
+  HISTORY_LIMIT_UNLIMITED,
+  SCROLL_SPEED_MAX,
+  SCROLL_SPEED_MIN,
 } from './components/settings/defaultSettings';
+
+type AppRoute = {
+  screen: GameScreen;
+  profileTarget: ProfileTarget | null;
+  settingsOpen: boolean;
+};
+
+function resolveRoute(pathname: string): AppRoute {
+  if (pathname === '/profile/edit' || pathname === '/profile/edit/') {
+    return { screen: 'editprofile', profileTarget: null, settingsOpen: false };
+  }
+  const profilePath = pathname.match(/^\/profile\/([^/]+)\/?$/);
+  if (profilePath) {
+    let value = profilePath[1];
+    try { value = decodeURIComponent(value); } catch { /* keep the encoded route value for the API error */ }
+    const kind = /^[A-Za-z0-9]{16}$/.test(value) ? 'userId' : 'handle';
+    return { screen: 'profile', profileTarget: { kind, value }, settingsOpen: false };
+  }
+  if (pathname === '/profile' || pathname === '/profile/') {
+    return { screen: 'profile', profileTarget: null, settingsOpen: false };
+  }
+  const paths: Record<string, GameScreen> = {
+    '/select': 'select',
+    '/play': 'play',
+    '/results': 'results',
+    '/history': 'history',
+    '/settings': 'menu',
+    '/skins': 'skins',
+  };
+  return {
+    screen: paths[pathname] || 'menu',
+    profileTarget: null,
+    settingsOpen: pathname === '/settings',
+  };
+}
 
 export default function App() {
   const [path, setPath] = useState<string>(() => typeof window !== 'undefined' ? window.location.pathname : '/');
-  const [profileUserId, setProfileUserId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    const match = window.location.pathname.match(/^\/profile\/([A-Za-z0-9]{16})$/);
-    return match ? match[1] : null;
-  });
-  const [currentScreen, setCurrentScreen] = useState<GameScreen>(() => {
-    if (typeof window !== 'undefined' && /^\/profile\/[A-Za-z0-9]{16}$/.test(window.location.pathname)) {
-      return 'profile';
-    }
-    if (typeof window !== 'undefined' && /^\/profile\/edit(?:\/)?$/.test(window.location.pathname)) {
-      return 'editprofile';
-    }
-    return 'menu';
-  });
+  const initialRoute = resolveRoute(typeof window !== 'undefined' ? window.location.pathname : '/');
+  const [profileTarget, setProfileTarget] = useState<ProfileTarget | null>(initialRoute.profileTarget);
+  const [currentScreen, setCurrentScreen] = useState<GameScreen>(initialRoute.screen);
   const [selectedBeatmap, setSelectedBeatmap] = useState<Beatmap | null>(null);
+
+  // Song Select can remain mounted during the page transition, so cut its
+  // independent HTMLAudio preview before gameplay takes over audio focus.
+  useEffect(() => {
+    if (currentScreen === 'play') {
+      previewPlayer.stopImmediately();
+    }
+  }, [currentScreen]);
 
   const navigateToPath = useCallback((href: string) => {
     if (typeof window !== 'undefined' && window.location.pathname !== href) {
@@ -77,26 +135,25 @@ export default function App() {
     setPath(href);
   }, []);
 
-  const openProfile = useCallback((userId: string) => {
-    navigateToPath(`/profile/${userId}`);
-    setProfileUserId(userId);
-    setCurrentScreen('profile');
+  const navigateScreen = useCallback((screen: GameScreen) => {
+    const href = screen === 'menu' ? '/' : `/${screen}`;
+    navigateToPath(href);
+  }, [navigateToPath]);
+
+  const openSettings = useCallback(() => setShowSettings(true), []);
+
+  const openProfile = useCallback((target: ProfileTargetInput) => {
+    const resolved: ProfileTarget = typeof target === 'string' ? { kind: 'userId', value: target } : target;
+    navigateToPath(`/profile/${encodeURIComponent(resolved.value)}`);
   }, [navigateToPath]);
 
   const openEditProfile = useCallback(() => {
     navigateToPath('/profile/edit');
-    setProfileUserId(null);
-    setCurrentScreen('editprofile');
   }, [navigateToPath]);
 
   const leaveProfilePath = useCallback((screen: GameScreen = 'menu') => {
-    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/profile/')) {
-      window.history.pushState({}, '', '/');
-    }
-    setPath('/');
-    setProfileUserId(null);
-    setCurrentScreen(screen);
-  }, []);
+    navigateScreen(screen);
+  }, [navigateScreen]);
 
   // Listen to popstate for browser back/forward buttons
   useEffect(() => {
@@ -109,33 +166,21 @@ export default function App() {
 
   // Sync profile route from URL path
   useEffect(() => {
-    if (/^\/profile\/edit(?:\/)?$/.test(path)) {
-      setProfileUserId(null);
-      setCurrentScreen('editprofile');
-      return;
-    }
-    const match = path.match(/^\/profile\/([A-Za-z0-9]{16})$/);
-    if (match) {
-      setProfileUserId(match[1]);
-      setCurrentScreen('profile');
-      return;
-    }
-    if (path.startsWith('/profile')) {
-      setProfileUserId(null);
-      setCurrentScreen('profile');
-      return;
-    }
-    // The URL dropped out of the profile route (e.g. the browser
-    // back/forward button landed on "/" while the in-app screen state
-    // was still showing the profile). Reset to the menu so the visible
-    // UI matches the URL. Other non-profile screens (play/select/
-    // results/history) deliberately share the "/" URL, so we only
-    // intervene when the screen state is actually stale on 'profile'.
-    if (currentScreen === 'profile' || currentScreen === 'editprofile') {
-      setProfileUserId(null);
+    const route = resolveRoute(path);
+    if ((route.screen === 'play' || route.screen === 'results') && !selectedBeatmap) {
+      setProfileTarget(null);
       setCurrentScreen('menu');
+      setShowSettings(false);
+      if (typeof window !== 'undefined' && window.location.pathname === path) {
+        window.history.replaceState({}, '', '/');
+      }
+      if (path !== '/') setPath('/');
+      return;
     }
-  }, [path, currentScreen]);
+    setProfileTarget(route.profileTarget);
+    setCurrentScreen(route.screen);
+    setShowSettings(route.settingsOpen);
+  }, [path, selectedBeatmap]);
 
   // Globally intercept local link clicks to enable single-page transitions
   useEffect(() => {
@@ -147,7 +192,7 @@ export default function App() {
         if (href && href.startsWith('/')) {
           e.preventDefault();
           window.history.pushState({}, '', href);
-          setPath(href);
+          setPath(new URL(href, window.location.origin).pathname);
         }
       }
     };
@@ -172,7 +217,6 @@ export default function App() {
     return DEFAULT_SETTINGS;
   });
   const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/Ferineon.webp');
-  const [isMobile, setIsMobile] = useState<boolean>(false);
   const [isMobileLandscape, setIsMobileLandscape] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showFindBeatmapOverlay, setShowFindBeatmapOverlay] = useState<boolean>(false);
@@ -186,6 +230,11 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const previousMasterVolumeRef = useRef<number | null>(null);
 
   // Bootstrap current user session on mount
   useEffect(() => {
@@ -209,6 +258,7 @@ export default function App() {
   };
 
   const requestSignOut = () => {
+    setIsAccountMenuOpen(false);
     setShowLogoutConfirm(true);
   };
 
@@ -216,6 +266,65 @@ export default function App() {
     setShowLogoutConfirm(false);
     await logoutUser();
     setCurrentUser(null);
+  };
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsAccountMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAccountMenuOpen]);
+
+  useEffect(() => {
+    setIsAccountMenuOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(FullscreenManager.isFullscreenActive());
+    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenState);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreenState);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreenState);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (FullscreenManager.isFullscreenActive()) {
+      await FullscreenManager.exitFocusMode();
+    } else {
+      await FullscreenManager.enterFocusMode(document.documentElement);
+    }
+    setIsFullscreen(FullscreenManager.isFullscreenActive());
+  };
+
+  const toggleMute = () => {
+    if (isMuted) {
+      updateSettings({ masterVolume: previousMasterVolumeRef.current ?? DEFAULT_SETTINGS.masterVolume });
+      previousMasterVolumeRef.current = null;
+      setIsMuted(false);
+      return;
+    }
+
+    previousMasterVolumeRef.current = settings.masterVolume > 0
+      ? settings.masterVolume
+      : DEFAULT_SETTINGS.masterVolume;
+    updateSettings({ masterVolume: 0 });
+    setIsMuted(true);
   };
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
   const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
@@ -241,16 +350,6 @@ export default function App() {
     return selectedBeatmap;
   }, [selectedBeatmap, settings.selectedMods, activeReplayRecord]);
 
-
-  // Load play history & latency settings on mount
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Monitor landscape orientation on mobile devices
   useEffect(() => {
@@ -314,7 +413,9 @@ export default function App() {
         const storedLimit = localStorage.getItem('rhythm_mania_v1_history_limit');
         if (storedLimit) {
           const parsedLimit = Number(storedLimit);
-          if (!isNaN(parsedLimit) && parsedLimit >= 5 && parsedLimit <= 500) {
+           if (parsedLimit === 9999 || parsedLimit === HISTORY_LIMIT_UNLIMITED || storedLimit.toLowerCase() === 'unlimited') {
+             setHistoryLimit(HISTORY_LIMIT_UNLIMITED);
+           } else if (!isNaN(parsedLimit) && parsedLimit >= 5 && parsedLimit <= 500) {
             setHistoryLimit(parsedLimit);
           } else {
             setHistoryLimit(50);
@@ -393,7 +494,7 @@ export default function App() {
     const fresh = records.filter(r => !existingIds.has(r.id));
     if (fresh.length === 0) return 0;
     setPlayHistory(prev => {
-      const merged = [...fresh, ...prev].slice(0, historyLimit);
+       const merged = historyLimit > 0 ? [...fresh, ...prev].slice(0, historyLimit) : [...fresh, ...prev];
       if (typeof window !== 'undefined') {
         try {
           localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(merged));
@@ -407,15 +508,18 @@ export default function App() {
   };
 
   const handleSetHistoryLimit = (limit: number) => {
-    setHistoryLimit(limit);
+    const normalizedLimit = limit === 9999 || limit === HISTORY_LIMIT_UNLIMITED
+      ? HISTORY_LIMIT_UNLIMITED
+      : Math.max(5, Math.min(500, limit));
+    setHistoryLimit(normalizedLimit);
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('rhythm_mania_v1_history_limit', String(limit));
+        localStorage.setItem('rhythm_mania_v1_history_limit', normalizedLimit === HISTORY_LIMIT_UNLIMITED ? 'unlimited' : String(normalizedLimit));
         
         // Trim current logs that overflow the threshold
         setPlayHistory(prev => {
-          if (prev.length > limit) {
-            const truncated = prev.slice(0, limit);
+          if (normalizedLimit > 0 && prev.length > normalizedLimit) {
+            const truncated = prev.slice(0, normalizedLimit);
             localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(truncated));
             return truncated;
           }
@@ -464,7 +568,7 @@ export default function App() {
 
       setSelectedBeatmap(cloned);
       setActiveReplayRecord(record);
-      setCurrentScreen('play');
+       navigateScreen('play');
       return { success: true };
     }
 
@@ -510,10 +614,13 @@ export default function App() {
         () => {},
         MAX_COMPRESSED_SIZE_BYTES,
       );
+      if (blob.size > MAX_COMPRESSED_SIZE_BYTES) throw new Error('Security Exception: Downloaded package exceeds the size limit.');
       const arrayBuffer = await blob.arrayBuffer();
 
-      const zip = await JSZip.loadAsync(arrayBuffer);
-      const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));
+       const zip = await JSZip.loadAsync(arrayBuffer);
+       validateZipLimits(zip);
+       const extractionBudget = createZipExtractionBudget();
+       const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));
       if (osuFiles.length === 0) throw new Error('No .osu files in beatmap package');
 
       const importedMaps: Beatmap[] = [];
@@ -521,7 +628,7 @@ export default function App() {
        if (!pkgId) throw new Error('Replay has no verified cloud set identity');
 
       for (const fileKey of osuFiles) {
-         const content = await zip.files[fileKey].async('string');
+          const content = decodeBoundedUtf8(await extractZipEntry(zip.files[fileKey], fileKey, extractionBudget), `Beatmap file ${fileKey}`);
          const parsed = parseBeatmap(content, fileKey);
          if (parsed) {
            const isTarget = fileKey === catalogEntry.originalOsuFilename;
@@ -543,10 +650,7 @@ export default function App() {
 
       if (importedMaps.length === 0) throw new Error('Failed to parse beatmap files');
 
-      await storageManager.savePackage(pkgId, catalogEntry?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]));
-      for (const m of importedMaps) {
-        await storageManager.saveBeatmap(m as any);
-      }
+       await storageManager.savePackageWithBeatmaps(pkgId, catalogEntry?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]), importedMaps);
 
       setCustomMaps(prev => {
         const existingIds = new Set(prev.map(m => m.id));
@@ -577,7 +681,7 @@ export default function App() {
 
       setSelectedBeatmap(clonedMatch);
       setActiveReplayRecord(record);
-      setCurrentScreen('play');
+       navigateScreen('play');
       return { success: true };
     } catch (e: unknown) {
       console.error('Failed to auto-download mirror beatmap for replay:', e);
@@ -624,15 +728,6 @@ export default function App() {
     };
   }, [currentScreen, showSettings]);
 
-  useEffect(() => {
-    if (!showSettings) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowSettings(false);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [showSettings]);
-
   // Debounced settings persistence to local storage
   const isInitialSettingsLoad = useRef(true);
   useEffect(() => {
@@ -660,12 +755,12 @@ export default function App() {
         } else {
           const savedCustomMapsText = localStorage.getItem(LOCAL_STORAGE_CUSTOM_MAPS_KEY);
           if (savedCustomMapsText) {
-            const parsed = JSON.parse(savedCustomMapsText) as Beatmap[];
+             const parsed: unknown = JSON.parse(savedCustomMapsText);
             if (Array.isArray(parsed) && parsed.length > 0) {
               const { maps: migratedMaps } = await migrateAndNormalizeBeatmaps(parsed);
               setCustomMaps(migratedMaps);
               for (const map of migratedMaps) {
-                await storageManager.saveBeatmap(map as any);
+                 await storageManager.saveBeatmap(map);
               }
             }
           }
@@ -680,7 +775,7 @@ export default function App() {
   const updateSettings = useCallback((newSettings: Partial<GameSettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
-      const renderEngine = updated.renderEngine === 'pixi' ? 'pixi' : updated.renderEngine === 'babylon' ? 'babylon' : 'canvas';
+      const renderEngine = updated.skinId === 'rhythmmania-3d' || updated.renderEngine === 'babylon' ? 'babylon' : 'canvas';
       const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
       const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
       const requestedWidth = Number(updated.playfieldWidthPercent !== undefined ? updated.playfieldWidthPercent : 40);
@@ -688,10 +783,10 @@ export default function App() {
         ? Math.max(widthMin, Math.min(widthMax, requestedWidth))
          : Math.max(widthMin, Math.min(widthMax, 40));
        const sizeMax = renderEngine === 'babylon'
-         ? 1.2
-         : updated.playfieldStyle === 'circle'
-           ? 1.5
-           : updated.squareRenderStyle === 'rhythmplus' ? 1.1 : 1.05;
+          ? 1.2
+          : updated.playfieldStyle === 'circle'
+            ? 1.5
+            : (updated.squareRenderStyle === 'rhythmplus' || updated.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
       const safePayload: GameSettings = {
         scrollSpeed: Number(updated.scrollSpeed !== undefined ? updated.scrollSpeed : 21),
         audioOffset: Number(updated.audioOffset !== undefined ? updated.audioOffset : 0),
@@ -702,7 +797,7 @@ export default function App() {
         masterVolume: Number(updated.masterVolume !== undefined ? updated.masterVolume : 1.0),
         keyMode: Number(updated.keyMode !== undefined ? updated.keyMode : 4),
         bindings: {},
-        upsurfaceNoteMode: updated.renderEngine === 'babylon'
+        upsurfaceNoteMode: renderEngine === 'babylon'
           ? false
           : (updated.upsurfaceNoteMode === true || String(updated.upsurfaceNoteMode) === 'true'),
         videoOpacity: 1.0,
@@ -712,7 +807,7 @@ export default function App() {
         videoOffset: Number(updated.videoOffset !== undefined ? updated.videoOffset : 0),
         disableParticles: Boolean(updated.disableParticles),
         limitDprToOne: false,
-        skinId: updated.skinId || 'neon',
+        skinId: updated.skinId || 'custom',
         customSkinColors: updated.customSkinColors,
         customSkinName: updated.customSkinName,
         squareRenderStyle: updated.squareRenderStyle || 'rhythmmania',
@@ -734,10 +829,6 @@ export default function App() {
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
          renderEngine,
         babylonFloor: updated.babylonFloor !== undefined ? Boolean(updated.babylonFloor) : true,
-        babylonQuality:
-          updated.babylonQuality === 'low' ? 'low'
-          : updated.babylonQuality === 'medium' ? 'medium'
-          : 'high',
         enableMapSV: updated.enableMapSV !== false,
         disableLaneShake: Boolean(updated.disableLaneShake),
         enableSongPreview: updated.enableSongPreview !== false,
@@ -763,10 +854,18 @@ export default function App() {
       return [map, ...filtered];
     });
     try {
-      await storageManager.saveBeatmap(map as any);
+      await storageManager.saveBeatmap(map);
     } catch (e) {
       console.error('Failed to persist imported beatmap to IndexedDB:', e instanceof Error ? e.message : String(e));
     }
+  };
+
+  const handleImportPackage = async (packageId: string, name: string, blob: Blob, maps: Beatmap[]) => {
+    await storageManager.savePackageWithBeatmaps(packageId, name, blob, maps);
+    setCustomMaps(prev => {
+      const importedIds = new Set(maps.map(map => map.id));
+      return [...maps, ...prev.filter(map => !importedIds.has(map.id))];
+    });
   };
 
   const handleDeleteSongGroup = async (mapIds: string[]) => {
@@ -789,23 +888,13 @@ export default function App() {
     };
     setSelectedBeatmap(cloned);
     setHasPlayedThisSession(true);
-    setCurrentScreen('play');
+    navigateScreen('play');
   };
 
   const handleGameplayFinish = (finalScore: ScoreState, replayFrames: ReplayFrame[] = [], hitErrors?: number[]) => {
     // Session-only precision samples; never persisted (AGENTS.md storage contract).
     setLastHitErrors(hitErrors && hitErrors.length > 0 ? [...hitErrors] : null);
-    try {
-      if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(err => console.log('Exit fullscreen failed:', err));
-        } else if ((document as any).webkitExitFullscreen) {
-          (document as any).webkitExitFullscreen();
-        }
-      }
-    } catch (e) {
-      console.log('Fullscreen exit error:', e);
-    }
+    void FullscreenManager.exitFocusMode();
 
     // Only commit to performance logs if they are NOT playing a spectator replay and it's a mania map (mode 3, or undefined/null/keyCount in mania range)
     const isMania = selectedBeatmap && (
@@ -846,7 +935,7 @@ export default function App() {
       }
 
       setPlayHistory(prev => {
-        const appended = [newRecord, ...prev].slice(0, historyLimit);
+         const appended = historyLimit > 0 ? [newRecord, ...prev].slice(0, historyLimit) : [newRecord, ...prev];
         if (typeof window !== 'undefined') {
           try {
             localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(appended));
@@ -859,7 +948,7 @@ export default function App() {
 
       if (shouldUpload) {
         uploadReplayRecord(newRecord).then((result) => {
-          const finalStatus: UploadStatus = result.success ? 'uploaded' : 'failed';
+          const finalStatus: UploadStatus = result.success ? result.uploadStatus : 'failed';
           setPlayHistory(prev => {
             const updated = prev.map(rec => rec.id === newRecordId ? { ...rec, uploadStatus: finalStatus } : rec);
             if (typeof window !== 'undefined') {
@@ -880,7 +969,7 @@ export default function App() {
       setActiveReplayRecord(null);
       setSelectedBeatmap(null);
       setScoreState(null);
-      setCurrentScreen('select');
+       navigateScreen('select');
       return;
     }
 
@@ -890,14 +979,14 @@ export default function App() {
     // others' replays (not in playHistory) the lookup naturally yields no activeRecord, which
     // keeps the limited results view as intended.
     setScoreState({ ...finalScore, recordId: activeReplayRecord?.id || newRecordId });
-    setCurrentScreen('results');
+    navigateScreen('results');
   };
 
   const handleRetrySong = () => {
     setActiveReplayRecord(null);
     setLastHitErrors(null);
     setSelectedBeatmap(null);
-    setCurrentScreen('select');
+    navigateScreen('select');
   };
 
   if (path === '/tos') {
@@ -925,8 +1014,8 @@ export default function App() {
   return (
     <div 
       id="application-container" 
-      className={`bg-[#050508] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950 relative h-screen ${
-        (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
+      className={`bg-[#050508] text-white flex flex-col font-sans selection:bg-cyan-300 selection:text-[#041321] relative h-screen ${
+        (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
     >
       {/* LANDSCAPE ORIENTATION WARNING BLOCKER FOR MOBILE PHONES */}
@@ -956,8 +1045,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* Disable old blocker block */}
-      {false && (
+       {/* Mobile landscape blocker */}
+       {isMobileLandscape && (
         <AnimatePresence>
           {isMobileLandscape && (
             <motion.div
@@ -1035,182 +1124,245 @@ export default function App() {
 
       {/* 1. MASTER HEADER */}
       {currentScreen !== 'play' && (
-        <header 
-          id="main-header" 
-          className="h-16 flex items-center px-4 md:px-6 justify-between z-30 transition-all bg-[#000000] border-b border-white/10 sticky top-0"
-        >
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-4 relative">
-            <div
-              onClick={() => leaveProfilePath('menu')}
-              className="flex items-center cursor-pointer group select-none shrink-0"
-              title="Back to Menu"
-            >
-              <img
-                src="/icons/favicon-64.png"
-                alt="RhythmMania logo"
-                className="h-7 w-7 md:h-9 md:w-9 mr-2 md:mr-2.5 rounded-lg object-cover shadow-[0_0_12px_rgba(0,176,255,0.45)] group-hover:shadow-[0_0_18px_rgba(0,176,255,0.7)] group-hover:scale-105 transition-all duration-150 pointer-events-none select-none"
-                draggable={false}
-              />
-              <h1 className="text-xl md:text-3xl font-bold font-sans tracking-tight text-white leading-none group-hover:scale-105 transition-transform duration-150">
-                Rhythm<span className="text-[#ff4da6] font-bold">Mania</span>
-              </h1>
-            </div>
+        <>
+          <header
+            id="main-header"
+            className="sticky top-0 z-30 h-[60px] shrink-0 border-b border-white/[0.08] bg-[#061a34]/95 px-2 shadow-[0_8px_30px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:h-[68px] sm:px-5 md:px-7"
+          >
+            <div className="mx-auto flex h-full w-full max-w-[1440px] items-center gap-1 sm:gap-2">
+              <button
+                type="button"
+                onClick={() => leaveProfilePath('menu')}
+                className="group flex shrink-0 items-center gap-2 rounded-xl py-2 pr-2 text-left transition-transform duration-150 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                title="Back to menu"
+              >
+                <img
+                  src="/icons/favicon-64.png"
+                  alt="RhythmMania logo"
+                  className="h-8 w-8 rounded-lg object-cover shadow-[0_0_16px_rgba(0,176,255,0.4)] transition-shadow duration-150 group-hover:shadow-[0_0_22px_rgba(0,176,255,0.7)] sm:h-9 sm:w-9"
+                  draggable={false}
+                />
+                <span className="hidden text-[1.35rem] font-black leading-none tracking-[-0.04em] text-white sm:inline md:text-[1.55rem]">
+                  Rhythm<span className="text-cyan-300">Mania</span>
+                </span>
+              </button>
 
-            {/* TOP MIDDLE: Find Online Beatmaps Button */}
-            {!isMobile && (
-              <div className="absolute left-1/2 -translate-x-1/2">
+              <nav id="top-nav" aria-label="Primary navigation" className="scrollbar-none flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto md:ml-3 md:gap-1">
                 <button
-                  id="header-find-beatmap-button"
+                  id="header-nav-song-select"
+                  type="button"
+                  onClick={() => leaveProfilePath('select')}
+                  className={`group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4 ${currentScreen === 'select' ? 'bg-[#193454] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  title="Song Select"
+                >
+                  <Music2 className="h-[19px] w-[19px] shrink-0 text-slate-300 transition-colors group-hover:text-cyan-200" />
+                  <span className="hidden sm:inline">Song Select</span>
+                </button>
+
+                <button
+                  id="header-nav-map-maker"
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide text-slate-500 opacity-75 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4"
+                  title="Map Maker is coming soon"
+                >
+                  <Hammer className="h-[19px] w-[19px] shrink-0 text-slate-400" />
+                  <span className="hidden sm:inline">Map Maker</span>
+                </button>
+
+                <button
+                  id="header-nav-party"
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide text-slate-500 opacity-75 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4"
+                  title="Party is coming soon"
+                >
+                  <Swords className="h-[19px] w-[19px] shrink-0 text-slate-400" />
+                  <span className="hidden sm:inline">Party</span>
+                </button>
+
+                <button
+                  id="header-nav-beatmap-listing"
+                  type="button"
+                  onClick={() => setShowFindBeatmapOverlay(true)}
+                  className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4"
+                  title="Beatmap Listing"
+                >
+                  <Compass className="h-[19px] w-[19px] shrink-0 text-slate-300 transition-colors group-hover:text-cyan-200" />
+                  <span className="hidden sm:inline">Beatmap Listing</span>
+                </button>
+
+                <button
+                  id="header-nav-skins"
+                  type="button"
                   onClick={() => {
-                    setShowFindBeatmapOverlay(true);
+                    setShowSettings(false);
+                    leaveProfilePath('skins');
                   }}
-                  className="group relative overflow-hidden px-2.5 py-1.5 md:px-5 md:py-2 bg-[#12121a] text-white rounded-full border border-pink-500/35 hover:border-pink-500 hover:brightness-115 transition hover:scale-[1.03] active:scale-95 cursor-pointer uppercase font-sans font-extrabold text-[9px] md:text-xs tracking-wider flex items-center gap-1 shadow-xl"
+                  className={`group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4 ${currentScreen === 'skins' ? 'bg-[#193454] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  title="Skins"
                 >
-                  <Compass className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />
-                  <span className="tracking-wide">FIND ONLINE BEATMAPS</span>
-                  <span className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Paintbrush className="h-[19px] w-[19px] shrink-0 text-slate-300 transition-colors group-hover:text-cyan-200" />
+                  <span className="hidden sm:inline">Skins</span>
+                </button>
+
+                <button
+                  id="header-nav-settings"
+                  type="button"
+                  onClick={() => showSettings ? setShowSettings(false) : openSettings()}
+                  className={`group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4 ${showSettings ? 'bg-[#193454] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  title="Settings"
+                >
+                  <SettingsIcon className="h-[19px] w-[19px] shrink-0 text-slate-300 transition-colors group-hover:text-cyan-200" />
+                  <span className="hidden sm:inline">Settings</span>
+                </button>
+
+                <button
+                  id="header-nav-history"
+                  type="button"
+                  onClick={() => leaveProfilePath('history')}
+                  className={`group flex h-10 w-9 items-center justify-center gap-2 rounded-xl px-0 text-[11px] font-bold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3 md:px-4 ${currentScreen === 'history' ? 'bg-[#193454] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  title="History"
+                >
+                  <RotateCcw className="h-[19px] w-[19px] shrink-0 text-slate-300 transition-colors group-hover:text-cyan-200" />
+                  <span className="hidden sm:inline">History</span>
+                </button>
+              </nav>
+
+              <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+                {authLoading ? (
+                  <div className="flex h-10 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 sm:h-11 sm:w-[118px]">
+                    <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
+                    <span className="ml-2 hidden text-[11px] font-bold sm:inline">Loading</span>
+                  </div>
+                ) : currentUser ? (
+                  <div ref={accountMenuRef} className="relative">
+                    <button
+                      id="header-nav-account"
+                      type="button"
+                      onClick={() => setIsAccountMenuOpen((open) => !open)}
+                      className={`group flex h-10 max-w-[9rem] items-center gap-2 rounded-xl border px-2 text-cyan-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:max-w-none sm:px-3.5 ${isAccountMenuOpen ? 'border-cyan-200/50 bg-cyan-300/[0.16]' : 'border-cyan-300/25 bg-cyan-300/[0.08] hover:border-cyan-200/50 hover:bg-cyan-300/[0.14]'}`}
+                      title="Open account menu"
+                      aria-label={`Open account menu for ${currentUser.username}`}
+                      aria-haspopup="menu"
+                      aria-expanded={isAccountMenuOpen}
+                    >
+                      {currentUser.avatarUrl ? (
+                        <img src={currentUser.avatarUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-cyan-200/40" />
+                      ) : (
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/20 text-[10px] font-black text-cyan-100 ring-1 ring-cyan-200/40">
+                          {currentUser.username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="min-w-0 truncate text-[11px] font-bold">{currentUser.username}</span>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-cyan-200/80 transition-transform duration-150 ${isAccountMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </button>
+
+                    {isAccountMenuOpen && (
+                      <div
+                        role="menu"
+                        aria-label="Account menu"
+                        className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-lg border border-white/[0.12] bg-[#392c4c]/95 p-1.5 shadow-[0_14px_35px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsAccountMenuOpen(false);
+                            openEditProfile();
+                          }}
+                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                        >
+                          <SettingsIcon className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                          <span>Account Settings</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsAccountMenuOpen(false);
+                            openProfile({ kind: 'userId', value: currentUser.id });
+                          }}
+                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                        >
+                          <UserRound className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                          <span>My Profile</span>
+                        </button>
+                        <div className="my-1.5 border-t border-white/[0.12]" aria-hidden="true" />
+                        <a
+                          role="menuitem"
+                          href="https://bug-report.rhythm-mania.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => setIsAccountMenuOpen(false)}
+                          className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                        >
+                          <MessageSquareWarning className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                          <span>Bug Report</span>
+                        </a>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={requestSignOut}
+                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-rose-300 transition-colors hover:bg-rose-400/[0.12] hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/70"
+                        >
+                          <LogOut className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                          <span>Logout</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    id="header-nav-login"
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] px-0 text-[11px] font-bold text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3.5"
+                    title="Log in"
+                  >
+                    <LogIn className="h-[18px] w-[18px] text-cyan-200" />
+                    <span className="hidden sm:inline">Log in</span>
+                  </button>
+                )}
+
+                <button
+                  id="header-nav-fullscreen"
+                  type="button"
+                  onClick={() => void toggleFullscreen()}
+                  className="flex h-10 w-9 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11"
+                  title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                >
+                  {isFullscreen ? <Minimize2 className="h-[19px] w-[19px]" /> : <Maximize2 className="h-[19px] w-[19px]" />}
+                </button>
+                <button
+                  id="header-nav-mute"
+                  type="button"
+                  onClick={toggleMute}
+                  className={`flex h-10 w-9 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11 ${isMuted ? 'text-rose-200 hover:bg-white/[0.06]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  title={isMuted ? 'Unmute audio' : 'Mute audio'}
+                  aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
+                >
+                  {isMuted ? <VolumeX className="h-[19px] w-[19px]" /> : <Volume2 className="h-[19px] w-[19px]" />}
                 </button>
               </div>
-            )}
-
-            <nav id="top-nav" className="flex items-center gap-2 md:gap-4 text-xs uppercase tracking-widest shrink-0">
-              <button
-                id="header-nav-play"
-                onClick={() => leaveProfilePath('select')}
-                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
-                  currentScreen === 'select' 
-                    ? 'bg-gradient-to-r from-pink-500/20 to-rose-500/20 text-pink-400 border-pink-500/40 shadow-md shadow-pink-500/10' 
-                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
-                }`}
-                title="Mania Select (Keys mode)"
-              >
-                <Keyboard className="h-5 w-5" />
-                {!isMobile && (
-                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                    Mania mode
-                  </span>
-                )}
-              </button>
-              
-              <button
-                id="header-nav-settings"
-                onClick={() => setShowSettings(prev => !prev)}
-                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
-                  showSettings 
-                    ? 'bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 text-cyan-400 border-cyan-500/40 shadow-md shadow-cyan-500/10' 
-                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
-                }`}
-                title="System Settings"
-              >
-                <SettingsIcon className="h-5 w-5" />
-                {!isMobile && (
-                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                    Settings
-                  </span>
-                )}
-              </button>
-
-              <button
-                id="header-nav-history"
-                onClick={() => leaveProfilePath('history')}
-                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
-                  currentScreen === 'history' 
-                    ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40 shadow-md shadow-emerald-500/10' 
-                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
-                }`}
-                title="Personal Performance"
-              >
-                <History className="h-5 w-5" />
-                {!isMobile && (
-                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                    History
-                  </span>
-                )}
-              </button>
-
-              {/* Account Button / Avatar */}
-              <div className="w-8 md:w-[150px] h-9 shrink-0 flex justify-end">
-              {authLoading ? (
-                <div className="w-full h-full rounded-xl border border-white/10 bg-white/5 text-slate-400 flex items-center justify-center">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-pink-400" />
-                </div>
-              ) : currentUser ? (
-                <button
-                  id="header-nav-account"
-                  onClick={requestSignOut}
-                   className="w-full p-1 md:px-2.5 md:py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20 text-pink-300 flex items-center justify-center gap-2"
-                  title="Sign Out"
-                >
-                  {currentUser.avatarUrl ? (
-                    <img src={currentUser.avatarUrl} alt={currentUser.username} className="w-5 h-5 rounded-full" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-pink-600/50 flex items-center justify-center text-[10px] font-bold text-white">
-                      {currentUser.username.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  {!isMobile && <span className="text-xs font-bold font-sans tracking-normal lowercase">{currentUser.username}</span>}
-                  {!isMobile && (
-                    <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                      Click to Sign Out
-                    </span>
-                  )}
-                </button>
-              ) : (
-                <button
-                  id="header-nav-login"
-                  onClick={handleGoogleSignIn}
-                   className="w-full px-2.5 py-1.5 rounded-xl transition-all duration-250 cursor-pointer relative group border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 flex items-center justify-center gap-1.5"
-                  title="Sign in with Google"
-                >
-                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-                  </svg>
-                  {!isMobile && <span className="text-xs font-bold font-sans tracking-normal">Sign In</span>}
-                  {!isMobile && (
-                    <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                      Sign in with Google
-                    </span>
-                  )}
-                </button>
-              )}
-              </div>
-
-              <button
-                id="header-nav-profile"
-                onClick={() => {
-                  if (currentUser) {
-                    openProfile(currentUser.id);
-                  } else {
-                    handleGoogleSignIn();
-                  }
-                }}
-                className={`p-1.5 md:p-2.5 rounded-xl transition-all duration-250 cursor-pointer relative group border ${
-                  currentScreen === 'profile'
-                    ? 'bg-gradient-to-r from-pink-500/20 to-fuchsia-500/20 text-pink-300 border-pink-500/40 shadow-md shadow-pink-500/10'
-                    : `${isMobile ? 'text-slate-200 border-transparent font-sans' : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'}`
-                }`}
-                title={currentUser ? 'Player Profile' : 'Sign in to view profile'}
-              >
-                <UserRound className="h-5 w-5" />
-                {!isMobile && (
-                  <span className="absolute bottom-[-32px] left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/95 border border-white/10 rounded font-mono text-[9px] text-slate-200 tracking-wider uppercase opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-xl">
-                    Profile
-                  </span>
-                )}
-              </button>
-            </nav>
-          </div>
-        </header>
+            </div>
+          </header>
+          {authError && (
+            <div className="absolute right-4 top-[76px] z-40 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-rose-300/25 bg-rose-950/90 px-4 py-2.5 text-xs text-rose-100 shadow-xl sm:right-6">
+              {authError}
+            </div>
+          )}
+        </>
       )}
 
       {/* 2. CORE VIEWPORTS */}
       <main 
         id="app-main-viewport" 
         className={`flex-1 flex flex-col min-h-0 relative ${
-          (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results') 
+          (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins')
             ? 'w-full h-full' 
             : 'py-6 md:py-12 px-4 md:px-6 z-10'
         }`}
@@ -1228,18 +1380,35 @@ export default function App() {
               <MainMenu 
                 onNavigate={(screen) => {
                   if (screen === 'profile') {
-                    if (currentUser) openProfile(currentUser.id);
+                    if (currentUser) openProfile({ kind: 'userId', value: currentUser.id });
                     else handleGoogleSignIn();
                     return;
                   }
                   leaveProfilePath(screen as GameScreen);
                 }} 
-                onOpenSettings={() => setShowSettings(true)}
+                onOpenSettings={openSettings}
                  currentUser={currentUser}
                  authLoading={authLoading}
                 onSignIn={handleGoogleSignIn}
                 onSignOut={requestSignOut}
                 authError={authError}
+              />
+            </motion.div>
+          )}
+
+          {currentScreen === 'skins' && (
+            <motion.div
+              key="skins"
+              variants={PAGE_TRANSITION_VARIANTS}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="h-full w-full overflow-hidden"
+            >
+              <SkinScreen
+                settings={settings}
+                updateSettings={updateSettings}
+                onBack={() => navigateScreen('menu')}
               />
             </motion.div>
           )}
@@ -1254,9 +1423,9 @@ export default function App() {
               className="h-full w-full overflow-hidden"
             >
               <EditProfileScreen
-                onDone={() => openProfile(currentUser?.id ?? '')}
+                onDone={() => currentUser && openProfile({ kind: 'userId', value: currentUser.id })}
                 onBack={() => {
-                  if (currentUser) openProfile(currentUser.id);
+                  if (currentUser) openProfile({ kind: 'userId', value: currentUser.id });
                   else leaveProfilePath('menu');
                 }}
               />
@@ -1265,7 +1434,7 @@ export default function App() {
 
           {currentScreen === 'profile' && (
             <motion.div
-              key={`profile-${profileUserId ?? 'search'}`}
+              key={`profile-${profileTarget ? `${profileTarget.kind}-${profileTarget.value}` : 'search'}`}
               variants={PAGE_TRANSITION_VARIANTS}
               initial="initial"
               animate="animate"
@@ -1274,7 +1443,7 @@ export default function App() {
             >
               <ProfileScreen
                 user={currentUser}
-                profileId={profileUserId}
+                profileTarget={profileTarget}
                 onBack={() => leaveProfilePath('menu')}
                 onEditProfile={openEditProfile}
                 onOpenProfile={openProfile}
@@ -1295,21 +1464,22 @@ export default function App() {
                 settings={settings}
                 updateSettings={updateSettings}
                 onSelectMap={handleSelectMap}
-                onOpenSettings={() => setShowSettings(true)}
+                onOpenSettings={openSettings}
                 customMaps={customMaps}
                 shouldAutoSelectOnMount={hasPlayedThisSession}
-                onImportBeatmap={handleImportBeatmap}
+                 onImportBeatmap={handleImportBeatmap}
+                 onImportPackage={handleImportPackage}
                 onDeleteSongGroup={handleDeleteSongGroup}
                 filterMode={3}
                 setSongSelectBgUrl={setSongSelectBgUrl}
-                onBack={() => setCurrentScreen('menu')}
+                 onBack={() => navigateScreen('menu')}
                 onOpenOnlineCatalog={() => setShowFindBeatmapOverlay(true)}
                 onWatchReplay={handleWatchReplay}
                 playHistory={playHistory}
                 onAddHistoryRecord={(record) => {
                   setPlayHistory(prev => {
                     if (prev.some(r => r.id === record.id)) return prev;
-                    const updated = [record, ...prev].slice(0, historyLimit);
+                     const updated = historyLimit > 0 ? [record, ...prev].slice(0, historyLimit) : [record, ...prev];
                     if (typeof window !== 'undefined') {
                       try {
                         localStorage.setItem('rhythm_mania_v1_play_history', JSON.stringify(updated));
@@ -1339,15 +1509,7 @@ export default function App() {
                   updateSettings={updateSettings}
                   onFinish={handleGameplayFinish}
                   onBack={() => {
-                    try {
-                      if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
-                        if (document.exitFullscreen) {
-                          document.exitFullscreen().catch(err => console.log(err));
-                        } else if ((document as any).webkitExitFullscreen) {
-                          (document as any).webkitExitFullscreen();
-                        }
-                      }
-                    } catch (e) {}
+                    void FullscreenManager.exitFocusMode();
                     const returnScreen = activeReplayRecord ? 'history' : 'select';
                     setActiveReplayRecord(null);
                     if (selectedBeatmap) {
@@ -1369,7 +1531,7 @@ export default function App() {
                       }
                     }
                     setSelectedBeatmap(null);
-                    setCurrentScreen(returnScreen);
+                     navigateScreen(returnScreen);
                   }}
                   replayRecord={activeReplayRecord}
                 />
@@ -1393,20 +1555,12 @@ export default function App() {
                 hitErrors={lastHitErrors}
                 onRetry={handleRetrySong}
                 onWatchReplay={(record) => {
-                  setViewingHistoryResult(false);
-                  handleWatchReplay(record);
+                   setViewingHistoryResult(false);
+                   return handleWatchReplay(record);
                 }}
                 onDeleteRecord={handleDeleteHistoryRecord}
                 onBack={() => {
-                  try {
-                    if (typeof document !== 'undefined' && (document.fullscreenElement || (document as any).webkitFullscreenElement)) {
-                      if (document.exitFullscreen) {
-                        document.exitFullscreen().catch(err => console.log(err));
-                      } else if ((document as any).webkitExitFullscreen) {
-                        (document as any).webkitExitFullscreen();
-                      }
-                    }
-                  } catch (e) {}
+                  void FullscreenManager.exitFocusMode();
                   const returnScreen = activeReplayRecord ? 'history' : (viewingHistoryResult ? 'history' : 'select');
                   setActiveReplayRecord(null);
                   setViewingHistoryResult(false);
@@ -1429,12 +1583,12 @@ export default function App() {
                     }
                   }
                   setSelectedBeatmap(null);
-                  setCurrentScreen(returnScreen);
+                   navigateScreen(returnScreen);
                 }}
                 onBackToHistory={viewingHistoryResult ? () => {
                   setViewingHistoryResult(false);
                   setScoreState(null);
-                  setCurrentScreen('history');
+                   navigateScreen('history');
                 } : undefined}
               />
             </motion.div>
@@ -1449,26 +1603,7 @@ export default function App() {
               exit="exit"
               className="w-full h-full overflow-hidden"
             >
-              {isMobile ? (
-                <div className="w-full h-full flex items-center justify-center p-4">
-                  <div className="flex flex-col items-center justify-center text-center p-8 w-full max-w-md bg-slate-950/60 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl">
-                    <div className="p-4 rounded-full bg-pink-500/10 border border-pink-500/20 mb-5 animate-pulse">
-                      <History className="h-8 w-8 text-pink-500" />
-                    </div>
-                    <h2 className="text-xl font-sans font-black text-white uppercase tracking-wider">Work in Progress</h2>
-                    <p className="text-xs text-slate-400 font-mono mt-3 max-w-xs leading-relaxed uppercase">
-                      The detailed personal performance history is currently being optimized for mobile devices. Please check back soon!
-                    </p>
-                    <button
-                      onClick={() => setCurrentScreen('menu')}
-                      className="mt-6 px-6 py-2.5 bg-pink-500 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl hover:bg-pink-600 active:scale-95 transition"
-                    >
-                      Back to Menu
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <PersonalHistoryScreen
+              <PersonalHistoryScreen
                   history={playHistory}
                   allBeatmaps={customMaps}
                   onWatchReplay={(record) => {
@@ -1495,7 +1630,7 @@ export default function App() {
                         };
                         setSelectedBeatmap(cloned);
                         setViewingHistoryResult(true);
-                        setCurrentScreen('results');
+                        navigateScreen('results');
                     }
                   }}
                   onClearHistory={handleClearHistory}
@@ -1505,7 +1640,6 @@ export default function App() {
                   onSetHistoryLimit={handleSetHistoryLimit}
                   settings={settings}
                 />
-              )}
             </motion.div>
           )}
 
@@ -1514,7 +1648,7 @@ export default function App() {
 
       <SettingsScreen
         open={showSettings}
-        onClose={() => setShowSettings(false)}
+         onClose={() => setShowSettings(false)}
         settings={settings}
         updateSettings={updateSettings}
       />
@@ -1523,7 +1657,7 @@ export default function App() {
         open={showFindBeatmapOverlay}
         onClose={() => setShowFindBeatmapOverlay(false)}
         customMaps={customMaps}
-        onImportBeatmap={handleImportBeatmap}
+        onImportPackage={handleImportPackage}
       />
 
       {showLogoutConfirm && (

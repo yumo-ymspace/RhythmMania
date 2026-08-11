@@ -16,10 +16,11 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
-import { runwayPosition, laneWidthAt, yToDepthFactor, RUNWAY_CONVERGENCE, safeHex } from '../coords';
+import { clampNoteDepth, runwayPosition, laneWidthAt, yToDepthFactor, RUNWAY_CONVERGENCE, safeColorAlpha, safeHex } from '../coords';
 
 const NOTE_WIDTH_FRAC = 0.82;   // fraction of near-plane lane width
 const TAIL_MIN_WIDTH = 0.12;    // keep far tail caps visible
+const MAX_NOTE_MESHES = 512;
 
 export class NoteLayer {
   private pool: Mesh[] = [];
@@ -31,11 +32,11 @@ export class NoteLayer {
     this.scene = scene;
   }
 
-  private acquire(key: string): Mesh {
+  private acquire(key: string): Mesh | null {
     let mesh = this.active.get(key);
     if (mesh) return mesh;
     mesh = this.free.pop();
-    if (!mesh) {
+    if (!mesh && this.pool.length < MAX_NOTE_MESHES) {
       mesh = MeshBuilder.CreateBox(`note_${this.pool.length}`, { width: 1, height: 1, depth: 1 }, this.scene);
       mesh.isPickable = false;
       const mat = new StandardMaterial(`noteMat_${this.pool.length}`, this.scene);
@@ -44,6 +45,7 @@ export class NoteLayer {
       mesh.material = mat;
       this.pool.push(mesh);
     }
+    if (!mesh) return null;
     mesh.setEnabled(true);
     this.active.set(key, mesh);
     return mesh;
@@ -62,7 +64,6 @@ export class NoteLayer {
   update(frame: PlayfieldFrame, ctx: RunwayContext): void {
     const { notes, columns, receptorY, settingsSlice } = frame;
     const keep = new Set<string>();
-    const noteOp = settingsSlice.noteOpacity ?? 1;
     for (const n of notes) {
       const col = columns[n.column];
       if (!col) continue;
@@ -71,8 +72,9 @@ export class NoteLayer {
       const shouldDrawHead = n.type === 'normal' || (n.type === 'hold' && !n.isHit && !n.isMissed);
       if (shouldDrawHead) {
         const key = `${n.id}_h`;
-        keep.add(key);
         const mesh = this.acquire(key);
+        if (!mesh) continue;
+        keep.add(key);
         const mat = mesh.material as StandardMaterial;
 
         const depthFactor = yToDepthFactor(n.y, receptorY);
@@ -83,7 +85,7 @@ export class NoteLayer {
         mesh.scaling.set(headWidth * (settingsSlice.noteSizeMultiplier ?? 1), 0.22, 0.18);
         mesh.rotation.set(0, 0, 0);
 
-        let alpha = n.opacity * noteOp;
+        let alpha = n.opacity * safeColorAlpha(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color);
         if (n.type === 'hold' && n.isHoldFailed) alpha *= 0.35;
         mat.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color));
         mat.alpha = alpha;
@@ -92,22 +94,25 @@ export class NoteLayer {
       // Tail cap for holds (scales with the converged lane width at the tail depth).
       if (n.type === 'hold' && n.endY !== undefined && !n.isReleased && !n.isHoldFailed) {
         const key = `${n.id}_e`;
-        keep.add(key);
-        const mesh = this.acquire(key);
+         const mesh = this.acquire(key);
+         if (!mesh) continue;
+         keep.add(key);
         const mat = mesh.material as StandardMaterial;
 
-        const depthFactor = yToDepthFactor(n.endY, receptorY);
+        // Keep the cap on the same far plane as the hold body when a long note
+        // spawns with its tail beyond the visible runway.
+        const depthFactor = clampNoteDepth(yToDepthFactor(n.endY, receptorY));
         const pos = runwayPosition(n.column, ctx.keyCount, depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth);
         const tailW = Math.max(
           TAIL_MIN_WIDTH,
-          laneWidthAt(Math.max(0, depthFactor), RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * (settingsSlice.noteSizeMultiplier ?? 1)
+          laneWidthAt(depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * (settingsSlice.noteSizeMultiplier ?? 1)
         );
 
         mesh.position.copyFrom(pos);
         mesh.scaling.set(tailW, 0.16, 0.14);
         mesh.rotation.set(0, 0, 0);
 
-        let alpha = (n.endOpacity ?? n.opacity) * noteOp;
+        let alpha = (n.endOpacity ?? n.opacity) * safeColorAlpha(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color);
         if (n.isHoldFailed) alpha *= 0.35;
         mat.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[n.column] || col.color)).scale(0.9);
         mat.alpha = alpha;
@@ -118,7 +123,7 @@ export class NoteLayer {
   }
 
   dispose(): void {
-    this.pool.forEach((m) => m.dispose());
+    this.pool.forEach((m) => m.dispose(false, true));
     this.pool = [];
     this.free = [];
     this.active.clear();
