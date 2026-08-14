@@ -22,7 +22,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return sendError(res, 405, 'Method Not Allowed');
   }
 
-  const chartRevisionId = req.query.chartRevisionId as string;
+  const chartRevisionId = typeof req.query.chartRevisionId === 'string' ? req.query.chartRevisionId : '';
 
   if (!chartRevisionId || chartRevisionId.length > 256) {
     return sendError(res, 400, 'Missing chartRevisionId parameter');

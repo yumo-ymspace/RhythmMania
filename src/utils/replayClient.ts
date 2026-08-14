@@ -1,5 +1,20 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import type { PlayHistoryRecord, ReplayFrame, ScoreState, UploadStatus } from '../types';
 import { withCsrfHeaders } from './csrfClient';
+import { sanitizeSettings } from './securityLimits';
+import { DEFAULT_SETTINGS } from '../components/settings/defaultSettings';
+import { sanitizeGameplayMods } from './modifiers';
 
 const MAX_REMOTE_FRAMES = 100_000;
 const MAX_REMOTE_MODS = 16;
@@ -82,11 +97,13 @@ function normalizeScoreState(value: unknown, keyCount: number): ScoreState | nul
 
 function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
   if (!isRecord(value) || typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value.id)) return null;
-  if (!integer(value.keyCount, 2, 8) || !integer(value.score, 0, 2_147_483_647) || !finite(value.accuracy, 0, 100) || !integer(value.maxCombo, 0, 2_147_483_647) || typeof value.grade !== 'string' || !['SS', 'S', 'A', 'B', 'C', 'D', 'F'].includes(value.grade) || typeof value.isFailed !== 'boolean') return null;
+  if (!integer(value.keyCount, 2, 9) || !integer(value.score, 0, 2_147_483_647) || !finite(value.accuracy, 0, 100) || !integer(value.maxCombo, 0, 2_147_483_647) || typeof value.grade !== 'string' || !['SS', 'S', 'A', 'B', 'C', 'D', 'F'].includes(value.grade) || typeof value.isFailed !== 'boolean') return null;
   const scoreState = normalizeScoreState(value.scoreState, value.keyCount);
   const replayFrames = normalizeFrames(value.replayFrames, value.keyCount);
   if (!scoreState || !replayFrames || typeof value.timestamp !== 'number' || !Number.isFinite(value.timestamp) || typeof value.beatmapId !== 'string' || value.beatmapId.length > 256 || typeof value.beatmapTitle !== 'string' || typeof value.beatmapArtist !== 'string' || typeof value.beatmapDifficulty !== 'string') return null;
-  const mods = Array.isArray(value.mods) && value.mods.length <= MAX_REMOTE_MODS && value.mods.every((mod) => typeof mod === 'string' && /^[A-Z0-9]{2,4}$/.test(mod)) ? [...value.mods] as string[] : null;
+  const mods = Array.isArray(value.mods) && value.mods.length <= MAX_REMOTE_MODS
+    ? sanitizeGameplayMods(value.mods)
+    : null;
   if (!mods) return null;
   const uploadStatus = VALID_UPLOAD_STATUSES.has(value.uploadStatus as UploadStatus) ? value.uploadStatus as UploadStatus : 'uploaded';
   const replaySource = value.replaySource === 'guest-local' || value.replaySource === 'account-local' || value.replaySource === 'server-remote' || value.replaySource === 'imported' ? value.replaySource : 'server-remote';
@@ -104,9 +121,9 @@ function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
     isFailed: value.isFailed,
     scoreState,
     replayFrames,
-    recordedSettings: isRecord(value.recordedSettings) ? value.recordedSettings : {},
+    recordedSettings: sanitizeSettings(value.recordedSettings, DEFAULT_SETTINGS),
     mods,
-    schemaVersion: value.schemaVersion === 2 ? 2 : 2,
+    schemaVersion: value.schemaVersion === 2 ? 2 : undefined,
     replaySource,
     catalogSetId: typeof value.catalogSetId === 'string' ? value.catalogSetId : null,
     catalogMapId: typeof value.catalogMapId === 'string' ? value.catalogMapId : null,
@@ -124,6 +141,10 @@ function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
 
 function jsonResponse(value: unknown): value is { success: boolean; data?: unknown; error?: unknown } {
   return isRecord(value) && typeof value.success === 'boolean';
+}
+
+function isAbortError(value: unknown): boolean {
+  return value instanceof Error && value.name === 'AbortError';
 }
 
 export async function uploadReplayRecord(record: PlayHistoryRecord): Promise<{ success: boolean; uploadStatus: UploadStatus; error?: string }> {
@@ -191,6 +212,9 @@ export async function fetchLeaderboardReplays(chartRevisionId: string, signal?: 
     if (replays.some((replay) => replay === null)) return { success: false, replays: [], error: 'Malformed leaderboard response' };
     return { success: true, replays: replays as LeaderboardReplayItem[] };
   } catch (error: unknown) {
+    if (signal?.aborted || isAbortError(error)) {
+      return { success: false, replays: [], error: 'Request cancelled' };
+    }
     console.warn('Error fetching leaderboard replays:', error);
     return { success: false, replays: [], error: error instanceof Error ? error.message : 'Network error' };
   }
@@ -208,6 +232,9 @@ export async function fetchReplayDetail(replayId: string, signal?: AbortSignal, 
     const access = isRecord(raw.data.access) ? raw.data.access : {};
     return { success: true, record, canDownload: access.canDownload === true };
   } catch (error: unknown) {
+    if (signal?.aborted || isAbortError(error)) {
+      return { success: false, error: 'Request cancelled' };
+    }
     console.warn('Error fetching replay detail:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Network error' };
   }

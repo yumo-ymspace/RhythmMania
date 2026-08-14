@@ -39,11 +39,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('[replays-router] route:', route);
     switch (route) {
       case 'upload':
-        return handleUpload(req, res);
+        return await handleUpload(req, res);
       case 'list':
-        return handleList(req, res);
+        return await handleList(req, res);
       case 'get':
-        return handleGet(req, res);
+        return await handleGet(req, res);
       default:
         console.warn('[replays-router] no handler for route:', route);
         return sendJson(res, 404, { success: false, error: 'Not found' });

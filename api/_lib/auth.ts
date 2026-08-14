@@ -214,7 +214,8 @@ export async function getSessionFromReq(req: VercelRequest): Promise<UserSession
       expiresAt: new Date(row.expires_at),
     };
   } catch (e) {
-    console.error('Session validation failed:', e instanceof Error ? e.name : 'unknown');
-    return null;
+    const databaseCode = typeof e === 'object' && e !== null && 'code' in e && typeof e.code === 'string' ? e.code : 'no-code';
+    console.error('Session validation failed:', e instanceof Error ? e.name : 'unknown', databaseCode);
+    throw e;
   }
 }

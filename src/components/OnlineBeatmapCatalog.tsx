@@ -13,7 +13,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import JSZip from 'jszip';
-import SparkMD5 from 'spark-md5';
 import {
   Search, X, Music, Music2, Check, Loader, Download, Info, KeyRound, LogOut, ChevronDown,
 } from 'lucide-react';
@@ -23,6 +22,7 @@ import { storageManager } from '../utils/storageManager';
 import { MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, createZipExtractionBudget, decodeBoundedUtf8 } from '../utils/securityLimits';
 import { computeBeatmapHash } from '../utils/replayManager';
 import { extractZipEntry } from '../utils/zipResolver';
+import { computeChecksum, inferChecksumAlgorithm } from '../utils/checksum';
 import { saveCatalogSetMetadata } from '../utils/catalogSetMetadata';
 import { fetchCurrentUser, type AuthUser } from '../utils/authClient';
 import { withCsrfHeaders } from '../utils/csrfClient';
@@ -294,9 +294,11 @@ export default function OnlineBeatmapCatalog({
           difficulties: registrationJson.data.charts.map((chart: CatalogChart & { id: number }) => ({
             ...chart,
             sourceChartId: chart.id,
-            chartRevisionId: chart.chartRevisionId || `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum}`,
+            checksum: chart.checksum.toLowerCase(),
+            chartRevisionId: chart.chartRevisionId || `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum.toLowerCase()}`,
             name: chart.version || chart.name,
             originalOsuFilename: chart.originalOsuFilename || chart.filename,
+            checksumAlgorithm: chart.checksumAlgorithm === 'sha256' || chart.checksum.length === 64 ? 'sha256' : 'md5',
           })),
         };
       } else {
@@ -305,10 +307,11 @@ export default function OnlineBeatmapCatalog({
           difficulties: (s.charts || []).map((chart) => ({
             ...chart,
             sourceChartId: chart.id,
-            chartRevisionId: `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum}`,
+            checksum: chart.checksum.toLowerCase(),
+            chartRevisionId: `osuapi_${s.sourceSetId}_b${chart.id}_${chart.checksum.toLowerCase()}`,
             name: chart.version || chart.name,
             originalOsuFilename: chart.filename || chart.originalOsuFilename,
-            checksumAlgorithm: 'md5',
+            checksumAlgorithm: inferChecksumAlgorithm(chart.checksum),
           })),
         };
       }
@@ -332,17 +335,17 @@ export default function OnlineBeatmapCatalog({
       const packageId = workingSet.id;
       const zip = await JSZip.loadAsync(blob);
       validateZipLimits(zip);
-       const extractionBudget = createZipExtractionBudget();
+      const extractionBudget = createZipExtractionBudget();
       const fileNames = Object.keys(zip.files);
-      const beatmapFiles: { name: string; content: string; checksum: string }[] = [];
+      const beatmapFiles: { name: string; content: string; raw: ArrayBuffer }[] = [];
 
       for (const name of fileNames) {
         if (name.toLowerCase().endsWith('.osu') && !zip.files[name].dir) {
-           const raw = await extractZipEntry(zip.files[name], name, extractionBudget);
+          const raw = await extractZipEntry(zip.files[name], name, extractionBudget);
           beatmapFiles.push({
             name,
             content: decodeBoundedUtf8(raw, `Beatmap file ${name}`),
-            checksum: SparkMD5.ArrayBuffer.hash(raw),
+            raw,
           });
         }
       }
@@ -354,42 +357,43 @@ export default function OnlineBeatmapCatalog({
       const diffs = workingSet.difficulties || [];
 
       for (const beatmapStr of beatmapFiles) {
-        let matchedDiff = diffs.find(
-          (d) => d.checksum?.toLowerCase() === beatmapStr.checksum.toLowerCase(),
-        );
-        if (!matchedDiff) {
-          matchedDiff = diffs.find(
-            (d) => (d.originalOsuFilename || d.filename) === beatmapStr.name,
-          );
-        }
+        const [md5, sha256] = await Promise.all([
+          computeChecksum(beatmapStr.raw, 'md5'),
+          computeChecksum(beatmapStr.raw, 'sha256'),
+        ]);
+        const matchedDiff = diffs.find((diff) => {
+          const expected = diff.checksum?.toLowerCase();
+          if (!expected) return false;
+          return expected === (expected.length === 64 ? sha256 : md5);
+        });
         if (!matchedDiff?.chartRevisionId) continue;
 
-         const parsedMap = parseBeatmap(beatmapStr.content, matchedDiff.chartRevisionId);
+        const parsedMap = parseBeatmap(beatmapStr.content, matchedDiff.chartRevisionId);
         if (parsedMap.notes.length === 0) continue;
 
         const media = parseMediaPaths(beatmapStr.content);
         const mapWithMeta = parsedMap as Beatmap & Record<string, unknown>;
         mapWithMeta.packageId = packageId;
         mapWithMeta.parentPackageId = packageId;
-         mapWithMeta.catalogSetId = packageId;
-         mapWithMeta.sourceSetId = s.sourceSetId;
+        mapWithMeta.catalogSetId = packageId;
+        mapWithMeta.sourceSetId = s.sourceSetId;
         mapWithMeta.catalogMapId = matchedDiff.chartRevisionId;
         mapWithMeta.chartRevisionId = matchedDiff.chartRevisionId;
-        mapWithMeta.checksum = matchedDiff.checksum;
-        mapWithMeta.checksumAlgorithm = 'md5' as const;
+        mapWithMeta.checksum = matchedDiff.checksum?.toLowerCase();
+        mapWithMeta.checksumAlgorithm = matchedDiff.checksumAlgorithm === 'sha256' || matchedDiff.checksum?.length === 64 ? 'sha256' : 'md5';
         mapWithMeta.audioFilename = media.audioFilename;
         mapWithMeta.videoFilename = media.videoFilename;
-         mapWithMeta.bgFilename = media.bgFilename;
-         mapWithMeta.coverUrl = s.slimCoverUrl || s.coverUrl;
+        mapWithMeta.bgFilename = media.bgFilename;
+        mapWithMeta.coverUrl = s.slimCoverUrl || s.coverUrl;
         mapWithMeta.originalContent = beatmapStr.content;
-         mapWithMeta.isServerMap = googleLinked && catalogActivated;
+        mapWithMeta.isServerMap = googleLinked && catalogActivated;
         mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
         parsedMap.audioUrl = '';
         parsedMap.videoUrl = '';
         parsedMap.bgUrl = '';
 
-         importedMaps.push(parsedMap);
-         importedCount++;
+        importedMaps.push(parsedMap);
+        importedCount++;
       }
 
       if (importedCount === 0) throw new Error('No valid playable difficulties found inside.');

@@ -1,3 +1,15 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import crypto from 'crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionFromReq } from '../_lib/auth.js';
@@ -35,13 +47,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function toCatalogChart(chart: RegisteredChart, cloudSetId: string, isActive: boolean) {
+  const checksum = chart.checksum.toLowerCase();
   return {
     ...chart,
-    chartRevisionId: `osuapi_${cloudSetId.slice('osuapi_'.length)}_b${chart.id}_${chart.checksum}`,
+    checksum,
+    chartRevisionId: `osuapi_${cloudSetId.slice('osuapi_'.length)}_b${chart.id}_${checksum}`,
     originalOsuFilename: chart.filename,
     difficulty: chart.version,
     name: chart.version,
-    checksumAlgorithm: (chart.checksum.length === 64 ? 'sha256' : 'md5') as 'md5' | 'sha256',
+    checksumAlgorithm: (checksum.length === 64 ? 'sha256' : 'md5') as 'md5' | 'sha256',
     isActive,
   };
 }
@@ -74,12 +88,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         !Number.isInteger(chart.id) || chart.id < 1 ||
         chart.filename.length < 1 || chart.filename.length > 512 ||
         chart.version.length < 1 || chart.version.length > 255 ||
-        !Number.isInteger(chart.keyCount) || chart.keyCount < 2 || chart.keyCount > 8 ||
+        !Number.isInteger(chart.keyCount) || chart.keyCount < 2 || chart.keyCount > 9 ||
         !/^(?:[a-f0-9]{32}|[a-f0-9]{64})$/i.test(chart.checksum)
       )
     ) {
       return sendError(res, 422, 'The osu! set metadata could not be verified');
     }
+    const normalizedCharts = set.charts.map((chart) => ({
+      ...chart,
+      checksum: chart.checksum.toLowerCase(),
+    }));
 
     const cloudSetId = `osuapi_${sourceSetId}`;
     const token = crypto.randomBytes(24).toString('base64url');
@@ -113,7 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         [cloudSetId, set.title, set.artist, set.creator, sourceSetId, set.status, set.coverUrl || null, JSON.stringify({
           token,
           userId: session.userId,
-          charts: set.charts,
+          charts: normalizedCharts,
           registrationExpiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS).toISOString(),
         })],
       );
@@ -122,7 +140,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          WHERE beatmap_set_id = $1`,
         [cloudSetId],
       );
-      for (const chart of set.charts) {
+      for (const chart of normalizedCharts) {
         await client.query(
           `INSERT INTO beatmap_chart_revisions (id, beatmap_set_id, source_chart_id, original_osu_filename, difficulty_name, key_count, mode, checksum, checksum_algorithm, is_current, is_active, canonical_chart)
            VALUES ($1,$2,$3,$4,$5,$6,3,$7,$8,TRUE,FALSE,NULL)
@@ -137,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         sourceSetId,
         state: 'pending',
         token,
-        charts: set.charts.map((chart) => toCatalogChart(chart, cloudSetId, false)),
+        charts: normalizedCharts.map((chart) => toCatalogChart(chart, cloudSetId, false)),
       };
     });
     return sendJson(res, 200, { success: true, data: response });

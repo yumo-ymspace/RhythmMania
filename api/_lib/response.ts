@@ -108,6 +108,7 @@ export function sendJson<T>(res: VercelResponse, statusCode: number, payload: Ap
     .status(statusCode)
     .setHeader('Content-Type', 'application/json; charset=utf-8')
     .setHeader('X-Content-Type-Options', 'nosniff')
+    .setHeader('Cache-Control', 'no-store')
     .json(payload);
 }
 

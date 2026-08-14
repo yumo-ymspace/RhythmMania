@@ -1,4 +1,16 @@
--- RhythmMania PostgreSQL Database Schema for aaPanel / Standard PostgreSQL
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
+-- RhythmMania PostgreSQL Database Schema for Standard PostgreSQL
 -- Execute this script on your target PostgreSQL instance to set up all tables and indexes.
 --
 -- Public profile id is users.id (VARCHAR(16) alphanumeric). There is no separate userid column.
@@ -83,7 +95,7 @@ CREATE TABLE IF NOT EXISTS beatmap_chart_revisions (
     source_chart_id BIGINT,
     original_osu_filename VARCHAR(512) NOT NULL,
     difficulty_name VARCHAR(255) NOT NULL,
-    key_count INT NOT NULL CHECK (key_count BETWEEN 2 AND 8),
+    key_count INT NOT NULL CONSTRAINT beatmap_chart_revisions_key_count_check CHECK (key_count BETWEEN 2 AND 9),
     mode INT NOT NULL DEFAULT 3 CHECK (mode = 3),
     checksum VARCHAR(128) NOT NULL,
     checksum_algorithm VARCHAR(8) NOT NULL CHECK (checksum_algorithm IN ('md5', 'sha256')),
@@ -119,8 +131,15 @@ CREATE TABLE IF NOT EXISTS replays (
     mods JSONB,
     replay_source VARCHAR(32) NOT NULL DEFAULT 'guest-local',
     upload_status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+    hold_rules_version SMALLINT NOT NULL DEFAULT 1 CHECK (hold_rules_version IN (1, 2)),
+    hold_tick_interval_ms SMALLINT CHECK (hold_tick_interval_ms BETWEEN 10 AND 100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE replays
+    ADD COLUMN IF NOT EXISTS hold_rules_version SMALLINT NOT NULL DEFAULT 1;
+ALTER TABLE replays
+    ADD COLUMN IF NOT EXISTS hold_tick_interval_ms SMALLINT;
 
 -- Editable public profile identity (1:1 with users).
 -- A row is created on first profile edit (upsert); users without a row fall back to users.username.

@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**HIGH DENSITY MATRIX** · v0.8.15
+**RHYTHMMANIA BETA RELEASE** · v0.9.0
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and two rendering engines (**HTML5 Canvas 2D** default and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -26,7 +26,7 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 
 ## Overview
 
-RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 8K** lane configurations, live `.osu` beatmap import from `.osz` packages, Canvas2D and Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools. Local gameplay runs entirely in the browser; optional Vercel Functions and PostgreSQL provide accounts, profiles, catalog registration, and online replay records.
+RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 9K** lane configurations, live `.osu` beatmap import from `.osz` packages, Canvas2D and Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools. Local gameplay runs entirely in the browser; optional Vercel Functions and PostgreSQL provide accounts, profiles, catalog registration, and online replay records.
 
 RhythmMania is an **18+ service**. Minors may not use the game or any connected account, profile, catalog, or replay features, even with parental permission. See the in-app [Terms of Service](https://www.rhythm-mania.com/tos) and [Privacy Policy](https://www.rhythm-mania.com/privacypolicy).
 
@@ -35,14 +35,14 @@ RhythmMania is an **18+ service**. Minors may not use the game or any connected 
 ## Features
 
 ### Gameplay
-- **2K – 8K lane modes** with per-key-count default bindings and full rebind support
+- **2K – 9K lane modes** with per-key-count default bindings and full rebind support
 - **Upward & downward scroll** direction toggle
 - **Dual playfield renderers**: Canvas2D (immediate-mode default) and Babylon.js 3D (PJ Sekai-style converging runway with bloom post-processing)
 - **Six-tier judgement system**: Marvelous → Perfect → Great → Good → Bad → Miss, each with tuned timing windows, score weights, and HP deltas derived from `overallDifficulty`
 - **Real-time precision diagnostics**: Live hit error meter, Unstable Rate (UR) metric calculation (population standard deviation of hit timing errors × 10), and post-play timing feedback
 - **Hold notes** with early-release detection and a configurable release grace period to absorb brief key bounces
 - **Autoplay (AT) mod**: Deterministic automation mode that plays all notes and hold tails perfectly for demonstration and practice; unranked, bypasses play history saving, and suppresses high score recording
-- **Gameplay modifiers**: NF, EZ, HR, HT, DT, HD, AT, and K2–K8 key-conversion mods with score multipliers (NF/EZ ×0.5, HT ×0.3, HR/HD ×1.06, DT ×1.12); EZ↔HR and HT↔DT are mutually exclusive, EZ halves the effective OD, and HR scales it ×1.4 (capped at OD 10)
+- **Gameplay modifiers**: NF, EZ, HR, HT, DT, HD, AT, and K2–K9 key-conversion mods with score multipliers; EZ↔HR and HT↔DT are mutually exclusive, EZ halves HP drain and widens timing windows, while HR increases HP drain ×1.4 and tightens timing windows
 - **Particle burst effects** on every hit; column colour-coded by standard competitive conventions (blue/white outer lanes, accent centre column)
 - **Focus Mode** — collapses the HUD during play
 - **HP drain & fail state** with a configurable drain rate sourced from beatmap metadata
@@ -54,9 +54,8 @@ RhythmMania is an **18+ service**. Minors may not use the game or any connected 
 - **Song previews** — a toggleable audio preview plays while browsing Song Select, using a lightweight HTMLAudio path kept deliberately independent of the Web Audio gameplay clock
 - **Favorites** — star songs on Song Select for quick access; persisted locally
 
-The parser supports mania maps and can convert standard-mode objects where
-the format provides enough slider information. Imports are bounded to protect
-the browser:
+The parser supports osu!mania maps only. Imports are bounded to protect the
+browser:
 
 | Limit | Value |
 | --- | ---: |
@@ -81,7 +80,7 @@ the browser:
 - **Interactive metronome tap calibration** — tap along to a 120 BPM click to auto-compute your system latency offset
 - **Scroll speed** multiplier
 - **Hitsound and music volume** sliders
-- **Per-mode key rebinding** matrix (2K – 8K, live keyboard intercept, persisted to `localStorage`)
+- **Per-mode key rebinding** matrix (2K – 9K, live keyboard intercept, persisted to `localStorage`)
 - **Background dim** sliders — one for gameplay and a separate **menu background dim** for the Song Select / Replay Select artwork
 - **Video offset** fine-tune for storyboard video sync
 - **Disable video** toggle
@@ -155,10 +154,10 @@ The API surface is:
 
 Create the PostgreSQL schema (users, sessions, beatmap_sets,
 beatmap_difficulties, chart revisions, replays, user_profiles, and user_avatars) with
-`database/schema.sql`. The repository currently ships the complete schema, but
-no migration runner or separate migration files; existing deployments must
-apply approved schema changes manually with PostgreSQL tooling. The
-backend accepts either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/
+`database/schema.sql`. Existing deployments created before the canonical chart
+and hold-rule columns were added should also apply
+`database/migrate_catalog_replay_columns.sql`; the repository has no automatic
+migration runner. The backend accepts either `DATABASE_URL`/`POSTGRES_URL` or the `PG*`/
 `POSTGRES_*` connection variables. Google OAuth uses `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET`. osu! catalog OAuth uses `OSU_CLIENT_ID` and
 `OSU_CLIENT_SECRET` (code exchange/refresh only). Set `SESSION_SECRET` in
@@ -214,7 +213,7 @@ Skins menu. Important defaults include:
 - Map scroll velocity enabled, song previews on, FPS counter off.
 - Empty modifier selection.
 
-All 2K-8K bindings can be changed. The default bindings are:
+All 2K-9K bindings can be changed. The default bindings are:
 
 | Mode | Keys |
 | --- | --- |
@@ -285,15 +284,6 @@ RhythmMania-Beta/
 media synchronization, and renderer hosting. Shared visual math belongs in
 `src/render/`; update the Canvas2D and Babylon renderers when changing
 playfield visuals.
-
----
-
-## Development notes
-
-Focused Node-only tests are available with `npm test`. The normal validation
-commands are `npm run lint`, `npm test`, and `npm run build`, followed by manual
-play checks for importing, 4K play, hold notes, modifiers, replay history,
-video, touch input, and both render engines.
 
 ---
 

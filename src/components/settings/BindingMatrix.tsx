@@ -144,7 +144,7 @@ export default function BindingMatrix({ settings, update }: BindingMatrixProps) 
         </div>
 
         <div className="flex flex-col gap-2">
-          {[2, 3, 4, 5, 6, 7, 8].map((num) => {
+          {[2, 3, 4, 5, 6, 7, 8, 9].map((num) => {
             const columns = settings.bindings[num as keyof typeof settings.bindings] || [];
             return (
               <div 

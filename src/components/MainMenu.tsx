@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Settings as SettingsIcon, Play, History, Paintbrush, Loader2, Github, BookOpen, MessageSquareWarning } from 'lucide-react';
 import metadata from '../../metadata.json';
 import { AuthUser } from '../utils/authClient';
+import type { GameSettings } from '../types';
 
 const RESOURCE_LINKS = [
   { label: 'Discord', href: 'https://discord.rhythm-mania.com', icon: 'discord' },
@@ -53,6 +54,7 @@ const ResourceLinks = () => (
 export const MainMenu = ({
   onNavigate,
   onOpenSettings,
+  settings,
   currentUser,
   authLoading,
   onSignIn,
@@ -61,6 +63,7 @@ export const MainMenu = ({
 }: {
   onNavigate: (screen: 'select' | 'history' | 'skins' | 'profile') => void;
   onOpenSettings: () => void;
+  settings: GameSettings;
   currentUser?: AuthUser | null;
   authLoading?: boolean;
   onSignIn?: () => void;
@@ -84,6 +87,7 @@ export const MainMenu = ({
   const [bg, setBg] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const backgroundOpacity = 1 - (settings.menuBackgroundDim ?? 0.3);
 
   useEffect(() => {
     setBg('/backgrounds/' + bgImages[Math.floor(Math.random() * bgImages.length)]);
@@ -101,7 +105,7 @@ export const MainMenu = ({
         {/* Background with subtle zoom animation */}
         <motion.img 
           initial={{ scale: 1.05, opacity: 0 }}
-          animate={{ scale: 1, opacity: 0.55 }}
+          animate={{ scale: 1, opacity: backgroundOpacity }}
           transition={{ duration: 1.2, ease: "easeOut" }}
           src={bg} 
           className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" 
@@ -293,7 +297,7 @@ export const MainMenu = ({
       {/* Background with zoom animation */}
       <motion.img 
         initial={{ scale: 1.1, opacity: 0 }}
-        animate={{ scale: 1, opacity: 0.6 }}
+        animate={{ scale: 1, opacity: backgroundOpacity }}
         transition={{ duration: 1.5, ease: "easeOut" }}
         src={bg} 
         className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" 

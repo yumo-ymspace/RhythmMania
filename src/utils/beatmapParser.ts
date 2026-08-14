@@ -13,6 +13,7 @@
 import { Beatmap, HitObject, HitSample, NoteType, TimingControlPoint } from '../types';
 import { MAX_BEATMAP_NOTES, MAX_BEATMAP_TIMING_POINTS, MAX_OSU_TEXT_BYTES } from './securityLimits';
 import { parseHoldTailTime } from './holdTiming';
+import { isSupportedKeyCount, MAX_KEY_COUNT, MIN_KEY_COUNT } from './keyCounts';
 
 export interface ParsedMediaPaths {
   audioFilename: string;
@@ -66,7 +67,7 @@ export function parseMediaPaths(beatmapFileContent: string): ParsedMediaPaths {
 }
 
 /**
- * Parses raw text from a standard mania beatmap or creates general fallback structures
+ * Parses raw text from an osu!mania beatmap or creates general fallback structures
  */
 export function parseBeatmap(content: string, customId: string): Beatmap {
   if (typeof content !== 'string' || new TextEncoder().encode(content).byteLength > MAX_OSU_TEXT_BYTES) {
@@ -80,10 +81,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let artist = 'Unknown Artist';
   let creator = 'Unknown Mapper';
   let difficulty = 'Normal';
-  let keyCount = 4; // CircleSize (standard header detection)
+  let keyCount = 4; // CircleSize stores the mania lane count
   let overallDifficulty = 8;
   let hpDrainRate = 8;
-  let parsedMode: number | undefined = undefined;
   let previewTime: number | undefined = undefined;
   let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
   
@@ -93,8 +93,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     time: number;
     typeBit: number;
     extra: string;
-    slides: number;
-    pixelLength: number;
     hitSound: number;
     hitSample?: HitSample;
   }> = [];
@@ -102,7 +100,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let inHitObjects = false;
   const parsedTimingPoints: TimingControlPoint[] = [];
   const tempoTimingPoints: Array<{ time: number; beatLength: number }> = [];
-  const effectiveTimingPoints: Array<{ time: number; beatLength: number; sv: number }> = [];
   let inTimingPoints = false;
   let inEvents = false;
   const breaks: Array<{ startTime: number; endTime: number }> = [];
@@ -131,7 +128,7 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
 
         switch (key) {
           case 'title':
-            title = value.replace(/\s*[([][1-8]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
+            title = value.replace(/\s*[([][1-9]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
           case 'artist':
             artist = value;
@@ -140,11 +137,11 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             creator = value;
             break;
           case 'version':
-            difficulty = value.replace(/\s*[([][1-8]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
+            difficulty = value.replace(/\s*[([][1-9]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
            case 'circlesize': {
              const parsed = Number(value);
-             if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) throw new Error('Invalid CircleSize value.');
+             if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || !isSupportedKeyCount(parsed)) throw new Error('Invalid CircleSize value.');
              keyCount = parsed;
              break;
            }
@@ -160,12 +157,11 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
              hpDrainRate = parsed;
              break;
            }
-           case 'mode':
-             {
-               const pm = Number(value);
-               if (!Number.isInteger(pm) || (pm !== 0 && pm !== 3)) throw new Error('Unsupported beatmap mode.');
-               parsedMode = pm;
-             }
+            case 'mode':
+              {
+                const pm = Number(value);
+                if (pm !== 3) throw new Error('Unsupported beatmap mode. RhythmMania accepts osu!mania maps only.');
+              }
              break;
            case 'slidermultiplier': {
              const parsed = Number(value);
@@ -239,7 +235,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             throw new Error(`Security Exception: Beatmap timing points exceed limit (${MAX_BEATMAP_TIMING_POINTS})`);
           }
 
-           effectiveTimingPoints.push({ time, beatLength, sv: svMultiplier });
           if (uninherited) {
             tempoTimingPoints.push({ time, beatLength });
           }
@@ -276,13 +271,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
            volume: Number(sampleParts[3]) || 0,
           filename: sampleFilename || undefined,
         } : undefined;
-        // Slider slides are at parts[6], pixelLength at parts[7]
-         const slides = parts[6] ? Number(parts[6]) : 1;
-         const pixelLength = parts[7] ? Number(parts[7]) : 0;
-         if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 512 || y < 0 || y > 384 ||
-             !Number.isFinite(time) || !Number.isInteger(time) || time < 0 || time > 10000000 ||
-             !Number.isInteger(typeBit) || typeBit < 0 || typeBit > 255 || !Number.isInteger(hitSound) || hitSound < 0 || hitSound > 255 ||
-             !Number.isInteger(slides) || slides < 1 || slides > 100 || !Number.isFinite(pixelLength) || pixelLength < 0 || pixelLength > 1000000) {
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 512 || y < 0 || y > 384 ||
+              !Number.isFinite(time) || !Number.isInteger(time) || time < 0 || time > 10000000 ||
+              !Number.isInteger(typeBit) || typeBit < 0 || typeBit > 255 || !Number.isInteger(hitSound) || hitSound < 0 || hitSound > 255) {
            throw new Error('Invalid hit object values.');
          }
          {
@@ -292,9 +283,7 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
             time,
             typeBit,
             extra,
-             slides,
-             pixelLength,
-             hitSound,
+              hitSound,
             hitSample,
           });
           if (rawNotes.length > MAX_BEATMAP_NOTES) {
@@ -310,7 +299,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   // Sort raw and parsed timing points
   tempoTimingPoints.sort((a, b) => a.time - b.time);
   parsedTimingPoints.sort((a, b) => a.timeMs - b.timeMs);
-  effectiveTimingPoints.sort((a, b) => a.time - b.time);
 
   // SECOND PASS: Dynamic Column & KeyCount detection based on unique coordinates
   const rawXValues = new Set<number>();
@@ -332,71 +320,25 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     }
   }
 
-  const mode = parsedMode !== undefined ? parsedMode : 3;
+  const mode = 3 as const;
 
   const detectedKeyCount = clusteredX.length;
   let finalKeyCount = keyCount;
 
-  if (mode === 0) {
-    // Mode 0 (standard mode): convert Circle Size to a playable key count from 4 to 7
-    finalKeyCount = Math.max(4, Math.min(7, Math.round(keyCount)));
-    // Clear clusteredX for standard mode to force standard formula conversion
-    clusteredX.length = 0;
-  } else {
-    // Prefer the detected count of unique columns if is between 2 and 10 and:
-    // - matches more columns than the parsed/default value
-    // - or the parsed/default value falls back to 4
-    if (detectedKeyCount > 8 || keyCount > 8 || (keyCount >= 2 && !Number.isInteger(keyCount))) {
-      throw new Error('Unsupported beatmap key count. RhythmMania supports 2K through 8K.');
-    }
-    if (detectedKeyCount >= 2 && detectedKeyCount <= 8) {
-      if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > 10) {
-        finalKeyCount = detectedKeyCount;
-      }
-    }
-
-    if (!Number.isInteger(finalKeyCount) || finalKeyCount < 2 || finalKeyCount > 8) {
-      throw new Error('Unsupported beatmap key count. RhythmMania supports 2K through 8K.');
+  // Prefer the detected count of unique columns when it is between 2 and 8
+  // and the parsed/default value falls back to 4.
+  if (detectedKeyCount > MAX_KEY_COUNT || keyCount > MAX_KEY_COUNT || (keyCount >= MIN_KEY_COUNT && !Number.isInteger(keyCount))) {
+    throw new Error('Unsupported beatmap key count. RhythmMania supports 2K through 9K.');
+  }
+  if (detectedKeyCount >= MIN_KEY_COUNT && detectedKeyCount <= MAX_KEY_COUNT) {
+    if (finalKeyCount === 4 || detectedKeyCount > finalKeyCount || finalKeyCount > MAX_KEY_COUNT) {
+      finalKeyCount = detectedKeyCount;
     }
   }
 
-  const findLastAtOrBefore = <T extends { time: number }>(points: T[], time: number): T | undefined => {
-    let low = 0;
-    let high = points.length - 1;
-    let result: T | undefined;
-    while (low <= high) {
-      const mid = (low + high) >> 1;
-      const point = points[mid];
-      if (point.time <= time) {
-        result = point;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-    return result;
-  };
-
-  // Helper resolver to retrieve effective beatLength and SV multiplier at any specific hit time
-  const getTimingAtTime = (startTime: number) => {
-
-    // 1. Find the active beatLength (Uninherited Tempo)
-    let activeBeatLength = 500; // default 120 bpm (500ms per beat)
-    const tempoPoint = findLastAtOrBefore(tempoTimingPoints, startTime) || tempoTimingPoints[0];
-    if (tempoPoint) activeBeatLength = tempoPoint.beatLength;
-
-    // 2. Find the active SV, including red-line resets and reverse scroll.
-    let activeSV = 1.0;
-    const svPoint = findLastAtOrBefore(effectiveTimingPoints, startTime) || effectiveTimingPoints[0];
-    if (svPoint) activeSV = svPoint.sv;
-
-    // Slider duration needs a positive velocity; reverse/zero SV is visual-only.
-    if (activeSV <= 0 || !Number.isFinite(activeSV)) {
-      activeSV = 1.0;
-    }
-
-    return { beatLength: activeBeatLength, sv: activeSV };
-  };
+  if (!isSupportedKeyCount(finalKeyCount)) {
+    throw new Error('Unsupported beatmap key count. RhythmMania supports 2K through 9K.');
+  }
 
   const notes: HitObject[] = [];
   let noteIdCounter = 0;
@@ -408,11 +350,11 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       // Direct clustering mapping - 100% precise against differences in format or scaling grids
       const idx = clusteredX.findIndex(cx => Math.abs(cx - rn.x) <= 8);
       column = idx !== -1 ? idx : 0;
-    } else if (sortedRawX.length > 0 && Math.max(...sortedRawX) < finalKeyCount && mode !== 0) {
+    } else if (sortedRawX.length > 0 && Math.max(...sortedRawX) < finalKeyCount) {
       // If the coordinates in the file are already column indices (e.g. 0 to initial count)
       column = Math.max(0, Math.min(finalKeyCount - 1, rn.x));
     } else {
-      // Robust standard mathematical fallback: Column = floor(x * CircleSize / 512)
+      // Mania files normally use x positions across the 512-wide playfield.
       column = Math.floor((rn.x * finalKeyCount) / 512);
     }
 
@@ -429,32 +371,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       if (endTime === undefined) {
         throw new Error('Invalid hold tail time.');
       }
-    } else if (mode === 0 && (rn.typeBit & 2) !== 0) {
-      // Standard slider being converted to hold note in standard mode (mode: 0)
-      type = 'hold';
-      const totalPixelLength = rn.pixelLength * (rn.slides || 1);
-      const timing = getTimingAtTime(rn.time);
-      const duration = totalPixelLength / (sliderMultiplier * 100 * timing.sv) * timing.beatLength;
-      endTime = Math.round(rn.time + duration);
-      if (!Number.isFinite(endTime) || endTime <= rn.time || endTime > 10000000) {
-        throw new Error('Invalid converted slider duration.');
-      }
-    }
-
-    let sliderPoints: Array<{ x: number; y: number }> | undefined = undefined;
-    if ((rn.typeBit & 2) !== 0 && rn.extra && rn.extra.includes('|')) {
-      sliderPoints = [];
-      const partsExtra = rn.extra.split('|');
-      for (let i = 1; i < partsExtra.length; i++) {
-        const coords = partsExtra[i].split(':');
-        if (coords.length === 2) {
-          const px = Number(coords[0]);
-          const py = Number(coords[1]);
-          if (Number.isInteger(px) && Number.isInteger(py) && px >= 0 && px <= 512 && py >= 0 && py <= 384) {
-            sliderPoints.push({ x: px, y: py });
-          }
-        }
-      }
     }
 
     notes.push({
@@ -469,10 +385,6 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
       isHoldFailed: false,
       x: rn.x,
       y: rn.y,
-      objType: rn.typeBit,
-      sliderPoints,
-      sliderLength: rn.pixelLength,
-      slidesCount: rn.slides,
       hitSound: rn.hitSound,
       hitSample: rn.hitSample,
     });
@@ -564,6 +476,7 @@ export function calculateDominantBpm(timingPoints: Array<{ time: number; beatLen
  * and dynamic note deduplication.
  */
 export function convertBeatmapKeyCount(beatmap: Beatmap, targetKeyCount: number): Beatmap {
+  if (!isSupportedKeyCount(targetKeyCount)) throw new Error('Unsupported conversion target. RhythmMania supports 2K through 9K.');
   if (beatmap.keyCount === targetKeyCount) return beatmap;
 
   const originalKeyCount = beatmap.keyCount;

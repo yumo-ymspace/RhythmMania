@@ -647,7 +647,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           } else if (isCircleMode) {
             const cx = rx + rw / 2;
             const cy = ry + rh / 2;
-            const r = (colW * (settingsSlice.noteSizeMultiplier ?? 1.0)) / 3.0;
+            const r = (colW * (settingsSlice.noteSizeMultiplier ?? 1.0) * (settingsSlice.circleSize ?? 1.0)) / 3.0;
             const noteColor = noteColorFor(n.column);
 
             ctx.beginPath();
@@ -777,7 +777,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       if (isCircleMode) {
         const cx = xPos + colW / 2;
         const cy = receptorY;
-        const r = (colW * (settingsSlice.receptorSizeMultiplier ?? 1.0)) / 3.0;
+        const r = (colW * (settingsSlice.receptorSizeMultiplier ?? 1.0) * (settingsSlice.circleSize ?? 1.0)) / 3.0;
 
         if (isPressed) {
           ctx.fillStyle = rcColor;

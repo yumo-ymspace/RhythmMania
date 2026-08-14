@@ -2,6 +2,15 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
+/*
  * osu!lazer-standardised osu!mania score/accuracy/grade helpers.
  * Source: ppy/osu ManiaScoreProcessor + ScoreProcessor (standardised mode).
  */
@@ -46,7 +55,15 @@ export const MOD_SCORE_MULTIPLIERS: Record<string, number> = {
   K6: 0.9,
   K7: 0.9,
   K8: 0.9,
+  K9: 0.9,
 };
+
+export function getHpDrainMultiplier(hpDrainRate: number, mods: readonly string[] = []): number {
+  const baseMultiplier = hpDrainRate > 5 ? 0.8 : 1.2;
+  if (mods.some((mod) => mod.toUpperCase() === 'EZ')) return baseMultiplier * 0.5;
+  if (mods.some((mod) => mod.toUpperCase() === 'HR')) return baseMultiplier * 1.4;
+  return baseMultiplier;
+}
 
 export interface JudgementCounts {
   marvelousCount: number;

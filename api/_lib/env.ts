@@ -33,6 +33,7 @@ export interface ServerEnvConfig {
 }
 
 let localDevelopmentSecret: string | undefined;
+const DATABASE_TLS_QUERY_PARAMETERS = new Set(['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'sslpassword']);
 
 function getSessionSecret(isProduction: boolean): string {
   const configured = process.env.SESSION_SECRET?.trim();
@@ -91,6 +92,29 @@ export function isValidDbTlsConfig(config: Pick<ServerEnvConfig, 'pgSslMode' | '
   return !(config.isProduction && config.pgSslMode === 'disable' && !isInsecurePgTlsExplicitlyAllowed());
 }
 
+export function isSafeDatabaseUrl(databaseUrl: string): boolean {
+  return normalizeDatabaseUrl(databaseUrl) !== null;
+}
+
+/**
+ * Keep provider connection options while making TLS policy explicit in PGSSLMODE.
+ * PostgreSQL providers commonly include sslmode=require in DATABASE_URL.
+ */
+export function normalizeDatabaseUrl(databaseUrl: string): string | null {
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') return null;
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (DATABASE_TLS_QUERY_PARAMETERS.has(key.toLowerCase())) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function isInsecurePgTlsExplicitlyAllowed(): boolean {
   const value = process.env.ALLOW_INSECURE_PG_TLS?.trim().toLowerCase();
   return value === '1' || value === 'true' || value === 'yes' || value === 'on';
@@ -105,6 +129,12 @@ export function validateDbEnv(): { valid: boolean; reason?: string } {
     };
   }
   if (config.databaseUrl) {
+    if (!isSafeDatabaseUrl(config.databaseUrl)) {
+      return {
+        valid: false,
+        reason: 'DATABASE_URL contains unsupported or unsafe connection parameters.',
+      };
+    }
     return { valid: true };
   }
   if (config.pgHost && config.pgDatabase && config.pgUser) {

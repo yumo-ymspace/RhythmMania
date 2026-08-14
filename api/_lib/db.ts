@@ -11,7 +11,7 @@
  */
 
 import pg from 'pg';
-import { getEnvConfig, isValidDbTlsConfig } from './env.js';
+import { getEnvConfig, isValidDbTlsConfig, normalizeDatabaseUrl } from './env.js';
 
 const { Pool } = pg;
 
@@ -27,20 +27,27 @@ export function getDbPool(): pg.Pool {
   if (!isValidDbTlsConfig(env)) {
     throw new Error('Invalid PostgreSQL TLS configuration');
   }
+  const connectionString = env.databaseUrl ? normalizeDatabaseUrl(env.databaseUrl) : null;
+  if (env.databaseUrl && !connectionString) {
+    throw new Error('Invalid PostgreSQL connection string');
+  }
 
   const sslOption = env.pgSslMode === 'disable' ? false : { rejectUnauthorized: true };
 
-  if (env.databaseUrl) {
+  if (connectionString) {
     poolInstance = new Pool({
-      connectionString: env.databaseUrl,
+      connectionString,
       ssl: env.pgSslMode === 'disable' ? false : sslOption,
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
   } else {
+    if (!env.pgHost || !env.pgDatabase || !env.pgUser) {
+      throw new Error('Missing PostgreSQL connection configuration');
+    }
     poolInstance = new Pool({
-      host: env.pgHost || 'localhost',
+      host: env.pgHost,
       port: env.pgPort || 5432,
       database: env.pgDatabase,
       user: env.pgUser,

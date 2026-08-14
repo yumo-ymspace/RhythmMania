@@ -51,6 +51,7 @@ import {
   computeTotalScore,
   countMapJudgements,
   countTotalHits,
+  getHpDrainMultiplier,
   getComboScoreChange,
 } from '../utils/scoreCalculator';
 import metadata from '../../metadata.json';
@@ -238,9 +239,11 @@ export default function GameplayCanvas({
   // Override settings if we're watching a replay
   const settings = React.useMemo(() => {
     if (replayRecord?.recordedSettings) {
+      const replayMods = replayRecord.mods || replayRecord.recordedSettings.selectedMods || [];
       return {
         ...propSettings,
         ...replayRecord.recordedSettings,
+        selectedMods: replayMods,
         musicVolume: propSettings.musicVolume,
         hitsoundVolume: propSettings.hitsoundVolume,
         masterVolume: propSettings.masterVolume,
@@ -255,6 +258,10 @@ export default function GameplayCanvas({
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+  const onFinishRef = useRef(onFinish);
+  useEffect(() => {
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
 
   const scrollModelRef = useRef<ScrollModel | null>(null);
   useEffect(() => {
@@ -359,7 +366,7 @@ export default function GameplayCanvas({
     // If they failed or are at 0 HP, submit as finished fail record so they see performance telemetry and replay
     if (scoreStateRef.current.failed) {
       if (isMountedRef.current) {
-        onFinish(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
+        onFinishRef.current(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
       }
     } else {
       onBack();
@@ -413,8 +420,8 @@ export default function GameplayCanvas({
     if (!container) return;
 
     if (!isFocusMode) {
-      setIsFocusMode(true);
-      await FullscreenManager.enterFocusMode(container);
+      const entered = await FullscreenManager.enterFocusMode(container);
+      setIsFocusMode(entered);
     } else {
       setIsFocusMode(false);
       await FullscreenManager.exitFocusMode();
@@ -473,6 +480,11 @@ export default function GameplayCanvas({
   const audioStartPendingRef = useRef<boolean>(false);
   const audioTimeRef = useRef<number>(0);
   const smoothOffsetRef = useRef<number>(settings.audioOffset);
+  const readGameplayTime = () => {
+    const currentTime = mainAudio.getCurrentTimeMs();
+    if (Number.isFinite(currentTime)) audioTimeRef.current = currentTime;
+    return audioTimeRef.current;
+  };
   const notesRef = useRef<HitObject[]>([]);
   const scoreStateRef = useRef<ScoreState>({
     score: 0,
@@ -1052,6 +1064,7 @@ export default function GameplayCanvas({
             // Unpause visual systems — snap A/V phase before free-run
             lastProcessedReplayTimeRef.current = -1;
             setIsPaused(false);
+            isPausedRef.current = false;
             isPlayingRef.current = true;
             void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
               audioTimeRef.current = mainAudio.getCurrentTimeMs();
@@ -1088,7 +1101,8 @@ export default function GameplayCanvas({
       counts[colIndex] = (counts[colIndex] || 0) + 1;
       if (counts[colIndex] !== 1) return;
 
-      advanceHoldTailTicks(notesRef.current, audioTimeRef.current - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
+      const inputTime = readGameplayTime();
+      advanceHoldTailTicks(notesRef.current, inputTime - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       keysPressedRef.current[colIndex] = true;
       activeColumnsRef.current[colIndex] = true;
       laneGlowRef.current[colIndex] = 1.0;
@@ -1096,11 +1110,11 @@ export default function GameplayCanvas({
         hasKeyPressedOnceRef.current[colIndex] = true;
       }
       triggerHitEvent(colIndex);
-      advanceHoldTailTicks(notesRef.current, audioTimeRef.current, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
+      advanceHoldTailTicks(notesRef.current, inputTime, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
 
       if (!isReplayMode) {
         replayFramesRef.current.push({
-          time: audioTimeRef.current,
+          time: inputTime,
           keysPressed: [...keysPressedRef.current]
         });
       }
@@ -1115,16 +1129,17 @@ export default function GameplayCanvas({
       counts[colIndex] -= 1;
       if (counts[colIndex] > 0) return;
 
-      advanceHoldTailTicks(notesRef.current, audioTimeRef.current - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
+      const inputTime = readGameplayTime();
+      advanceHoldTailTicks(notesRef.current, inputTime - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       keysPressedRef.current[colIndex] = false;
       activeColumnsRef.current[colIndex] = false;
-      advanceHoldTailTicks(notesRef.current, audioTimeRef.current, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
+      advanceHoldTailTicks(notesRef.current, inputTime, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       
       triggerReleaseEvent(colIndex);
 
       if (!isReplayMode) {
         replayFramesRef.current.push({
-          time: audioTimeRef.current,
+          time: inputTime,
           keysPressed: [...keysPressedRef.current]
         });
       }
@@ -1501,7 +1516,7 @@ export default function GameplayCanvas({
 
     // Direct health modifier (Drain scaling factor)
     // OD increases/decreases HP recovery
-    let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
+    const hpMultiplier = getHpDrainMultiplier(beatmap.hpDrainRate, settings.selectedMods);
     state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
 
     if (state.hp <= 0 && !settings.selectedMods?.includes('NF') && !isReplayMode) {
@@ -1654,21 +1669,22 @@ export default function GameplayCanvas({
 
     // Canvas Draw Thread
     const render = () => {
-      const activeCanvas = settings.renderEngine === 'babylon' ? rendererCanvasRef.current : canvasRef.current;
+      const currentSettings = settingsRef.current;
+      const activeCanvas = currentSettings.renderEngine === 'babylon' ? rendererCanvasRef.current : canvasRef.current;
       if (!activeCanvas) return;
 
-      const dpr = settings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
+      const dpr = currentSettings.limitDprToOne ? 1 : Math.min(1.5, window.devicePixelRatio || 1);
       const width = activeCanvas.clientWidth || activeCanvas.width / dpr;
       const height = activeCanvas.clientHeight || activeCanvas.height / dpr;
 
       // Smoothly slide the rendering offset towards the actual audioOffset to prevent note visual teleportations mid-flight:
-      smoothOffsetRef.current += (settings.audioOffset - smoothOffsetRef.current) * 0.08;
+      smoothOffsetRef.current += (currentSettings.audioOffset - smoothOffsetRef.current) * 0.08;
 
       let songTime;
       if (isScrubbingRef.current) {
         songTime = audioTimeRef.current;
       } else {
-        const offsetDiff = settings.audioOffset - smoothOffsetRef.current;
+        const offsetDiff = currentSettings.audioOffset - smoothOffsetRef.current;
 
         // Keep the countdown clock until AudioContext resume/start has completed.
         // Otherwise getCurrentTimeMs() briefly reports 0 and notes jump forward,
@@ -1871,7 +1887,6 @@ export default function GameplayCanvas({
         } catch (e) {}
       }
 
-      const currentSettings = settingsRef.current;
       const receptorY = currentSettings.upsurfaceNoteMode ? 60 : height - 155;
 
       // --- HIGH PERFORMANCE RENDERER HANDLER ---
@@ -2073,7 +2088,7 @@ export default function GameplayCanvas({
         finishTimeoutRef.current = setTimeout(() => {
           finishTimeoutRef.current = null;
           if (isMountedRef.current) {
-            onFinish(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
+            onFinishRef.current(scoreStateRef.current, replayFramesRef.current, hitErrorSamplesRef.current);
           }
         }, 1200);
       }
@@ -2105,8 +2120,9 @@ export default function GameplayCanvas({
   const pauseGameplay = () => {
     if (showCountdown > 0 || scoreStateRef.current.failed) return;
     setUnpauseCountdown(0); // Safely cancel any active recovery countdown on window focus loss/tab change
-    if (isPaused) return;
+    if (isPausedRef.current) return;
     setIsPaused(true);
+    isPausedRef.current = true;
     isPlayingRef.current = false;
     mainAudio.pause();
     if (videoRef.current) {
@@ -2142,11 +2158,12 @@ export default function GameplayCanvas({
   const togglePause = () => {
     if (showCountdown > 0 || unpauseCountdown > 0 || scoreStateRef.current.failed) return;
 
-    if (isPaused) {
+    if (isPausedRef.current) {
       if (isReplayMode) {
         setIsPaused(false);
+        isPausedRef.current = false;
         isPlayingRef.current = true;
-        void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
+        void mainAudio.playAsync(beatmap.bpm, settingsRef.current.audioOffset).then(() => {
           audioTimeRef.current = mainAudio.getCurrentTimeMs();
           snapVideoToAudio(audioTimeRef.current, true);
         });
@@ -2156,6 +2173,7 @@ export default function GameplayCanvas({
       }
     } else {
       setIsPaused(true);
+      isPausedRef.current = true;
       isPlayingRef.current = false;
       mainAudio.pause();
       if (videoRef.current) {
@@ -2230,6 +2248,8 @@ export default function GameplayCanvas({
 
     // Reset hit error timing ticks
     hitErrorTicksRef.current = [];
+    hitErrorSamplesRef.current = [];
+    unstableRateAccumulatorRef.current.reset();
 
     if (replayData.length === 0) {
       setUiScore(0);
@@ -2264,7 +2284,7 @@ export default function GameplayCanvas({
         else if (judg.type === 'good') state.goodCount++;
         else if (judg.type === 'bad') state.badCount++;
       }
-      let hpMultiplier = beatmap.hpDrainRate > 5 ? 0.8 : 1.2;
+      const hpMultiplier = getHpDrainMultiplier(beatmap.hpDrainRate, settings.selectedMods);
       state.hp = Math.max(0, Math.min(100, state.hp + (judg.hpDelta * hpMultiplier)));
 
       const counts = {

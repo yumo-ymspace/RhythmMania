@@ -11,7 +11,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleCors, sendJson } from '../_lib/response.js';
+import { handleCors, sendError, sendJson } from '../_lib/response.js';
 import { getSessionFromReq } from '../_lib/auth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -44,11 +44,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (e: unknown) {
-    console.error('Current user session request failed:', e instanceof Error ? e.name : 'unknown');
-    return sendJson(res, 200, {
-      success: true,
-      data: { user: null },
-      error: 'Failed to retrieve session',
-    });
+    const databaseCode = typeof e === 'object' && e !== null && 'code' in e && typeof e.code === 'string' ? e.code : 'no-code';
+    console.error('Current user session request failed:', e instanceof Error ? e.name : 'unknown', databaseCode);
+    return sendError(res, 503, 'Authentication database unavailable');
   }
 }

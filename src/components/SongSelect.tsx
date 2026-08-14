@@ -43,7 +43,6 @@ const MODIFIER_TILES = [
     id: 'NF',
     name: 'No Fail',
     title: 'No Fail (NF)',
-    desc: 'Cannot fail the song even if you reach zero HP.',
     multiplier: '0.50x',
     icon: InfinityIcon,
     activeClass: 'bg-emerald-500/25 text-emerald-300 shadow-[0_8px_24px_rgba(16,185,129,0.18)]',
@@ -53,7 +52,6 @@ const MODIFIER_TILES = [
     id: 'EZ',
     name: 'Easy',
     title: 'Easy (EZ)',
-    desc: 'Larger difficulty hit windows with less HP drain.',
     multiplier: '0.80x',
     icon: Sparkles,
     activeClass: 'bg-emerald-500/25 text-emerald-300 shadow-[0_8px_24px_rgba(16,185,129,0.18)]',
@@ -63,7 +61,6 @@ const MODIFIER_TILES = [
     id: 'HT',
     name: 'Half Time',
     title: 'Half Time (HT)',
-    desc: 'Decreases playback speed and rate.',
     multiplier: '0.50x',
     icon: Rewind,
     activeClass: 'bg-teal-500/25 text-teal-300 shadow-[0_8px_24px_rgba(20,184,166,0.18)]',
@@ -73,7 +70,6 @@ const MODIFIER_TILES = [
     id: 'HR',
     name: 'Hard Rock',
     title: 'Hard Rock (HR)',
-    desc: 'Tighter timing windows and faster HP loss.',
     multiplier: '1.10x',
     icon: ArrowUpToLine,
     activeClass: 'bg-rose-500/25 text-rose-300 shadow-[0_8px_24px_rgba(244,63,94,0.18)]',
@@ -83,7 +79,6 @@ const MODIFIER_TILES = [
     id: 'HD',
     name: 'Hidden',
     title: 'Hidden (HD)',
-    desc: 'Fades notes out before they reach the target.',
     multiplier: '1.15x',
     icon: SquareSlash,
     activeClass: 'bg-purple-500/25 text-purple-300 shadow-[0_8px_24px_rgba(168,85,247,0.18)]',
@@ -93,7 +88,6 @@ const MODIFIER_TILES = [
     id: 'DT',
     name: 'Double Time',
     title: 'Double Time (DT)',
-    desc: 'Increases playback and simulation rate.',
     multiplier: '1.25x',
     icon: FastForward,
     activeClass: 'bg-pink-500/25 text-pink-300 shadow-[0_8px_24px_rgba(236,72,153,0.18)]',
@@ -103,7 +97,6 @@ const MODIFIER_TILES = [
     id: 'AT',
     name: 'Autoplay',
     title: 'Autoplay (AP)',
-    desc: 'Plays every note with perfect timing. Unranked.',
     multiplier: 'UNRANKED',
     icon: Sparkles,
     activeClass: 'bg-sky-500/25 text-sky-300 shadow-[0_8px_24px_rgba(14,165,233,0.18)]',
@@ -120,7 +113,6 @@ interface SongSelectProps {
   onImportBeatmap: (map: Beatmap) => void;
   onImportPackage: (packageId: string, name: string, blob: Blob, maps: Beatmap[]) => Promise<void>;
   onDeleteSongGroup?: (mapIds: string[]) => void;
-  filterMode: number;
   setSongSelectBgUrl?: (url: string) => void;
   onBack?: () => void;
   onOpenOnlineCatalog?: () => void;
@@ -141,7 +133,6 @@ export default function SongSelect({
   onImportBeatmap,
   onImportPackage,
   onDeleteSongGroup,
-  filterMode,
   setSongSelectBgUrl,
   onBack,
   onOpenOnlineCatalog,
@@ -360,9 +351,8 @@ export default function SongSelect({
   // Filter and prepare display beatmaps
   const filteredCustomMaps = React.useMemo(() => {
     return mergedCustomMaps.filter(map => {
-      // Game mode (Mania vs Standard)
-      const mapMode = map.mode !== undefined ? map.mode : 3;
-      if (mapMode !== filterMode) return false;
+       // Song Select exposes osu!mania charts only.
+       if (map.mode !== undefined && map.mode !== 3) return false;
 
       // Filter by search text query
       const matchesSearch = map.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -392,7 +382,7 @@ export default function SongSelect({
       }
       return 0;
     });
-  }, [mergedCustomMaps, searchTerm, minStar, maxStar, collectionFilter, sortBy, filterMode, favoriteSongs]);
+  }, [mergedCustomMaps, searchTerm, minStar, maxStar, collectionFilter, sortBy, favoriteSongs]);
 
   const persistLastDifficultyForMap = (map: any) => {
     if (!map?.id) return;
@@ -574,6 +564,9 @@ export default function SongSelect({
   // Catalog identity is enough to show the leaderboard shell. Verified server
   // status remains separate and is enforced by replay upload verification.
   const isServerLeaderboardMap = hasCatalogIdentity(selectedCustomMap);
+  const leaderboardChartRevisionId = isServerLeaderboardMap && selectedCustomMap
+    ? typeof (selectedCustomMap as any).chartRevisionId === 'string' ? (selectedCustomMap as any).chartRevisionId : ''
+    : '';
 
   useEffect(() => {
     setLeaderboardTab(isServerLeaderboardMap ? 'online' : 'local');
@@ -584,23 +577,24 @@ export default function SongSelect({
     if (!selectedCustomMapId || !isServerLeaderboardMap) {
       setOnlineReplays([]);
       setOnlineReplayError(null);
+      setIsLoadingOnlineReplays(false);
       return;
     }
 
-    const currentMap = mergedCustomMaps.find(m => m.id === selectedCustomMapId);
-    if (!currentMap) {
+    if (!leaderboardChartRevisionId) {
       setOnlineReplays([]);
+      setOnlineReplayError(null);
+      setIsLoadingOnlineReplays(false);
       return;
     }
 
-    const diffId = (currentMap as any).chartRevisionId || '';
     const generation = ++leaderboardGeneration.current;
     const controller = new AbortController();
 
     setIsLoadingOnlineReplays(true);
     setOnlineReplayError(null);
 
-    fetchLeaderboardReplays(diffId, controller.signal).then((res) => {
+    fetchLeaderboardReplays(leaderboardChartRevisionId, controller.signal).then((res) => {
       if (generation !== leaderboardGeneration.current || controller.signal.aborted) return;
       setIsLoadingOnlineReplays(false);
       if (res.success) {
@@ -615,7 +609,7 @@ export default function SongSelect({
       controller.abort();
       leaderboardGeneration.current++;
     };
-  }, [selectedCustomMapId, mergedCustomMaps, isServerLeaderboardMap]);
+  }, [selectedCustomMapId, leaderboardChartRevisionId, isServerLeaderboardMap]);
 
   const handleDownloadOnlineReplay = async (replayId: string) => {
     const replayItem = onlineReplays.find((replay) => replay.id === replayId);
@@ -751,7 +745,7 @@ export default function SongSelect({
   // Automatically remove conflicting key change mods when switching to a song group that has native difficulties for those keys
   useEffect(() => {
     const activeMods = settings.selectedMods || [];
-    const activeKeyChangeMod = activeMods.find(m => /^K[2-8]$/.test(m));
+    const activeKeyChangeMod = activeMods.find(m => /^K[2-9]$/.test(m));
     
     if (activeKeyChangeMod) {
       const keyCount = parseInt(activeKeyChangeMod.substring(1), 10);
@@ -1019,7 +1013,7 @@ export default function SongSelect({
     const activeMods = settings.selectedMods || [];
     const nextMods = activeMods.includes(id)
       ? activeMods.filter((mod) => mod !== id)
-      : [...activeMods.filter((mod) => !/^K[2-8]$/.test(mod)), id];
+      : [...activeMods.filter((mod) => !/^K[2-9]$/.test(mod)), id];
     updateSettings({ selectedMods: nextMods });
   };
 
@@ -1369,7 +1363,7 @@ export default function SongSelect({
                         if (active.includes('HR')) factor *= 1.1;
                         if (active.includes('HD')) factor *= 1.15;
                         if (active.includes('DT')) factor *= 1.25;
-                        if (active.some(mod => /^K[2-8]$/.test(mod))) factor *= 0.9;
+                        if (active.some(mod => /^K[2-9]$/.test(mod))) factor *= 0.9;
                         return factor.toFixed(2) + 'x';
                       })()}
                     </span>
@@ -1390,7 +1384,7 @@ export default function SongSelect({
                         <button
                           type="button"
                           key={mod.id}
-                          title={`${mod.title}: ${mod.desc}`}
+                          title={mod.title}
                           onClick={() => toggleModifier(mod.id, mod.exclusiveWith)}
                           className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0c0c12]"
                         >
@@ -1403,7 +1397,7 @@ export default function SongSelect({
                         </button>
                       );
                     })}
-                    {[2, 3, 4, 5, 6, 7, 8].map((keyCount) => {
+                    {[2, 3, 4, 5, 6, 7, 8, 9].map((keyCount) => {
                       const id = `K${keyCount}`;
                       const isActive = (settings.selectedMods || []).includes(id);
                       const isDisabled = availableKeyCounts.includes(keyCount);
@@ -1624,8 +1618,7 @@ export default function SongSelect({
                     />
                   </div>
 
-                  {filterMode !== 0 && (
-                    <div className="flex flex-col gap-1.5">
+                  <div className="flex flex-col gap-1.5">
                       <div className="flex justify-between text-[11px] font-mono tracking-wider text-slate-350 uppercase">
                         <span>Scroll Multiplier:</span>
                         <span className="text-amber-400 font-bold">{settings.scrollSpeed}x</span>
@@ -1638,8 +1631,7 @@ export default function SongSelect({
                         onChange={(e) => updateSettings({ scrollSpeed: parseInt(e.target.value) })}
                         className="w-full accent-amber-450 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                       />
-                    </div>
-                  )}
+                  </div>
 
                   <div className="flex justify-between items-center py-2 border-t border-white/[0.03]">
                     <span className="text-[11px] font-mono uppercase tracking-wider text-slate-300">Storyboard / Video Media:</span>
@@ -1872,12 +1864,11 @@ export default function SongSelect({
                           <p className="text-red-400">{onlineReplayError}</p>
                           <button 
                             onClick={() => {
-                              if (selectedCustomMap) {
-                                 const diffId = (selectedCustomMap as any).chartRevisionId || '';
+                              if (leaderboardChartRevisionId) {
                                  setIsLoadingOnlineReplays(true);
                                  setOnlineReplayError(null);
                                  const generation = ++leaderboardGeneration.current;
-                                 fetchLeaderboardReplays(diffId).then(res => {
+                                  fetchLeaderboardReplays(leaderboardChartRevisionId).then(res => {
                                    if (generation !== leaderboardGeneration.current) return;
                                    setIsLoadingOnlineReplays(false);
                                    if (res.success) {
@@ -2566,7 +2557,7 @@ export default function SongSelect({
                       if (active.includes('HR')) factor *= 1.1;
                       if (active.includes('HD')) factor *= 1.15;
                       if (active.includes('DT')) factor *= 1.25;
-                      if (active.some(mod => /^K[2-8]$/.test(mod))) factor *= 0.9;
+                      if (active.some(mod => /^K[2-9]$/.test(mod))) factor *= 0.9;
                       return `Multiplier ${factor.toFixed(2)}x${active.includes('AT') ? ' / Unranked' : ''}`;
                     })()}
                   </div>
@@ -2584,14 +2575,12 @@ export default function SongSelect({
                         {
                           id: 'NF',
                           title: 'NoFail (NF)',
-                          desc: 'Cannot fail the song even if you reach zero HP.',
                           activeBg: 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400',
                           mult: '0.50x'
                         },
                         {
                           id: 'EZ',
                           title: 'Easy (EZ)',
-                          desc: 'Toggles larger difficulty hit windows with less HP drain.',
                           activeBg: 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400',
                           mult: '0.80x',
                           exclusiveWith: 'HR'
@@ -2599,7 +2588,6 @@ export default function SongSelect({
                         {
                           id: 'HT',
                           title: 'HalfTime (HT)',
-                          desc: 'Decreases playback speed and rate by 0.75x.',
                           activeBg: 'bg-teal-500/20 border-teal-500/60 text-teal-400',
                           mult: '0.50x',
                           exclusiveWith: 'DT'
@@ -2651,7 +2639,6 @@ export default function SongSelect({
                         {
                           id: 'HR',
                           title: 'HardRock (HR)',
-                          desc: 'Tighter timing accuracy windows, faster HP loss.',
                           activeBg: 'bg-rose-500/20 border-rose-500/60 text-rose-400',
                           mult: '1.10x',
                           exclusiveWith: 'EZ'
@@ -2659,14 +2646,12 @@ export default function SongSelect({
                         {
                           id: 'HD',
                           title: 'Hidden (HD)',
-                          desc: 'Fades notes out completely before hitting target.',
                           activeBg: 'bg-purple-500/20 border-purple-500/60 text-purple-400',
                           mult: '1.15x'
                         },
                         {
                           id: 'DT',
                           title: 'DoubleTime (DT)',
-                          desc: 'Increases playback and simulation rate by 1.50x.',
                           activeBg: 'bg-[#ff80a5]/20 border-[#ff80a5]/60 text-[#ff80a5]',
                           mult: '1.25x',
                           exclusiveWith: 'HT'
@@ -2711,7 +2696,7 @@ export default function SongSelect({
                    {/* KEY CONVERSION MODS */}
                    <div className="contents">
                      <span className="sr-only">Key conversion</span>
-                     {[2, 3, 4, 5, 6, 7, 8].map((keyCount) => {
+                     {[2, 3, 4, 5, 6, 7, 8, 9].map((keyCount) => {
                        const id = `K${keyCount}`;
                        const isActive = (settings.selectedMods || []).includes(id);
                        const isDisabled = availableKeyCounts.includes(keyCount);
@@ -2746,7 +2731,7 @@ export default function SongSelect({
                          <button
                            type="button"
                            onClick={() => toggleModifier(mod.id)}
-                           title={`${mod.title}: ${mod.desc}`}
+                           title={mod.title}
                            className="group flex min-w-0 flex-col items-center gap-2 text-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#28292d]"
                          >
                            <span className={`relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all duration-150 group-hover:-translate-y-0.5 group-hover:bg-white/[.14] group-active:scale-95 ${isActive ? mod.activeClass : 'bg-white/[.08] text-white/80'}`}>

@@ -29,7 +29,7 @@ async function registerZipFile(
 
 export async function unpackBeatmap(map: Beatmap, force = false): Promise<void> {
   const mapWithPkg = map as SavedBeatmap;
-  if (mapWithPkg.isServerMap && !mapWithPkg.isCached) {
+  if (mapWithPkg.isServerMap && !mapWithPkg.isCached && !mapWithPkg.packageId && !mapWithPkg.parentPackageId) {
     return;
   }
 

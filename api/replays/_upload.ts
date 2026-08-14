@@ -1,7 +1,19 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionFromReq } from '../_lib/auth.js';
 import { findChartRevision } from '../_lib/cloudCatalog.js';
-import { query } from '../_lib/db.js';
+import { withTransaction } from '../_lib/db.js';
 import {
   decodeCanonicalChart,
   parseReplayUploadPayload,
@@ -59,13 +71,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Keep legacy profile joins populated while chart_revision_id remains the
     // authoritative replay identity.
     const legacyDifficultyId = `cloud_${chart.cloud_set_id}_${chart.source_chart_id ?? chart.chart_revision_id.slice(-64)}`.slice(0, 128);
-    await query(
-      `INSERT INTO beatmap_difficulties (id, beatmap_set_id, name, key_count, mode, beatmap_hash)
-       VALUES ($1, $2, $3, $4, 3, $5)
-       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, key_count = EXCLUDED.key_count, mode = 3`,
-      [legacyDifficultyId, chart.cloud_set_id, chart.difficulty, chart.key_count, input.beatmapHash],
-    );
-
     // A pending row is intentionally non-competitive. It is retained for a
     // retry after private chart verification, but its client score is never
     // treated as accepted evidence.
@@ -77,47 +82,66 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isFailed = verified?.isFailed ?? input.isFailed;
     const scoreState = verified?.scoreState ?? input.scoreState;
 
-    const saved = await query(
-      `INSERT INTO replays (
-         id, user_id, beatmap_set_id, beatmap_difficulty_id, chart_revision_id, beatmap_hash,
-         score, accuracy, max_combo, grade, is_failed,
-         score_state, replay_frames, recorded_settings, mods,
-         replay_source, upload_status
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'account-local', $16)
-       ON CONFLICT (id) DO UPDATE SET
-         beatmap_set_id = EXCLUDED.beatmap_set_id,
-         chart_revision_id = EXCLUDED.chart_revision_id,
-         beatmap_hash = EXCLUDED.beatmap_hash,
-         score = EXCLUDED.score,
-         accuracy = EXCLUDED.accuracy,
-         max_combo = EXCLUDED.max_combo,
-         grade = EXCLUDED.grade,
-         is_failed = EXCLUDED.is_failed,
-         score_state = EXCLUDED.score_state,
-         replay_frames = EXCLUDED.replay_frames,
-         recorded_settings = EXCLUDED.recorded_settings,
-         mods = EXCLUDED.mods,
-         upload_status = EXCLUDED.upload_status
-       WHERE replays.user_id = EXCLUDED.user_id`,
-      [
-        input.id,
-        session.userId,
-        chart.cloud_set_id,
-        legacyDifficultyId,
-        input.chartRevisionId,
-        input.beatmapHash,
-        score,
-        accuracy,
-        maxCombo,
-        grade,
-        isFailed,
-        JSON.stringify(scoreState),
-        JSON.stringify(input.replayFrames),
-        JSON.stringify(input.recordedSettings),
-        JSON.stringify(input.mods),
-        uploadStatus,
-      ],
-    );
+    const saved = await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO beatmap_difficulties (id, beatmap_set_id, name, key_count, mode, beatmap_hash)
+         VALUES ($1, $2, $3, $4, 3, $5)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           key_count = EXCLUDED.key_count,
+           mode = 3,
+           beatmap_hash = EXCLUDED.beatmap_hash`,
+        [legacyDifficultyId, chart.cloud_set_id, chart.difficulty, chart.key_count, input.beatmapHash],
+      );
+
+      return client.query(
+        `INSERT INTO replays (
+           id, user_id, beatmap_set_id, beatmap_difficulty_id, chart_revision_id, beatmap_hash,
+           score, accuracy, max_combo, grade, is_failed,
+           score_state, replay_frames, recorded_settings, mods,
+           replay_source, upload_status, hold_rules_version, hold_tick_interval_ms
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'account-local', $16, $17, $18)
+         ON CONFLICT (id) DO UPDATE SET
+           beatmap_set_id = EXCLUDED.beatmap_set_id,
+           beatmap_difficulty_id = EXCLUDED.beatmap_difficulty_id,
+           chart_revision_id = EXCLUDED.chart_revision_id,
+           beatmap_hash = EXCLUDED.beatmap_hash,
+           score = EXCLUDED.score,
+           accuracy = EXCLUDED.accuracy,
+           max_combo = EXCLUDED.max_combo,
+           grade = EXCLUDED.grade,
+           is_failed = EXCLUDED.is_failed,
+           score_state = EXCLUDED.score_state,
+           replay_frames = EXCLUDED.replay_frames,
+           recorded_settings = EXCLUDED.recorded_settings,
+           mods = EXCLUDED.mods,
+           replay_source = EXCLUDED.replay_source,
+           upload_status = EXCLUDED.upload_status,
+           hold_rules_version = EXCLUDED.hold_rules_version,
+           hold_tick_interval_ms = EXCLUDED.hold_tick_interval_ms
+         WHERE replays.user_id = EXCLUDED.user_id`,
+        [
+          input.id,
+          session.userId,
+          chart.cloud_set_id,
+          legacyDifficultyId,
+          input.chartRevisionId,
+          input.beatmapHash,
+          score,
+          accuracy,
+          maxCombo,
+          grade,
+          isFailed,
+          JSON.stringify(scoreState),
+          JSON.stringify(input.replayFrames),
+          JSON.stringify(input.recordedSettings),
+          JSON.stringify(input.mods),
+          uploadStatus,
+          input.holdRulesVersion,
+          input.holdRulesVersion === 2 ? input.holdTickIntervalMs : null,
+        ],
+      );
+    });
 
     if (saved.rowCount === 0) return sendError(res, 409, 'Replay ID is already owned by another account');
     return sendJson(res, uploadStatus === 'uploaded' ? 200 : 202, {

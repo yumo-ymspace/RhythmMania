@@ -1,3 +1,15 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sendError, sendJson } from './_lib/response.js';
 import search from './catalog/_search.js';
@@ -16,12 +28,12 @@ function route(req: VercelRequest): string {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     switch (route(req)) {
-      case 'search': return search(req, res);
-      case 'set': return getSet(req, res);
-      case 'chart': return getChart(req, res);
-      case 'register-download': return registerDownload(req, res);
-      case 'activate-download': return activateDownload(req, res);
-      case 'download': return download(req, res);
+      case 'search': return await search(req, res);
+      case 'set': return await getSet(req, res);
+      case 'chart': return await getChart(req, res);
+      case 'register-download': return await registerDownload(req, res);
+      case 'activate-download': return await activateDownload(req, res);
+      case 'download': return await download(req, res);
       default: return sendError(res, 404, 'Catalog route not found');
     }
   } catch (error) {

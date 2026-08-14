@@ -1,7 +1,7 @@
 {
   "name": "rhythm-mania",
   "private": true,
-  "version": "0.8.15",
+  "version": "0.9.0",
   "type": "module",
   "license": "Proprietary",
   "scripts": {
@@ -15,7 +15,7 @@
   "dependencies": {
     "@babylonjs/core": "^9.18.2",
     "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "dotenv": "^17.2.3",
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
@@ -34,8 +34,8 @@
     "@vercel/node": "^5.8.26",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
-    "vite": "^6.2.3",
-    "vitest": "^3.2.4"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "@vercel/node": {

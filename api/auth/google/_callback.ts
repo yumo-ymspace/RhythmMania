@@ -24,6 +24,9 @@ import {
 import { getRequestOrigin } from '../../_lib/response.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).setHeader('Allow', 'GET').send('Method Not Allowed');
+  }
   const code = getSingleQueryValue(req.query.code);
   const error = getSingleQueryValue(req.query.error);
   const state = getSingleQueryValue(req.query.state);
@@ -92,45 +95,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         : 'Rhythm Player';
     const avatarUrl = typeof profile.picture === 'string' && profile.picture ? profile.picture : null;
 
-    // 3. Find or create user in Postgres
+    // 3. Find or create user in Postgres. The unique google_id conflict is
+    // handled atomically so concurrent callbacks share the same user row.
     let userId: string;
-    const existingUserRes = await query<{ id: string }>(
-      'SELECT id FROM users WHERE google_id = $1',
-      [googleId]
-    );
-
-    if (existingUserRes.rows.length > 0) {
-      userId = existingUserRes.rows[0].id;
-      await query(
-        'UPDATE users SET email = $1, avatar_url = $2, updated_at = NOW() WHERE id = $3',
-        [email, avatarUrl, userId]
-      );
-    } else {
-      // Clean username (max 32 chars)
-      const sanitizedUsername = name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().substring(0, 32) || 'RhythmPlayer';
-      let newUserRes: { rows: Array<{ id: string }> } | null = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const candidateId = generateUserId(16);
-        try {
-          newUserRes = await query<{ id: string }>(
-            `INSERT INTO users (id, google_id, username, email, avatar_url) 
-             VALUES ($1, $2, $3, $4, $5) 
-             RETURNING id`,
-            [candidateId, googleId, sanitizedUsername, email, avatarUrl]
-          );
-          break;
-        } catch (insertErr: unknown) {
-          // Retry only on primary-key collision; other errors bubble up.
-          if (!isRecord(insertErr) || insertErr.code !== '23505' || !String(insertErr.constraint || '').includes('users_pkey')) {
-            throw insertErr;
-          }
+    const sanitizedUsername = name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().substring(0, 32) || 'RhythmPlayer';
+    let userRes: { rows: Array<{ id: string }> } | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidateId = generateUserId(16);
+      try {
+        userRes = await query<{ id: string }>(
+          `INSERT INTO users (id, google_id, username, email, avatar_url)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (google_id) DO UPDATE SET
+             email = EXCLUDED.email,
+             avatar_url = EXCLUDED.avatar_url,
+             updated_at = NOW()
+           RETURNING id`,
+          [candidateId, googleId, sanitizedUsername, email, avatarUrl]
+        );
+        break;
+      } catch (insertErr: unknown) {
+        if (!isRecord(insertErr) || insertErr.code !== '23505' || !String(insertErr.constraint || '').includes('users_pkey')) {
+          throw insertErr;
         }
       }
-      if (!newUserRes?.rows[0]?.id) {
-        throw new Error('Failed to allocate a unique public user id');
-      }
-      userId = newUserRes.rows[0].id;
     }
+    if (!userRes?.rows[0]?.id) {
+      throw new Error('Failed to allocate a unique public user id');
+    }
+    userId = userRes.rows[0].id;
 
     // 4. Create session
     const sessionId = generateSessionId();
@@ -146,7 +139,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return sendHtmlResult(res, requestOrigin, true, 'Authentication successful.', state);
   } catch (error: unknown) {
-    console.error('Google OAuth callback failed:', error instanceof Error ? error.name : 'unknown');
+    const databaseCode = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : 'no-code';
+    console.error('Google OAuth callback failed:', error instanceof Error ? error.name : 'unknown', databaseCode);
     return sendHtmlResult(res, requestOrigin, false, 'An internal error occurred while signing in.', state);
   }
 }

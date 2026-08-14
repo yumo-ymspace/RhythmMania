@@ -31,17 +31,17 @@ import {
   Paintbrush,
 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
-import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
-import { AnimatePresence, motion, type Variants } from 'motion/react';
-import SongSelect from './components/SongSelect';
-import GameplayCanvas from './components/GameplayCanvas';
-import ResultsScreen from './components/ResultsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import PersonalHistoryScreen from './components/PersonalHistoryScreen';
 import ProfileScreen from './components/ProfileScreen';
 import EditProfileScreen from './components/EditProfileScreen';
 import OnlineBeatmapCatalog from './components/OnlineBeatmapCatalog';
 import SkinScreen from './components/SkinScreen';
+import { GameScreen, GameSettings, Beatmap, ScoreState, ReplayFrame, PlayHistoryRecord, UploadStatus } from './types';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
+import SongSelect from './components/SongSelect';
+import GameplayCanvas from './components/GameplayCanvas';
+import ResultsScreen from './components/ResultsScreen';
 import JSZip from 'jszip';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
@@ -53,10 +53,14 @@ import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs } from './utils/holdTickRul
 import { extractZipEntry } from './utils/zipResolver';
 import { uploadReplayRecord } from './utils/replayClient';
 import { AssetLifecycleManager } from './utils/assetLifecycle';
+import { computeChecksum, inferChecksumAlgorithm } from './utils/checksum';
 import { AuthUser, fetchCurrentUser, logoutUser, initiateGoogleSignIn } from './utils/authClient';
 import { FullscreenManager } from './utils/fullscreenManager';
 import { previewPlayer } from './utils/previewPlayer';
 import type { ProfileTarget, ProfileTargetInput } from './utils/profileClient';
+import { downloadBeatmapsetArchive } from './utils/osuTokenManager';
+import { resolveSkinTheme } from './render/skinTheme';
+import { cssColorToHex, parseCssColor } from './render/color';
 
 
 const PAGE_TRANSITION_VARIANTS = {
@@ -205,14 +209,14 @@ export default function App() {
   const [customMaps, setCustomMaps] = useState<Beatmap[]>([]);
   const [settings, setSettings] = useState<GameSettings>(() => {
     if (typeof window !== 'undefined') {
-      const savedSettingsText = localStorage.getItem('rhythm_mania_v1_settings');
-      if (savedSettingsText) {
-        try {
+      try {
+        const savedSettingsText = localStorage.getItem('rhythm_mania_v1_settings');
+        if (savedSettingsText) {
           const parsed = JSON.parse(savedSettingsText);
           return sanitizeSettings(parsed, DEFAULT_SETTINGS);
-        } catch (e) {
-          console.warn('Failed parsing settings from local storage, fallback applied.');
         }
+      } catch (e) {
+        console.warn('Failed reading settings from local storage, fallback applied.');
       }
     }
     return DEFAULT_SETTINGS;
@@ -265,8 +269,13 @@ export default function App() {
 
   const handleSignOut = async () => {
     setShowLogoutConfirm(false);
-    await logoutUser();
-    setCurrentUser(null);
+    const success = await logoutUser();
+    if (success) {
+      setCurrentUser(null);
+      setAuthError(null);
+    } else {
+      setAuthError('Sign out failed. Please try again.');
+    }
   };
 
   useEffect(() => {
@@ -328,6 +337,7 @@ export default function App() {
     setIsMuted(true);
   };
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
+  const replayLoadGenerationRef = useRef(0);
   const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
   // Tracks whether the user has played a map this browser session. Used to
   // decide whether Song Select should auto-resume the last selected map: only
@@ -340,11 +350,11 @@ export default function App() {
     const activeMods = activeReplayRecord
       ? (activeReplayRecord.mods || activeReplayRecord.recordedSettings?.selectedMods || [])
       : (settings.selectedMods || []);
-    const activeKeyChangeMod = activeMods.find(m => /^K[2-8]$/.test(m));
+    const activeKeyChangeMod = activeMods.find(m => /^K[2-9]$/.test(m));
     
     if (activeKeyChangeMod) {
       const targetKeys = parseInt(activeKeyChangeMod.substring(1), 10);
-      if (targetKeys >= 2 && targetKeys <= 8 && targetKeys !== selectedBeatmap.keyCount) {
+      if (targetKeys >= 2 && targetKeys <= 9 && targetKeys !== selectedBeatmap.keyCount) {
         return convertBeatmapKeyCount(selectedBeatmap, targetKeys);
       }
     }
@@ -536,6 +546,8 @@ export default function App() {
     record: PlayHistoryRecord,
     providedMap?: Beatmap
   ): Promise<{ success: boolean; error?: string }> => {
+    const operation = ++replayLoadGenerationRef.current;
+    const isCurrentOperation = () => replayLoadGenerationRef.current === operation;
     let targetMap = providedMap;
 
     if (!targetMap) {
@@ -557,6 +569,7 @@ export default function App() {
       } catch (e) {
         console.warn('Media unpack error:', e);
       }
+      if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       const cached = storageManager.lruMediaCache.get(targetMap.id);
       const cloned: Beatmap = {
@@ -582,6 +595,7 @@ export default function App() {
     if (chartRevisionId) {
       try {
         const res = await fetch(`/api/catalog/chart?chartRevisionId=${encodeURIComponent(chartRevisionId)}`, { credentials: 'include' });
+        if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
         if (res.ok) {
           const json = await res.json();
           if (json.success) {
@@ -608,50 +622,68 @@ export default function App() {
     }
 
     try {
-      const { downloadBeatmapsetArchive } = await import('./utils/osuTokenManager');
       const blob = await downloadBeatmapsetArchive(
         sourceSetId,
         () => {},
         () => {},
         MAX_COMPRESSED_SIZE_BYTES,
       );
+      if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
       if (blob.size > MAX_COMPRESSED_SIZE_BYTES) throw new Error('Security Exception: Downloaded package exceeds the size limit.');
       const arrayBuffer = await blob.arrayBuffer();
 
-       const zip = await JSZip.loadAsync(arrayBuffer);
-       validateZipLimits(zip);
-       const extractionBudget = createZipExtractionBudget();
-       const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      validateZipLimits(zip);
+      const extractionBudget = createZipExtractionBudget();
+      const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));
       if (osuFiles.length === 0) throw new Error('No .osu files in beatmap package');
 
       const importedMaps: Beatmap[] = [];
-       const pkgId = catalogEntry?.cloudSetId || catalogSetId;
-       if (!pkgId) throw new Error('Replay has no verified cloud set identity');
+      const pkgId = catalogEntry?.cloudSetId || catalogSetId;
+      if (!pkgId) throw new Error('Replay has no verified cloud set identity');
+      const targetChecksum = typeof catalogEntry?.checksum === 'string'
+        ? catalogEntry.checksum
+        : typeof record.checksum === 'string' ? record.checksum : null;
+      const targetChecksumAlgorithm = catalogEntry?.checksumAlgorithm === 'sha256' || catalogEntry?.checksumAlgorithm === 'md5'
+        ? catalogEntry.checksumAlgorithm
+        : record.checksumAlgorithm || (targetChecksum ? inferChecksumAlgorithm(targetChecksum) : null);
+      const targetFilename = typeof catalogEntry?.originalOsuFilename === 'string'
+        ? catalogEntry.originalOsuFilename.replace(/\\/g, '/').split('/').pop()?.toLowerCase()
+        : null;
 
       for (const fileKey of osuFiles) {
-          const content = decodeBoundedUtf8(await extractZipEntry(zip.files[fileKey], fileKey, extractionBudget), `Beatmap file ${fileKey}`);
-         const parsed = parseBeatmap(content, fileKey);
-         if (parsed) {
-           const isTarget = fileKey === catalogEntry.originalOsuFilename;
-           if (!isTarget) continue;
-           const fullMap: any = {
-             ...parsed,
-             id: chartRevisionId,
-             catalogSetId: pkgId,
-             catalogMapId: chartRevisionId,
-             chartRevisionId,
-             checksum: catalogEntry.checksum,
-             checksumAlgorithm: catalogEntry.checksumAlgorithm,
-             isServerMap: true,
-            parentPackageId: pkgId,
-          };
-          importedMaps.push(fullMap as Beatmap);
-        }
+        const rawContent = await extractZipEntry(zip.files[fileKey], fileKey, extractionBudget);
+        const content = decodeBoundedUtf8(rawContent, `Beatmap file ${fileKey}`);
+        const parsed = parseBeatmap(content, fileKey);
+        if (!parsed) continue;
+        const actualChecksum = targetChecksum && targetChecksumAlgorithm
+          ? await computeChecksum(rawContent, targetChecksumAlgorithm)
+          : null;
+        const normalizedFileName = fileKey.replace(/\\/g, '/').split('/').pop()?.toLowerCase();
+        const isTarget = targetChecksum && actualChecksum
+          ? actualChecksum.toLowerCase() === targetChecksum.toLowerCase()
+          : Boolean(targetFilename && normalizedFileName === targetFilename);
+        if (!isTarget) continue;
+        const fullMap: any = {
+          ...parsed,
+          id: chartRevisionId,
+          catalogSetId: pkgId,
+          catalogMapId: chartRevisionId,
+          chartRevisionId,
+          checksum: targetChecksum || undefined,
+          checksumAlgorithm: targetChecksumAlgorithm || undefined,
+          isServerMap: true,
+          packageId: pkgId,
+          parentPackageId: pkgId,
+          isCached: true,
+        };
+        importedMaps.push(fullMap as Beatmap);
       }
 
       if (importedMaps.length === 0) throw new Error('Failed to parse beatmap files');
 
-       await storageManager.savePackageWithBeatmaps(pkgId, catalogEntry?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]), importedMaps);
+      await storageManager.savePackageWithBeatmaps(pkgId, catalogEntry?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]), importedMaps);
+      if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       setCustomMaps(prev => {
         const existingIds = new Set(prev.map(m => m.id));
@@ -670,6 +702,7 @@ export default function App() {
       } catch (e) {
         console.warn('Error unpacking downloaded matchMap:', e);
       }
+      if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       const cachedMatch = storageManager.lruMediaCache.get(matchMap.id);
       const clonedMatch: Beatmap = {
@@ -682,7 +715,7 @@ export default function App() {
 
       setSelectedBeatmap(clonedMatch);
       setActiveReplayRecord(record);
-       navigateScreen('play');
+      navigateScreen('play');
       return { success: true };
     } catch (e: unknown) {
       console.error('Failed to auto-download mirror beatmap for replay:', e);
@@ -695,15 +728,14 @@ export default function App() {
 
   // Dynamically apply selected skin colors to the site theme/UI elements!
   useEffect(() => {
-    // Fixed default RhythmMania color
-    const accentHex = '#00b0ff';
-    const r = 0, g = 176, b = 255;
+    const accentHex = cssColorToHex(resolveSkinTheme(settings).colors.cyan, '#00b0ff');
+    const { r, g, b } = parseCssColor(accentHex);
 
     if (typeof document !== 'undefined') {
       document.documentElement.style.setProperty('--skin-accent', accentHex);
       document.documentElement.style.setProperty('--skin-accent-rgb', `${r}, ${g}, ${b}`);
     }
-  }, [settings.skinId, settings.customSkinColors, activeReplayRecord]);
+  }, [settings.skinId, settings.customSkinColors]);
 
   // Autoscroll to the top of the viewport whenever a page component loads or changes
   // Lock body overflow on gameplay screen to prevent any unwanted scrolling context
@@ -748,26 +780,37 @@ export default function App() {
 
   useEffect(() => {
     const loadMapsFromIndexedDB = async () => {
+      const loadLegacyMaps = async () => {
+        try {
+          const savedCustomMapsText = localStorage.getItem(LOCAL_STORAGE_CUSTOM_MAPS_KEY);
+          if (!savedCustomMapsText) return;
+          const parsed: unknown = JSON.parse(savedCustomMapsText);
+          if (!Array.isArray(parsed) || parsed.length === 0) return;
+          const { maps: migratedMaps } = await migrateAndNormalizeBeatmaps(parsed);
+          setCustomMaps(migratedMaps);
+          for (const map of migratedMaps) {
+            try {
+              await storageManager.saveBeatmap(map);
+            } catch (error) {
+              console.warn('Could not migrate a legacy custom map into IndexedDB:', error instanceof Error ? error.message : String(error));
+            }
+          }
+        } catch (error) {
+          console.warn('Could not retrieve legacy custom maps:', error instanceof Error ? error.message : String(error));
+        }
+      };
+
       try {
         const maps = await storageManager.getAllBeatmaps();
         if (maps && maps.length > 0) {
           const { maps: migratedMaps } = await migrateAndNormalizeBeatmaps(maps);
           setCustomMaps(migratedMaps);
         } else {
-          const savedCustomMapsText = localStorage.getItem(LOCAL_STORAGE_CUSTOM_MAPS_KEY);
-          if (savedCustomMapsText) {
-             const parsed: unknown = JSON.parse(savedCustomMapsText);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const { maps: migratedMaps } = await migrateAndNormalizeBeatmaps(parsed);
-              setCustomMaps(migratedMaps);
-              for (const map of migratedMaps) {
-                 await storageManager.saveBeatmap(map);
-              }
-            }
-          }
+          await loadLegacyMaps();
         }
       } catch (err) {
         console.warn('Could not retrieve custom maps from IndexedDB:', err instanceof Error ? err.message : String(err));
+        await loadLegacyMaps();
       }
     };
     loadMapsFromIndexedDB();
@@ -882,6 +925,7 @@ export default function App() {
   };
 
   const handleSelectMap = (map: Beatmap) => {
+    replayLoadGenerationRef.current++;
     setActiveReplayRecord(null); // Fresh clean live playthrough
     const cloned = {
       ...map,
@@ -890,6 +934,28 @@ export default function App() {
     setSelectedBeatmap(cloned);
     setHasPlayedThisSession(true);
     navigateScreen('play');
+  };
+
+  const releaseBeatmapAssets = (map: Beatmap | null) => {
+    if (!map) return;
+    const cached = storageManager.lruMediaCache.get(map.id);
+    if (!cached) {
+      AssetLifecycleManager.releaseSpecific(map.audioUrl);
+      AssetLifecycleManager.releaseSpecific(map.videoUrl);
+      AssetLifecycleManager.releaseSpecific(map.bgUrl);
+      for (const url of Object.values(map.hitSoundUrls || {})) AssetLifecycleManager.releaseSpecific(url);
+      return;
+    }
+    for (const [current, retained] of [
+      [map.audioUrl, cached.audioUrl],
+      [map.videoUrl, cached.videoUrl],
+      [map.bgUrl, cached.bgUrl],
+    ] as Array<[string | undefined, string]>) {
+      if (current && current !== retained) AssetLifecycleManager.releaseSpecific(current);
+    }
+    for (const [name, current] of Object.entries(map.hitSoundUrls || {})) {
+      if (current && current !== cached.hitSoundUrls[name]) AssetLifecycleManager.releaseSpecific(current);
+    }
   };
 
   const handleGameplayFinish = (finalScore: ScoreState, replayFrames: ReplayFrame[] = [], hitErrors?: number[]) => {
@@ -902,7 +968,7 @@ export default function App() {
       selectedBeatmap.mode === 3 ||
       selectedBeatmap.mode === undefined ||
       selectedBeatmap.mode === null ||
-      (selectedBeatmap.keyCount >= 2 && selectedBeatmap.keyCount <= 8)
+      (selectedBeatmap.keyCount >= 2 && selectedBeatmap.keyCount <= 9)
     );
 
     const newRecordId = `play_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
@@ -968,6 +1034,7 @@ export default function App() {
 
     if (!finalScore.completed || finalScore.failed) {
       // "pre exited or failed maps will not get the score screen/ will just replay the song/ go back to the song select"
+      releaseBeatmapAssets(selectedBeatmap);
       setActiveReplayRecord(null);
       setSelectedBeatmap(null);
       setScoreState(null);
@@ -985,6 +1052,8 @@ export default function App() {
   };
 
   const handleRetrySong = () => {
+    replayLoadGenerationRef.current++;
+    releaseBeatmapAssets(selectedBeatmap);
     setActiveReplayRecord(null);
     setLastHitErrors(null);
     setSelectedBeatmap(null);
@@ -1014,7 +1083,7 @@ export default function App() {
   }
 
   return (
-    <div 
+    <div
       id="application-container" 
       className={`bg-[#050508] text-white flex flex-col font-sans selection:bg-cyan-300 selection:text-[#041321] relative h-screen ${
         (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
@@ -1389,6 +1458,7 @@ export default function App() {
                   leaveProfilePath(screen as GameScreen);
                 }} 
                 onOpenSettings={openSettings}
+                settings={settings}
                  currentUser={currentUser}
                  authLoading={authLoading}
                 onSignIn={handleGoogleSignIn}
@@ -1407,11 +1477,11 @@ export default function App() {
               exit="exit"
               className="h-full w-full overflow-hidden"
             >
-              <SkinScreen
+                <SkinScreen
                 settings={settings}
                 updateSettings={updateSettings}
                 onBack={() => navigateScreen('menu')}
-              />
+               />
             </motion.div>
           )}
 
@@ -1424,13 +1494,13 @@ export default function App() {
               exit="exit"
               className="h-full w-full overflow-hidden"
             >
-              <EditProfileScreen
+                <EditProfileScreen
                 onDone={() => currentUser && openProfile({ kind: 'userId', value: currentUser.id })}
                 onBack={() => {
                   if (currentUser) openProfile({ kind: 'userId', value: currentUser.id });
                   else leaveProfilePath('menu');
                 }}
-              />
+               />
             </motion.div>
           )}
 
@@ -1443,13 +1513,13 @@ export default function App() {
               exit="exit"
               className="h-full w-full overflow-hidden"
             >
-              <ProfileScreen
+                <ProfileScreen
                 user={currentUser}
                 profileTarget={profileTarget}
                 onBack={() => leaveProfilePath('menu')}
                 onEditProfile={openEditProfile}
                 onOpenProfile={openProfile}
-              />
+               />
             </motion.div>
           )}
 
@@ -1472,8 +1542,7 @@ export default function App() {
                  onImportBeatmap={handleImportBeatmap}
                  onImportPackage={handleImportPackage}
                 onDeleteSongGroup={handleDeleteSongGroup}
-                filterMode={3}
-                setSongSelectBgUrl={setSongSelectBgUrl}
+                 setSongSelectBgUrl={setSongSelectBgUrl}
                  onBack={() => navigateScreen('menu')}
                 onOpenOnlineCatalog={() => setShowFindBeatmapOverlay(true)}
                 onWatchReplay={handleWatchReplay}
@@ -1511,29 +1580,13 @@ export default function App() {
                   updateSettings={updateSettings}
                   onFinish={handleGameplayFinish}
                   onBack={() => {
+                    replayLoadGenerationRef.current++;
                     void FullscreenManager.exitFocusMode();
                     const returnScreen = activeReplayRecord ? 'history' : 'select';
                     setActiveReplayRecord(null);
-                    if (selectedBeatmap) {
-                      const cached = storageManager.lruMediaCache.get(selectedBeatmap.id);
-                      if (!cached) {
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
-                      } else {
-                        if (selectedBeatmap.audioUrl && selectedBeatmap.audioUrl !== cached.audioUrl) {
-                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
-                        }
-                        if (selectedBeatmap.videoUrl && selectedBeatmap.videoUrl !== cached.videoUrl) {
-                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
-                        }
-                        if (selectedBeatmap.bgUrl && selectedBeatmap.bgUrl !== cached.bgUrl) {
-                          AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
-                        }
-                      }
-                    }
+                    releaseBeatmapAssets(selectedBeatmap);
                     setSelectedBeatmap(null);
-                     navigateScreen(returnScreen);
+                    navigateScreen(returnScreen);
                   }}
                   replayRecord={activeReplayRecord}
                 />
@@ -1557,40 +1610,26 @@ export default function App() {
                 hitErrors={lastHitErrors}
                 onRetry={handleRetrySong}
                 onWatchReplay={(record) => {
-                   setViewingHistoryResult(false);
-                   return handleWatchReplay(record);
+                  setViewingHistoryResult(false);
+                  return handleWatchReplay(record);
                 }}
                 onDeleteRecord={handleDeleteHistoryRecord}
                 onBack={() => {
+                  replayLoadGenerationRef.current++;
                   void FullscreenManager.exitFocusMode();
                   const returnScreen = activeReplayRecord ? 'history' : (viewingHistoryResult ? 'history' : 'select');
                   setActiveReplayRecord(null);
                   setViewingHistoryResult(false);
-                  if (selectedBeatmap) {
-                    const cached = storageManager.lruMediaCache.get(selectedBeatmap.id);
-                    if (!cached) {
-                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
-                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
-                      AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
-                    } else {
-                      if (selectedBeatmap.audioUrl && selectedBeatmap.audioUrl !== cached.audioUrl) {
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.audioUrl);
-                      }
-                      if (selectedBeatmap.videoUrl && selectedBeatmap.videoUrl !== cached.videoUrl) {
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.videoUrl);
-                      }
-                      if (selectedBeatmap.bgUrl && selectedBeatmap.bgUrl !== cached.bgUrl) {
-                        AssetLifecycleManager.releaseSpecific(selectedBeatmap.bgUrl);
-                      }
-                    }
-                  }
+                  releaseBeatmapAssets(selectedBeatmap);
                   setSelectedBeatmap(null);
-                   navigateScreen(returnScreen);
+                  navigateScreen(returnScreen);
                 }}
                 onBackToHistory={viewingHistoryResult ? () => {
+                  releaseBeatmapAssets(selectedBeatmap);
                   setViewingHistoryResult(false);
                   setScoreState(null);
-                   navigateScreen('history');
+                  setSelectedBeatmap(null);
+                  navigateScreen('history');
                 } : undefined}
               />
             </motion.div>
@@ -1605,7 +1644,7 @@ export default function App() {
               exit="exit"
               className="w-full h-full overflow-hidden"
             >
-              <PersonalHistoryScreen
+                <PersonalHistoryScreen
                   history={playHistory}
                   allBeatmaps={customMaps}
                   onWatchReplay={(record) => {
@@ -1641,26 +1680,30 @@ export default function App() {
                   historyLimit={historyLimit}
                   onSetHistoryLimit={handleSetHistoryLimit}
                   settings={settings}
-                />
+               />
             </motion.div>
           )}
 
         </AnimatePresence>
       </main>
 
-      <SettingsScreen
-        open={showSettings}
-         onClose={() => setShowSettings(false)}
-        settings={settings}
-        updateSettings={updateSettings}
-      />
+      {showSettings && (
+        <SettingsScreen
+          open
+          onClose={() => setShowSettings(false)}
+          settings={settings}
+          updateSettings={updateSettings}
+        />
+      )}
 
-      <OnlineBeatmapCatalog
-        open={showFindBeatmapOverlay}
-        onClose={() => setShowFindBeatmapOverlay(false)}
-        customMaps={customMaps}
-        onImportPackage={handleImportPackage}
-      />
+      {showFindBeatmapOverlay && (
+        <OnlineBeatmapCatalog
+          open
+          onClose={() => setShowFindBeatmapOverlay(false)}
+          customMaps={customMaps}
+          onImportPackage={handleImportPackage}
+        />
+      )}
 
       {showLogoutConfirm && (
         <div
@@ -1695,8 +1738,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
     </div>
   );
 }

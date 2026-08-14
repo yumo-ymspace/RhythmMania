@@ -36,7 +36,8 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
     5: ['d', 'f', ' ', 'j', 'k'],
     6: ['s', 'd', 'f', 'j', 'k', 'l'],
     7: ['s', 'd', 'f', ' ', 'j', 'k', 'l'],
-    8: ['a', 's', 'd', 'f', 'j', 'k', 'l', ';']
+    8: ['a', 's', 'd', 'f', 'j', 'k', 'l', ';'],
+    9: ['a', 's', 'd', 'f', ' ', 'j', 'k', 'l', ';']
   },
   upsurfaceNoteMode: false,
   videoOpacity: 1.0,
@@ -56,6 +57,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
     6: ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'],
     7: ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'],
     8: ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'],
+    9: ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'],
   },
   noteOpacity: 1.0,
   receptorOpacity: 1.0,

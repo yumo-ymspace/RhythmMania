@@ -42,17 +42,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('[profile-router] route:', route);
     switch (route) {
       case 'me':
-        return handleMe(req, res);
+        return await handleMe(req, res);
       case 'handle-check':
-        return handleHandleCheck(req, res);
+        return await handleHandleCheck(req, res);
       case 'get':
-        return handleGet(req, res);
+        return await handleGet(req, res);
       case 'search':
-        return handleSearch(req, res);
+        return await handleSearch(req, res);
       case 'avatar':
-        return handleAvatar(req, res);
+        return await handleAvatar(req, res);
       case 'avatar/preset':
-        return handleAvatarPreset(req, res);
+        return await handleAvatarPreset(req, res);
       default:
         console.warn('[profile-router] no handler for route:', route);
         return sendJson(res, 404, { success: false, error: 'Not found' });

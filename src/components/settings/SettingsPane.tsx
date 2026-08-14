@@ -10,7 +10,7 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { GameSettings } from '../../types';
 import type { SectionId } from './settingsRegistry';
 import { SECTIONS, ROWS } from './settingsRegistry';
@@ -45,6 +45,7 @@ export default function SettingsPane({
   isAtDefault,
 }: SettingsPaneProps) {
   const q = query.trim().toLowerCase();
+  const wasNoResultsRef = useRef(false);
 
   const rows = ROWS.filter(r => {
     if (q) return true; // If searching, ignore section filter initially
@@ -57,9 +58,11 @@ export default function SettingsPane({
   });
 
   useEffect(() => {
-    if (q && rows.length === 0) {
+    const hasNoResults = Boolean(q) && rows.length === 0;
+    if (hasNoResults && !wasNoResultsRef.current) {
       onNoResults();
     }
+    wasNoResultsRef.current = hasNoResults;
   }, [q, rows.length, onNoResults]);
 
   const sectionDef = SECTIONS.find(s => s.id === activeSection);

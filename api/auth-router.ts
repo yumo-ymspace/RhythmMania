@@ -48,21 +48,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('[auth-router] route:', route);
     switch (route) {
       case 'me':
-        return handleMe(req, res);
+        return await handleMe(req, res);
       case 'logout':
-        return handleLogout(req, res);
+        return await handleLogout(req, res);
       case 'google/url':
-        return handleGoogleUrl(req, res);
+        return await handleGoogleUrl(req, res);
       case 'google/callback':
-        return handleGoogleCallback(req, res);
+        return await handleGoogleCallback(req, res);
       case 'osu/url':
-        return handleOsuUrl(req, res);
+        return await handleOsuUrl(req, res);
       case 'osu/callback':
-        return handleOsuCallback(req, res);
+        return await handleOsuCallback(req, res);
       case 'osu/refresh':
-        return handleOsuRefresh(req, res);
+        return await handleOsuRefresh(req, res);
       case 'osu/byo-token':
-        return handleOsuByoToken(req, res);
+        return await handleOsuByoToken(req, res);
       default:
         console.warn('[auth-router] no handler for route:', route);
         return sendJson(res, 404, { success: false, error: 'Not found' });

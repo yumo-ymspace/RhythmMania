@@ -2,6 +2,15 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
+/*
  * Ambient-only background: a dark matte runway floor that spans the playfield
  * width and the runway depth. The DOM bg image/video shows through the
  * transparent Babylon canvas, so no 3D bg plane is projected here. Floor

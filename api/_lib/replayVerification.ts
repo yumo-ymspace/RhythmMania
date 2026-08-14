@@ -1,3 +1,15 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import crypto from 'crypto';
 import JSZip from 'jszip';
 import {
@@ -7,6 +19,7 @@ import {
   computeMaxComboPortion,
   computeModMultiplier,
   computeTotalScore,
+  getHpDrainMultiplier,
   getComboMultiplier,
   getComboScoreChange,
 } from '../../src/utils/scoreCalculator.js';
@@ -173,7 +186,7 @@ export function normalizeMods(value: unknown, keyCount: number): string[] | null
   for (const rawMod of value) {
     if (typeof rawMod !== 'string') return null;
     const mod = rawMod.toUpperCase();
-    const keyMod = /^K([2-8])$/.exec(mod);
+    const keyMod = /^K([2-9])$/.exec(mod);
     if (!MODS.has(mod) && !keyMod) return null;
     if (mods.includes(mod)) return null;
     if (keyMod && Number(keyMod[1]) !== keyCount) return null;
@@ -195,11 +208,13 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
     ? {}
     : isRecord(raw.recordedSettings) ? raw.recordedSettings : null;
   const mods = normalizeMods(raw.mods, typeof keyCount === 'number' ? keyCount : 0);
-  const holdRulesVersion = raw.holdRulesVersion === 2 ? 2 : 1;
+  const holdRulesVersion = raw.holdRulesVersion === undefined || raw.holdRulesVersion === 1
+    ? 1
+    : raw.holdRulesVersion === 2 ? 2 : null;
   const holdTickIntervalMs = raw.holdTickIntervalMs;
   if (
     typeof raw.id !== 'string' || raw.id.length > MAX_REPLAY_ID_LENGTH || !REPLAY_ID_PATTERN.test(raw.id) ||
-    !integer(keyCount, 2, 8) ||
+    !integer(keyCount, 2, 9) ||
     !integer(raw.score, 0, 2_147_483_647) ||
     !finiteNumber(raw.accuracy, 0, 100) ||
     !integer(raw.maxCombo, 0, 2_147_483_647) ||
@@ -209,6 +224,7 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
     typeof raw.beatmapHash !== 'string' || !BEATMAP_HASH_PATTERN.test(raw.beatmapHash) ||
     typeof raw.checksum !== 'string' || raw.checksum.length < 1 || raw.checksum.length > 128 ||
     (raw.checksumAlgorithm !== 'md5' && raw.checksumAlgorithm !== 'sha256') ||
+    holdRulesVersion === null ||
     (holdRulesVersion === 2 && !integer(holdTickIntervalMs, MIN_HOLD_TICK_INTERVAL_MS, MAX_HOLD_TICK_INTERVAL_MS))
   ) {
     return { ok: false, error: 'Replay payload contains invalid fields' };
@@ -302,7 +318,9 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     ...note,
     headDone: false,
     headMissed: false,
+    headHit: false,
     engaged: false,
+    tailRequiresRepress: false,
     tailDone: note.endTimeMs === undefined,
     graceUntil: undefined as number | undefined,
     nextTailTickTime: usesTailTicks && note.endTimeMs !== undefined ? note.timeMs + badWindow + 0.000001 : undefined as number | undefined,
@@ -333,7 +351,7 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     if (type === 'miss') combo = 0;
     else { combo++; maxCombo = Math.max(maxCombo, combo); }
     const hpDelta = type === 'marvelous' ? 3 : type === 'perfect' ? 2 : type === 'great' ? 1 : type === 'good' ? 0.2 : type === 'bad' ? -3 : -10;
-    hp = Math.max(0, Math.min(100, hp + hpDelta * (chart.hpDrainRate > 5 ? 0.8 : 1.2)));
+    hp = Math.max(0, Math.min(100, hp + hpDelta * getHpDrainMultiplier(chart.hpDrainRate, mods)));
     if (hp <= 0 && !mods.includes('NF')) failed = true;
     comboPortion += getComboScoreChange(type, combo);
   };
@@ -364,8 +382,11 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     if (!usesTailTicks || tailTickIntervalMs === undefined) return;
     for (const note of notes) {
       if (note.nextTailTickTime === undefined || note.tailTickEndTime === undefined) continue;
+      if (!note.headHit && !note.engaged && !note.tailRequiresRepress && note.timeMs <= time && keys[note.lane]) {
+        note.tailRequiresRepress = true;
+      }
       while (note.nextTailTickTime < note.tailTickEndTime && note.nextTailTickTime <= time) {
-        if (keys[note.lane]) {
+        if (keys[note.lane] && !note.tailRequiresRepress) {
           note.tailMissRunActive = false;
         } else if (!note.tailMissRunActive) {
           note.tailMissRunActive = true;
@@ -382,7 +403,6 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
         note.headDone = true;
         note.headMissed = true;
         apply('miss', note.lane);
-        if (note.endTimeMs !== undefined && keys[note.lane]) note.engaged = true;
       }
       if (note.endTimeMs === undefined || note.tailDone) continue;
       if (usesTailTicks) {
@@ -417,17 +437,26 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
       if (judgement === 'miss') {
         note.headMissed = true;
         apply(judgement, lane);
-        if (note.endTimeMs !== undefined) note.engaged = true;
+        if (note.endTimeMs !== undefined) {
+          note.engaged = true;
+          note.tailRequiresRepress = false;
+        }
       } else {
         apply(judgement, lane);
-        if (note.endTimeMs !== undefined) note.engaged = true;
+        if (note.endTimeMs !== undefined) {
+          note.engaged = true;
+          note.headHit = true;
+          note.tailRequiresRepress = false;
+        }
       }
     } else if (note.endTimeMs !== undefined && note.headMissed && !note.engaged && time - note.endTimeMs <= missWindow) {
       note.engaged = true;
+      note.tailRequiresRepress = false;
     }
   };
   const release = (lane: number, time: number) => {
-    const note = notes.find((candidate) => candidate.lane === lane && !candidate.tailDone && (usesTailTicks || candidate.engaged));
+    const note = notes.find((candidate) => candidate.lane === lane && !candidate.tailDone &&
+      (usesTailTicks ? (candidate.headHit || candidate.engaged) : candidate.engaged));
     if (!note || note.endTimeMs === undefined) return;
     const error = time - note.endTimeMs;
     if (usesTailTicks) {
@@ -492,9 +521,66 @@ interface ZipDataInfo {
   uncompressedSize?: number;
 }
 
+type ZipEntryStream = {
+  on(event: 'data', listener: (chunk: Uint8Array) => void): ZipEntryStream;
+  on(event: 'error' | 'end', listener: (error?: unknown) => void): ZipEntryStream;
+  pause(): ZipEntryStream;
+  resume(): ZipEntryStream;
+};
+
+type ZipObjectWithStream = JSZip.JSZipObject & {
+  internalStream?: (type: string) => ZipEntryStream;
+};
+
 function zipInfo(file: JSZip.JSZipObject): ZipDataInfo {
   const data = (file as unknown as { _data?: ZipDataInfo })._data;
   return data || {};
+}
+
+async function extractArchiveEntry(
+  entry: JSZip.JSZipObject,
+  budget: { totalBytes: number },
+): Promise<Uint8Array> {
+  const internalStream = (entry as ZipObjectWithStream).internalStream;
+  if (!internalStream) throw new Error('Mirror archive streaming is unavailable');
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let failed = false;
+    const stream = internalStream.call(entry, 'uint8array');
+    stream
+      .on('data', (chunk) => {
+        if (failed) return;
+        try {
+          if (chunk.byteLength > MAX_ARCHIVE_ENTRY_BYTES || budget.totalBytes + chunk.byteLength > MAX_ARCHIVE_UNCOMPRESSED_BYTES) {
+            throw new Error('Mirror archive expands beyond the limit');
+          }
+          budget.totalBytes += chunk.byteLength;
+          chunks.push(chunk);
+        } catch (error) {
+          failed = true;
+          stream.pause();
+          reject(error);
+        }
+      })
+      .on('error', (error) => {
+        if (failed) return;
+        failed = true;
+        reject(error instanceof Error ? error : new Error('Failed to extract mirror archive entry'));
+      })
+      .on('end', () => {
+        if (failed) return;
+        const totalBytes = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+        const result = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const chunk of chunks) {
+          result.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        resolve(result);
+      })
+      .resume();
+  });
 }
 
 function approvedMirrorUrl(value: string): boolean {
@@ -623,7 +709,7 @@ export function parseCanonicalOsu(content: string, chartRevisionId: string, chec
       if (notes.length > MAX_NOTES) throw new Error('Too many notes');
     }
   }
-  if (mode !== 3 || !integer(keyCount, 2, 8) || !finiteNumber(od, 0, 10) || !finiteNumber(hp, 0, 10) || notes.length === 0) throw new Error('Chart is not a playable mania chart');
+  if (mode !== 3 || !integer(keyCount, 2, 9) || !finiteNumber(od, 0, 10) || !finiteNumber(hp, 0, 10) || notes.length === 0) throw new Error('Chart is not a playable mania chart');
   notes.sort((left, right) => left.timeMs - right.timeMs || left.lane - right.lane);
   const maxTimeMs = notes.reduce((max, note) => Math.max(max, note.endTimeMs || note.timeMs), 0);
   return { chartRevisionId, checksum, checksumAlgorithm, keyCount, mode: 3, overallDifficulty: od, hpDrainRate: hp, durationMs: Math.min(86_400_000, maxTimeMs + 3_000), notes, timingPoints };
@@ -641,7 +727,7 @@ export async function verifyMirrorArchive(sourceSetId: number, expectations: rea
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.values(zip.files);
   if (entries.length > MAX_ARCHIVE_ENTRIES) throw new Error('Mirror archive has too many entries');
-  let uncompressed = 0;
+  const extractionBudget = { totalBytes: 0 };
   const extracted = new Map<string, Uint8Array>();
   for (const entry of entries) {
     const info = zipInfo(entry);
@@ -650,13 +736,10 @@ export async function verifyMirrorArchive(sourceSetId: number, expectations: rea
     if (size > MAX_ARCHIVE_ENTRY_BYTES || compressed > MAX_ARCHIVE_BYTES) throw new Error('Mirror archive entry is too large');
     if (entry.dir) continue;
 
-    // JSZip's advertised sizes are useful as an early rejection, but are not
-    // authoritative. Count the bytes actually produced by decompression so a
-    // deceptive archive cannot bypass the aggregate expansion limit.
-    const content = await entry.async('uint8array');
+    // Count bytes as JSZip produces them so deceptive size headers cannot
+    // allocate an unbounded entry before the aggregate limit is enforced.
+    const content = await extractArchiveEntry(entry, extractionBudget);
     if (content.byteLength > MAX_ARCHIVE_ENTRY_BYTES) throw new Error('Mirror archive entry is too large');
-    uncompressed += content.byteLength;
-    if (uncompressed > MAX_ARCHIVE_UNCOMPRESSED_BYTES) throw new Error('Mirror archive expands beyond the limit');
     if (entry.name.toLowerCase().endsWith('.osu')) {
       if (content.byteLength > MAX_OSU_TEXT_BYTES) throw new Error('osu! chart text is too large');
       extracted.set(entry.name.split('/').pop()?.toLowerCase() || entry.name.toLowerCase(), content);

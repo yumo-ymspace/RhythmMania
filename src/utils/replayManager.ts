@@ -14,6 +14,7 @@ import { Beatmap, GameSettings, PlayHistoryRecord, ReplayFrame, ReplaySource, Sc
 import { sanitizeSavedBeatmap, storageManager } from './storageManager';
 import { computeGradeFromScoreState } from './scoreCalculator';
 import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs, LEGACY_HOLD_RULES_VERSION, resolveHoldTickInterval } from './holdTickRules';
+import { sanitizeGameplayMods } from './modifiers';
 
 export const CURRENT_REPLAY_SCHEMA_VERSION = 2;
 
@@ -52,7 +53,8 @@ export interface CatalogIdentityInfo {
 export function determineCatalogIdentity(beatmap: Beatmap | null, beatmapId: string): CatalogIdentityInfo {
   const bm = beatmap;
   const chartRevisionId = bm?.chartRevisionId || null;
-  const isServer = Boolean(chartRevisionId && bm?.isServerMap);
+  // Converted K-mod charts no longer match the registered server revision.
+  const isServer = Boolean(chartRevisionId && bm?.isServerMap && !beatmapId.includes('_converted_'));
 
   if (!isServer) {
     return {
@@ -197,31 +199,33 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
 
   const replayFrames = Array.isArray(rawRecord.replayFrames) ? rawRecord.replayFrames : [];
   const rawScoreState = isRecord(rawRecord.scoreState) ? rawRecord.scoreState : {};
-  const rawMods = Array.isArray(rawRecord.mods) ? rawRecord.mods : [];
+  const rawMods = sanitizeGameplayMods(rawRecord.mods);
   const isAutoplay = Boolean(rawScoreState.isAutoplay || rawMods.includes('AT'));
-  const isNoFail = rawMods.some(mod => typeof mod === 'string' && mod.toUpperCase() === 'NF');
+  const isNoFail = rawMods.includes('NF');
   const isFailed = isNoFail ? false : Boolean(rawRecord.isFailed || rawScoreState.failed);
-
-  const validEligibility = rawRecord.uploadEligibility === 'eligible' || rawRecord.uploadEligibility === 'ineligible_local_map' ||
-    rawRecord.uploadEligibility === 'ineligible_autoplay' || rawRecord.uploadEligibility === 'ineligible_failed' ||
-    rawRecord.uploadEligibility === 'ineligible_mode' || rawRecord.uploadEligibility === 'ineligible_no_replay_frames';
-  const uploadEligibility: UploadEligibility = validEligibility && !(isNoFail && rawRecord.uploadEligibility === 'ineligible_failed')
-     ? rawRecord.uploadEligibility as UploadEligibility
-    : determineUploadEligibility({
-    isServerCatalogMap: catalogInfo.isServerCatalogMap,
+  const isServerCatalogMap = catalogInfo.isServerCatalogMap || (
+    rawRecord.isServerCatalogMap === true &&
+    typeof rawRecord.catalogSetId === 'string' &&
+    typeof rawRecord.catalogMapId === 'string' &&
+    typeof rawRecord.chartRevisionId === 'string' &&
+    !beatmapId.includes('_converted_')
+  );
+  const uploadEligibility: UploadEligibility = determineUploadEligibility({
+    isServerCatalogMap,
     isAutoplay,
     isFailed,
     replayFramesCount: replayFrames.length,
     mode: matchedMap?.mode,
   });
 
-  const rawKeyCount = typeof rawRecord.keyCount === 'number' && Number.isInteger(rawRecord.keyCount) && rawRecord.keyCount >= 2 && rawRecord.keyCount <= 8 ? rawRecord.keyCount : 4;
+  const rawKeyCount = typeof rawRecord.keyCount === 'number' && Number.isInteger(rawRecord.keyCount) && rawRecord.keyCount >= 2 && rawRecord.keyCount <= 9 ? rawRecord.keyCount : 4;
   const rawReplaySource = rawRecord.replaySource === 'guest-local' || rawRecord.replaySource === 'account-local' || rawRecord.replaySource === 'server-remote' || rawRecord.replaySource === 'imported'
     ? rawRecord.replaySource : 'guest-local';
   const rawUploadStatus = rawRecord.uploadStatus === 'pending' || rawRecord.uploadStatus === 'uploaded' || rawRecord.uploadStatus === 'failed' || rawRecord.uploadStatus === 'local_only'
     ? rawRecord.uploadStatus : 'local_only';
+  const recordId = typeof rawRecord.id === 'string' ? rawRecord.id : `replay_${Date.now()}`;
   return {
-    id: typeof rawRecord.id === 'string' ? rawRecord.id : `replay_${Date.now()}`,
+    id: recordId,
     timestamp: typeof rawRecord.timestamp === 'number' && Number.isFinite(rawRecord.timestamp) ? rawRecord.timestamp : Date.now(),
     beatmapId,
     beatmapTitle: typeof rawRecord.beatmapTitle === 'string' ? rawRecord.beatmapTitle : '',
@@ -233,7 +237,7 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
     grade: typeof rawRecord.grade === 'string' ? rawRecord.grade : 'F',
     replayFrames: replayFrames as ReplayFrame[],
     recordedSettings: rawRecord.recordedSettings as PlayHistoryRecord['recordedSettings'],
-    mods: rawMods.filter((mod): mod is string => typeof mod === 'string'),
+    mods: rawMods,
     schemaVersion: CURRENT_REPLAY_SCHEMA_VERSION,
     replaySource: rawReplaySource,
     catalogSetId: typeof rawRecord.catalogSetId === 'string' || rawRecord.catalogSetId === null ? rawRecord.catalogSetId : catalogInfo.catalogSetId,
@@ -241,9 +245,9 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
     beatmapHash: hash,
     uploadEligibility,
     isFailed,
-    scoreState: { ...rawScoreState, failed: isFailed } as ScoreState,
+    scoreState: { ...rawScoreState, failed: isFailed, recordId: rawScoreState.recordId || recordId } as ScoreState,
     uploadStatus: rawUploadStatus,
-    isServerCatalogMap: typeof rawRecord.isServerCatalogMap === 'boolean' ? rawRecord.isServerCatalogMap : catalogInfo.isServerCatalogMap,
+     isServerCatalogMap,
     chartRevisionId: typeof rawRecord.chartRevisionId === 'string' || rawRecord.chartRevisionId === null ? rawRecord.chartRevisionId : catalogInfo.chartRevisionId,
     checksum: typeof rawRecord.checksum === 'string' ? rawRecord.checksum : undefined,
     checksumAlgorithm: rawRecord.checksumAlgorithm === 'md5' || rawRecord.checksumAlgorithm === 'sha256' ? rawRecord.checksumAlgorithm : undefined,

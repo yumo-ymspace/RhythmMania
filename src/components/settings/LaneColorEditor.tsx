@@ -1,8 +1,20 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import { useState } from 'react';
 import type { GameSettings } from '../../types';
 
-const KEY_COUNTS = [2, 3, 4, 5, 6, 7, 8];
-const FALLBACK_COLORS = ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'];
+const KEY_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9];
+const FALLBACK_COLORS = ['#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff', '#00b0ff'];
 
 export default function LaneColorEditor({
   settings,

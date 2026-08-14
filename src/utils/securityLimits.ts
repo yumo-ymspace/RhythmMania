@@ -24,6 +24,8 @@ import type {
   UploadStatus,
 } from '../types';
 import { migrateHistoryRecord } from './replayManager';
+import { sanitizeGameplayMods } from './modifiers';
+import { SUPPORTED_KEY_COUNTS, isSupportedKeyCount, MAX_KEY_COUNT, MIN_KEY_COUNT } from './keyCounts';
 import {
   BABYLON_PLAYFIELD_WIDTH_MAX,
   BABYLON_PLAYFIELD_WIDTH_MIN,
@@ -119,7 +121,7 @@ function isUploadStatus(value: unknown): value is UploadStatus {
  */
 export function isSafeAssetUrl(url: string): boolean {
   const value = typeof url === 'string' ? url.trim() : '';
-  if (!value || value.startsWith('//')) return false;
+  if (!value || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return false;
 
   if (value.startsWith('blob:')) {
     try {
@@ -247,7 +249,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
   for (const k of Object.keys(rawBindings)) {
       const numKey = Number(k);
       const rawBinding = rawBindings[k] ?? rawBindings[String(numKey)];
-       if (Number.isFinite(numKey) && numKey >= 2 && numKey <= 8 && Array.isArray(rawBinding)) {
+       if (isSupportedKeyCount(numKey) && Array.isArray(rawBinding)) {
         bindings[numKey] = rawBinding
           .slice(0, numKey)
           .map((b: unknown) => {
@@ -260,20 +262,13 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     }
   }
 
-  for (const k of [2, 3, 4, 5, 6, 7, 8]) {
+  for (const k of SUPPORTED_KEY_COUNTS) {
     if (!bindings[k] || !Array.isArray(bindings[k]) || bindings[k].length !== k) {
       bindings[k] = [...defaultSettings.bindings[k]];
     }
   }
 
-  const selectedMods: string[] = [];
-  if (Array.isArray(settings.selectedMods)) {
-    for (const mod of settings.selectedMods) {
-      if (typeof mod === 'string' && /^[a-zA-Z0-9]{2,4}$/.test(mod)) {
-        selectedMods.push(mod.toUpperCase());
-      }
-    }
-  }
+  const selectedMods = sanitizeGameplayMods(settings.selectedMods);
 
   const customSkinColors: string[] = [];
   if (Array.isArray(settings.customSkinColors)) {
@@ -286,7 +281,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
   const sanitizeLanePalettes = (value: unknown, fallback: Record<number, string[]> = {}) => {
     const result: Record<number, string[]> = {};
     if (!value || typeof value !== 'object') return fallback;
-    for (const keyCount of [2, 3, 4, 5, 6, 7, 8]) {
+    for (const keyCount of SUPPORTED_KEY_COUNTS) {
       const colors = (value as Record<string, unknown>)[keyCount];
       if (Array.isArray(colors) && colors.length === keyCount) {
         result[keyCount] = colors.map(color => validateStringColor(color, '#ffffff'));
@@ -314,7 +309,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     musicVolume: clamp(settings.musicVolume, 0, 1, defaultSettings.musicVolume),
     previewVolume: clamp(settings.previewVolume, 0, 1, defaultSettings.previewVolume),
     masterVolume: clamp(settings.masterVolume, 0, 1, defaultSettings.masterVolume),
-    keyMode: clamp(settings.keyMode, 2, 8, defaultSettings.keyMode),
+    keyMode: clamp(settings.keyMode, MIN_KEY_COUNT, MAX_KEY_COUNT, defaultSettings.keyMode),
     bindings: bindings,
     upsurfaceNoteMode: renderEngine === 'babylon'
       ? false
@@ -409,7 +404,7 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
   }
 
   const rawKeyCount = Number(record.keyCount);
-  const keyCount = Number.isInteger(rawKeyCount) && rawKeyCount >= 2 && rawKeyCount <= 8 ? rawKeyCount : 4;
+  const keyCount = isSupportedKeyCount(rawKeyCount) ? rawKeyCount : 4;
   const columnJudgements: ColumnJudgementCounts[] = [];
   if (Array.isArray(scoreInput.columnJudgements)) {
     for (const item of scoreInput.columnJudgements) {
@@ -460,14 +455,7 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     ? sanitizeSettings(record.recordedSettings, defaultSettings)
     : undefined;
 
-  const mods: string[] = [];
-  if (Array.isArray(record.mods)) {
-    for (const m of record.mods) {
-      if (typeof m === 'string' && /^[a-zA-Z0-9]{2,4}$/.test(m)) {
-        mods.push(m);
-      }
-    }
-  }
+  const mods = sanitizeGameplayMods(record.mods);
 
   const isNoFail = mods.some(mod => mod.toUpperCase() === 'NF');
 
@@ -509,7 +497,14 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     uploadEligibility: isUploadEligibility(record.uploadEligibility) ? record.uploadEligibility : undefined,
     uploadStatus: isUploadStatus(record.uploadStatus) ? record.uploadStatus : undefined,
     isServerCatalogMap: typeof record.isServerCatalogMap === 'boolean' ? record.isServerCatalogMap : undefined,
+    holdRulesVersion: record.holdRulesVersion === 1 || record.holdRulesVersion === 2 ? record.holdRulesVersion : undefined,
+    holdTickIntervalMs: typeof record.holdTickIntervalMs === 'number' && Number.isInteger(record.holdTickIntervalMs) &&
+      record.holdTickIntervalMs >= 10 && record.holdTickIntervalMs <= 100
+      ? record.holdTickIntervalMs
+      : undefined,
   };
+
+  baseCleaned.scoreState.recordId ||= baseCleaned.id;
 
   return migrateHistoryRecord(baseCleaned, availableBeatmaps);
 }

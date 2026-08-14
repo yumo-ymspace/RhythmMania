@@ -13,7 +13,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleCors, requireSameOrigin, sendJson, sendError } from '../../_lib/response.js';
 import { getSessionFromReq } from '../../_lib/auth.js';
-import { query } from '../../_lib/db.js';
+import { withTransaction } from '../../_lib/db.js';
 
 const PRESET_RE = /^preset_0[1-8]$/;
 
@@ -40,12 +40,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const avatarUrl = `/avatars/${presetId}.png`;
 
-    await query(
-      `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`,
-      [avatarUrl, session.userId]
-    );
-
-    await query(`DELETE FROM user_avatars WHERE user_id = $1`, [session.userId]);
+    await withTransaction(async (client) => {
+      await client.query(
+        `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`,
+        [avatarUrl, session.userId]
+      );
+      await client.query(`DELETE FROM user_avatars WHERE user_id = $1`, [session.userId]);
+    });
 
     return sendJson(res, 200, {
       success: true,

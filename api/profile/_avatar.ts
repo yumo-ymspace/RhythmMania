@@ -13,7 +13,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { handleCors, requireSameOrigin, sendError } from '../_lib/response.js';
 import { getSessionFromReq, isValidUserId } from '../_lib/auth.js';
-import { query } from '../_lib/db.js';
+import { query, withTransaction } from '../_lib/db.js';
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -23,6 +23,12 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': 'webp',
 };
 const DATA_URL_RE = /^data:(image\/(jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
+
+function hasImageSignature(mime: string, buffer: Buffer): boolean {
+  if (mime === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (mime === 'image/png') return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  return buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCors(req, res)) return;
@@ -85,24 +91,30 @@ async function handleUploadAvatar(req: VercelRequest, res: VercelResponse) {
   }
 
   const buffer = Buffer.from(match[3], 'base64');
+  if (buffer.length === 0 || !hasImageSignature(mime, buffer)) {
+    return sendError(res, 400, 'Image bytes do not match the declared format');
+  }
+
   if (buffer.length > MAX_AVATAR_BYTES) {
     return sendError(res, 400, 'Image exceeds 2 MB limit');
   }
 
-  await query(
-    `INSERT INTO user_avatars (user_id, mime, data, created_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (user_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, created_at = NOW()`,
-    [sessionObj.userId, mime, buffer]
-  );
-
   const ext = MIME_TO_EXT[mime] || 'png';
   const avatarUrl = `/api/profile/avatar?userId=${sessionObj.userId}&v=${Date.now()}`;
-  await query(
-    `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`,
-    [avatarUrl, sessionObj.userId]
-  );
+  await withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO user_avatars (user_id, mime, data, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, created_at = NOW()`,
+      [sessionObj.userId, mime, buffer]
+    );
+    await client.query(
+      `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`,
+      [avatarUrl, sessionObj.userId]
+    );
+  });
 
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   return res.status(200).json({
     success: true,
     data: {

@@ -85,13 +85,9 @@ export interface HitObject {
   hitSound?: number;
   hitSample?: HitSample;
 
-  // standard specific properties
+  // Source coordinates retained for shared lane/visual fallback geometry.
   x?: number; // 0-512
   y?: number; // 0-384
-  objType?: number; // raw hitobject type bitmask
-  sliderPoints?: Array<{ x: number; y: number }>;
-  sliderLength?: number;
-  slidesCount?: number;
 }
 
 export interface TimingControlPoint {
@@ -116,7 +112,7 @@ export interface BeatmapMetadata {
   bgUrl?: string;
   hitSoundUrls?: Record<string, string>;
   id: string;
-  mode?: number; // 0 for standard, 3 for mania
+  mode?: 3; // osu!mania only
 
   // Canonical identity fields
   catalogSetId?: string | null;
@@ -257,7 +253,7 @@ export interface GameSettings {
   customSkinColors?: string[]; // user parsed custom colors: [blueKeyColor, whiteKeyColor, accentKeyColor, cyanKeyColor, holdNoteColor]
   customSkinName?: string;
   squareRenderStyle?: 'rhythmmania' | 'rhythmplus' | 'rhythmplus-dynamic';
-  receptorColorsByKeyCount?: Record<number, string[]>; // per-lane receptor colors for 2K-8K
+  receptorColorsByKeyCount?: Record<number, string[]>; // per-lane receptor colors for 2K-9K
   noteOpacity?: number; // 0.1 to 1.0 (opacity for note visuals)
   receptorOpacity?: number; // 0.1 to 1.0 (opacity for landline keys receptors)
   circleSize?: number; // scale multiplier for circle skin notes (0.5 to 1.5)

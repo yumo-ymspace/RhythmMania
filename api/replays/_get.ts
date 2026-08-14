@@ -1,3 +1,15 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionFromReq } from '../_lib/auth.js';
 import { query } from '../_lib/db.js';
@@ -29,6 +41,8 @@ interface ReplayDetailRow {
   mods: unknown;
   replay_source: string;
   upload_status: string;
+  hold_rules_version: number;
+  hold_tick_interval_ms: number | null;
   created_at: Date;
   username: string | null;
   avatar_url: string | null;
@@ -71,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           bs.source, bs.source_set_id, bs.catalog_state,
           r.score, r.accuracy, r.max_combo, r.grade, r.is_failed,
           r.score_state, r.replay_frames, r.recorded_settings, r.mods,
-          r.replay_source, r.upload_status, r.created_at,
+          r.replay_source, r.upload_status, r.hold_rules_version, r.hold_tick_interval_ms, r.created_at,
           u.username, u.avatar_url, bs.title AS beatmap_title, bs.artist AS beatmap_artist,
           cr.difficulty_name AS beatmap_difficulty
        FROM replays r
@@ -112,6 +126,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mods,
       replaySource: row.replay_source || 'account-local',
       uploadStatus: row.upload_status,
+      holdRulesVersion: row.hold_rules_version === 2 ? 2 : 1,
+      holdTickIntervalMs: row.hold_rules_version === 2 ? row.hold_tick_interval_ms || undefined : undefined,
       uploadEligibility: row.upload_status === 'uploaded' ? 'eligible' : 'ineligible_no_replay_frames',
       catalogSetId: row.beatmap_set_id || undefined,
       catalogMapId: row.chart_revision_id,

@@ -50,6 +50,8 @@ export class AudioEngine {
   private scheduledSources = new Set<AudioScheduledSourceNode>();
   private loadGeneration = 0;
   private proceduralBpm: number = 120;
+  private loadAbortController: AbortController | null = null;
+  private transportGeneration = 0;
 
   constructor() {
     // Lazy initialize to bypass auto-play restrictions on script load
@@ -72,6 +74,8 @@ export class AudioEngine {
   }
 
   public beginLoadGeneration(): number {
+    this.loadAbortController?.abort();
+    this.loadAbortController = new AbortController();
     this.loadGeneration++;
     return this.loadGeneration;
   }
@@ -224,7 +228,7 @@ export class AudioEngine {
     const decoded = new Map<string, AudioBuffer>();
     await Promise.all(entries.map(async ([key, url]) => {
       try {
-        const response = await fetch(url, { referrerPolicy: 'no-referrer' });
+        const response = await fetch(url, { referrerPolicy: 'no-referrer', signal: this.loadAbortController?.signal });
         if (!response.ok) return;
         const buffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
         decoded.set(key, buffer);
@@ -275,7 +279,10 @@ export class AudioEngine {
 
        if (this.isLoadGenerationCurrent(generation)) onProgress?.(10);
       const isBlob = url.startsWith('blob:');
-      const res = await fetch(url, isBlob ? undefined : { referrerPolicy: 'no-referrer' });
+       const res = await fetch(url, {
+         ...(isBlob ? {} : { referrerPolicy: 'no-referrer' as const }),
+         signal: this.loadAbortController?.signal,
+       });
       if (!res.ok) throw new Error('CORS or Network error loading file');
        if (this.isLoadGenerationCurrent(generation)) onProgress?.(40);
       
@@ -330,8 +337,9 @@ export class AudioEngine {
   }
 
   public async playAsync(bpm: number = 120, offsetMs: number = 0, startDelayMs: number = 0): Promise<void> {
+    const requestGeneration = ++this.transportGeneration;
     await this.ensureRunning();
-    if (!this.ctx || this.isPlaying) return;
+    if (requestGeneration !== this.transportGeneration || !this.ctx || this.isPlaying) return;
 
     this.proceduralBpm = bpm;
     this.audioOffsetMs = offsetMs;
@@ -368,6 +376,7 @@ export class AudioEngine {
   }
 
   public pause() {
+    this.transportGeneration++;
     if (!this.isPlaying || !this.ctx) return;
     const audioContextTime = this.ctx.currentTime;
     
@@ -464,6 +473,7 @@ export class AudioEngine {
   }
 
   public stop() {
+    this.transportGeneration++;
     this.pause();
     this.stopMusicSource();
     this.stopBackupSynthSequencer();

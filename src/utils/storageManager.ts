@@ -73,10 +73,10 @@ function isPackageRecord(value: unknown, expectedId: string): value is PackageRe
   return value.zipData.byteLength <= MAX_COMPRESSED_SIZE_BYTES;
 }
 
-function sanitizeHitObject(value: unknown, index: number): HitObject | null {
+function sanitizeHitObject(value: unknown, index: number, keyCount: number): HitObject | null {
   if (!isRecord(value)) return null;
   const time = finiteNumber(value.time, 0, 10000000);
-  const column = finiteNumber(value.column, 0, 7);
+  const column = finiteNumber(value.column, 0, keyCount - 1);
   if (time === null || column === null || !Number.isInteger(column)) return null;
   const type = value.type === 'normal' || value.type === 'hold' ? value.type : null;
   if (!type) return null;
@@ -100,23 +100,12 @@ function sanitizeHitObject(value: unknown, index: number): HitObject | null {
       note[field] = number;
     }
   }
-  for (const field of ['x', 'y', 'objType', 'hitSound', 'sliderLength', 'slidesCount'] as const) {
+  for (const field of ['x', 'y', 'hitSound'] as const) {
     if (value[field] !== undefined) {
-      const max = field === 'x' ? 512 : field === 'y' ? 384 : field === 'slidesCount' ? 100 : 1000000;
+      const max = field === 'x' ? 512 : field === 'y' ? 384 : 255;
       const number = finiteNumber(value[field], 0, max);
       if (number === null) return null;
       note[field] = number;
-    }
-  }
-  if (Array.isArray(value.sliderPoints)) {
-    if (value.sliderPoints.length > 1000) return null;
-    note.sliderPoints = [];
-    for (const point of value.sliderPoints) {
-      if (!isRecord(point)) return null;
-      const x = finiteNumber(point.x, 0, 512);
-      const y = finiteNumber(point.y, 0, 384);
-      if (x === null || y === null) return null;
-      note.sliderPoints.push({ x, y });
     }
   }
   if (isRecord(value.hitSample)) {
@@ -139,7 +128,7 @@ function sanitizeHitObject(value: unknown, index: number): HitObject | null {
 /** Runtime guard for records read from IndexedDB or legacy localStorage. */
 export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
   if (!isRecord(raw)) return null;
-  const keyCount = finiteNumber(raw.keyCount, 2, 8);
+  const keyCount = finiteNumber(raw.keyCount, 2, 9);
   const duration = finiteNumber(raw.duration, 0, 10000000);
   const bpm = finiteNumber(raw.bpm, 0.01, 10000);
   const hpDrainRate = finiteNumber(raw.hpDrainRate, 0, 10);
@@ -151,7 +140,7 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
 
   const notes: HitObject[] = [];
   for (let i = 0; i < raw.notes.length; i++) {
-    const note = sanitizeHitObject(raw.notes[i], i);
+    const note = sanitizeHitObject(raw.notes[i], i, keyCount);
     if (!note || note.column >= keyCount) return null;
     notes.push(note);
   }
@@ -164,8 +153,8 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     if (timeMs === null || beatLength === null || beatLength === 0 || svMultiplier === null || typeof point.uninherited !== 'boolean') return null;
     timingPoints.push({ timeMs, beatLength, uninherited: point.uninherited, svMultiplier });
   }
-  const mode = raw.mode === undefined ? 3 : finiteNumber(raw.mode, 0, 3);
-  if (mode === null || (mode !== 0 && mode !== 3) || (mode === 3 && !Number.isInteger(keyCount))) return null;
+  const mode = raw.mode === undefined ? 3 : finiteNumber(raw.mode, 3, 3);
+  if (mode === null || !Number.isInteger(keyCount)) return null;
   const baseBeatLength = raw.baseBeatLength === undefined ? undefined : finiteNumber(raw.baseBeatLength, 0.001, 600000);
   if (raw.baseBeatLength !== undefined && baseBeatLength === null) return null;
   const breaks: Array<{ startTime: number; endTime: number }> = [];
@@ -208,7 +197,7 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     hitSoundUrls,
     videoStartTime: raw.videoStartTime === undefined ? undefined : finiteNumber(raw.videoStartTime, -1000000, 10000000) ?? undefined,
     previewTime: raw.previewTime === undefined ? undefined : finiteNumber(raw.previewTime, -1, 10000000) ?? undefined,
-    mode,
+    mode: 3,
     catalogSetId: typeof raw.catalogSetId === 'string' || raw.catalogSetId === null ? raw.catalogSetId : null,
     catalogMapId: typeof raw.catalogMapId === 'string' || raw.catalogMapId === null ? raw.catalogMapId : null,
     beatmapHash: safeString(raw.beatmapHash, 256) || undefined,

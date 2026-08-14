@@ -11,13 +11,12 @@
  */
 
 export class FullscreenManager {
-  public static async enterFocusMode(element: HTMLElement): Promise<void> {
+  public static async enterFocusMode(element: HTMLElement): Promise<boolean> {
     try {
       const elem = element as FullscreenElement;
       const requestMethod = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
-      if (requestMethod) {
-        await requestMethod.call(elem);
-      }
+      if (!requestMethod) return false;
+      await requestMethod.call(elem);
 
       const orientation = window.screen.orientation as ScreenOrientation & {
         lock?: (type: string) => Promise<void>;
@@ -26,8 +25,10 @@ export class FullscreenManager {
       if (orientation.lock) {
         await orientation.lock('portrait').catch(() => {});
       }
+      return true;
     } catch {
-      // Slient fail on focus failures
+      // Silent fail on focus failures
+      return false;
     }
   }
 

@@ -2,6 +2,15 @@
  * RhythmMania - High-Performance Rhythm Game Platform
  * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
  *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
+/*
  * Babylon runway coordinate math. The shared 2D vertical-scroll PlayfieldFrame
  * is reinterpreted as a converging 3D runway: notes fly from depth (far,
  * vanishing point) toward a near judgement line (receptor), then past the
@@ -24,6 +33,7 @@ export const FLOOR_FAR_Z = 28;
 export const SLAB_HEIGHT = 0.12;
 export const RUNWAY_CONVERGENCE = 0.4;
 export const MAX_NOTE_DEPTH = 1.5;
+export const MIN_NOTE_DEPTH = -1.5;
 
 export function safeHex(hex: string | undefined, fallback = '#00b0ff'): string {
   return cssColorToHex(hex, fallback);
@@ -73,7 +83,7 @@ export function yToDepthFactor(y: number, receptorY: number): number {
 }
 
 export function clampNoteDepth(depthFactor: number): number {
-  return Math.max(0, Math.min(MAX_NOTE_DEPTH, depthFactor));
+  return Math.max(MIN_NOTE_DEPTH, Math.min(MAX_NOTE_DEPTH, depthFactor));
 }
 
 // World position of a lane center at a given depth factor.

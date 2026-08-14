@@ -1,12 +1,34 @@
+/*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionFromReq } from '../_lib/auth.js';
 import { withTransaction } from '../_lib/db.js';
 import { canActivatePendingRegistration, isPendingRegistrationExpired } from '../_lib/catalogRegistration.js';
-import { verifyMirrorArchive, type MirrorChartExpectation } from '../_lib/replayVerification.js';
+import {
+  parseReplayUploadPayload,
+  verifyMirrorArchive,
+  verifyReplayAgainstChart,
+  type MirrorChartExpectation,
+} from '../_lib/replayVerification.js';
 import { handleCors, requireSameOrigin, sendError, sendJson } from '../_lib/response.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value) as unknown; } catch { return null; }
 }
 
 function pendingResponse(res: VercelResponse, cloudSetId: string) {
@@ -53,14 +75,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       for (const rawChart of metadata.charts) {
         const sourceChartId = isRecord(rawChart) && typeof rawChart.id === 'number' ? rawChart.id : null;
         const keyCount = isRecord(rawChart) && typeof rawChart.keyCount === 'number' ? rawChart.keyCount : null;
-        if (!isRecord(rawChart) || sourceChartId === null || !Number.isInteger(sourceChartId) || sourceChartId < 1 || typeof rawChart.filename !== 'string' || rawChart.filename.length < 1 || rawChart.filename.length > 512 || typeof rawChart.checksum !== 'string' || !rawChart.checksum || keyCount === null || !Number.isInteger(keyCount) || keyCount < 2 || keyCount > 8) return { kind: 'invalid' as const };
-        expectations.push({
-          sourceChartId,
-          filename: rawChart.filename,
-          checksum: rawChart.checksum,
-          keyCount,
-          chartRevisionId: `osuapi_${row.source_set_id}_b${rawChart.id}_${rawChart.checksum}`,
-        });
+         if (!isRecord(rawChart) || sourceChartId === null || !Number.isInteger(sourceChartId) || sourceChartId < 1 || typeof rawChart.filename !== 'string' || rawChart.filename.length < 1 || rawChart.filename.length > 512 || typeof rawChart.checksum !== 'string' || !rawChart.checksum || keyCount === null || !Number.isInteger(keyCount) || keyCount < 2 || keyCount > 9) return { kind: 'invalid' as const };
+         const checksum = rawChart.checksum.toLowerCase();
+         expectations.push({
+           sourceChartId,
+           filename: rawChart.filename,
+           checksum,
+           keyCount,
+           chartRevisionId: `osuapi_${row.source_set_id}_b${rawChart.id}_${checksum}`,
+         });
       }
       if (expectations.length === 0) return { kind: 'invalid' as const };
       return { kind: 'verify' as const, sourceSetId: row.source_set_id, expectations };
@@ -101,6 +124,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           [chart.chartRevisionId, JSON.stringify(chart), cloudSetId, chart.checksum, chart.keyCount],
         );
         if (updated.rowCount !== 1) throw new Error('Verified chart revision is not registered');
+      }
+
+      const pendingReplays = await client.query<{
+        id: string;
+        chart_revision_id: string;
+        score: number;
+        accuracy: number;
+        max_combo: number;
+        grade: string;
+        is_failed: boolean;
+        score_state: unknown;
+        replay_frames: unknown;
+        recorded_settings: unknown;
+        mods: unknown;
+        beatmap_hash: string;
+        hold_rules_version: number;
+        hold_tick_interval_ms: number | null;
+      }>(
+        `SELECT id, chart_revision_id, score, accuracy, max_combo, grade, is_failed, score_state,
+                replay_frames, recorded_settings, mods, beatmap_hash,
+                hold_rules_version, hold_tick_interval_ms
+           FROM replays
+          WHERE chart_revision_id = ANY($1::text[]) AND upload_status = 'pending'`,
+        [canonicalCharts.map((chart) => chart.chartRevisionId)],
+      );
+
+      for (const replay of pendingReplays.rows) {
+        const chart = canonicalCharts.find((candidate) => candidate.chartRevisionId === replay.chart_revision_id);
+        if (!chart) continue;
+        const parsed = parseReplayUploadPayload({
+          id: replay.id,
+          keyCount: chart.keyCount,
+          score: replay.score,
+          accuracy: replay.accuracy,
+          maxCombo: replay.max_combo,
+          grade: replay.grade,
+          isFailed: replay.is_failed,
+          scoreState: parseJsonValue(replay.score_state),
+          replayFrames: parseJsonValue(replay.replay_frames),
+          recordedSettings: parseJsonValue(replay.recorded_settings) || {},
+          mods: parseJsonValue(replay.mods) || [],
+          chartRevisionId: chart.chartRevisionId,
+          beatmapHash: replay.beatmap_hash,
+          checksum: chart.checksum,
+          checksumAlgorithm: chart.checksumAlgorithm,
+          holdRulesVersion: replay.hold_rules_version === 2 ? 2 : 1,
+          holdTickIntervalMs: replay.hold_tick_interval_ms ?? undefined,
+        });
+        const verified = parsed.ok ? verifyReplayAgainstChart(parsed.value, chart) : null;
+        if (verified) {
+          await client.query(
+            `UPDATE replays
+                SET score = $2, accuracy = $3, max_combo = $4, grade = $5,
+                    is_failed = $6, score_state = $7, upload_status = 'uploaded'
+              WHERE id = $1 AND upload_status = 'pending'`,
+            [replay.id, verified.score, verified.accuracy, verified.maxCombo, verified.grade, verified.isFailed, JSON.stringify(verified.scoreState)],
+          );
+        } else {
+          await client.query(
+            `UPDATE replays SET upload_status = 'failed' WHERE id = $1 AND upload_status = 'pending'`,
+            [replay.id],
+          );
+        }
       }
       await client.query(
         `UPDATE beatmap_sets

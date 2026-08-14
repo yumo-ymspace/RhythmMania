@@ -145,28 +145,36 @@ async function handlePatchMe(
   const cleanActivityStatus = sanitizeActivityStatus(activityStatus);
   const cleanActivityMessage = sanitizeActivityMessage(activityMessage);
 
-  // Upsert profile row
-  await query(
-    `INSERT INTO user_profiles (user_id, display_name, handle, bio, social_links, activity_status, activity_message, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-     ON CONFLICT (user_id) DO UPDATE SET
-       display_name = EXCLUDED.display_name,
-       handle = EXCLUDED.handle,
-       bio = EXCLUDED.bio,
-       social_links = EXCLUDED.social_links,
-       activity_status = EXCLUDED.activity_status,
-       activity_message = EXCLUDED.activity_message,
-       updated_at = NOW()`,
-    [
-      session.userId,
-      cleanDisplayName,
-      handle,
-      cleanBio,
-      JSON.stringify(cleanSocialLinks),
-      cleanActivityStatus,
-      cleanActivityMessage,
-    ]
-  );
+  // Upsert profile row. The pre-check is only an optimization; the unique
+  // constraint remains authoritative under concurrent profile edits.
+  try {
+    await query(
+      `INSERT INTO user_profiles (user_id, display_name, handle, bio, social_links, activity_status, activity_message, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         handle = EXCLUDED.handle,
+         bio = EXCLUDED.bio,
+         social_links = EXCLUDED.social_links,
+         activity_status = EXCLUDED.activity_status,
+         activity_message = EXCLUDED.activity_message,
+         updated_at = NOW()`,
+      [
+        session.userId,
+        cleanDisplayName,
+        handle,
+        cleanBio,
+        JSON.stringify(cleanSocialLinks),
+        cleanActivityStatus,
+        cleanActivityMessage,
+      ]
+    );
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+      return sendJson(res, 409, { success: false, error: 'Handle is already taken' });
+    }
+    throw error;
+  }
 
   return sendJson(res, 200, {
     success: true,

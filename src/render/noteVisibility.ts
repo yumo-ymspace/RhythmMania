@@ -1,4 +1,16 @@
 /*
+ * RhythmMania - High-Performance Rhythm Game Platform
+ * Copyright (C) 2026 Yumo (yumo-ymspace). All rights reserved.
+ *
+ * This source code is licensed under the PolyForm Perimeter License 1.0.1.
+ * You may modify and use this file for non-competing purposes, provided 
+ * that open and explicit attribution is maintained.
+ *
+ * For the full license terms, see the LICENSE file in the root directory
+ * from: https://github.com/yumo-ymspace/RhythmMania
+ */
+
+/*
  * Visible-note selection is intentionally conservative. The input is normally
  * parser-sorted, but an imported/replayed map may not be, so the fallback sort
  * is kept at the boundary instead of making renderers defend themselves.
