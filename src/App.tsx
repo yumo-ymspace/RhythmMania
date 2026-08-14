@@ -49,6 +49,7 @@ import { unpackBeatmap } from './utils/unpackHelper';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
 import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, createZipExtractionBudget, decodeBoundedUtf8 } from './utils/securityLimits';
 import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps } from './utils/replayManager';
+import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs } from './utils/holdTickRules';
 import { extractZipEntry } from './utils/zipResolver';
 import { uploadReplayRecord } from './utils/replayClient';
 import { AssetLifecycleManager } from './utils/assetLifecycle';
@@ -923,6 +924,7 @@ export default function App() {
         recordedSettings: settings,
         mods: settings.selectedMods,
         replaySource: replaySource,
+        holdRules: { holdRulesVersion: HOLD_TICK_RULES_VERSION, holdTickIntervalMs },
       });
 
       const shouldUpload = isUserLoggedIn && newRecord.uploadEligibility === 'eligible';

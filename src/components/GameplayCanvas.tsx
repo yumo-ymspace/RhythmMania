@@ -19,6 +19,20 @@ import { initializeColumnJudgements, incrementColumnJudgement } from '../utils/p
 import { VideoSyncController, computeTargetVideoTimeSec } from '../utils/videoSyncController';
 import { executeTeardown } from '../utils/gameplayTeardown';
 import { getHoldTailJudgement, isHoldGraceActive, resolveHoldGrace, resolveJudgementForError } from '../utils/judgementTiming';
+import {
+  advanceHoldTailTicks,
+  HOLD_TICK_RULES_VERSION,
+  holdTickIntervalMs,
+  initializeHoldTailTicks,
+  LEGACY_HOLD_RULES_VERSION,
+  markHoldReleaseHit,
+  markHoldEarlyRelease,
+  markHoldStartHit,
+  markHoldTailEngaged,
+  markHoldTailResumed,
+  markHoldReleaseZonePressed,
+  TICK_BOUNDARY_EPSILON_MS,
+} from '../utils/holdTickRules';
 import { consumeReplayFrames, createReplayCursor, normalizeReplayFrames, resetReplayCursor, type ReplayCursor, upperBoundReplayFrame } from '../utils/replayCursor';
 import { UnstableRateAccumulator } from '../utils/unstableRateAccumulator';
 import { TouchInputAdapter } from '../utils/touchInputAdapter';
@@ -68,19 +82,32 @@ export function checkNotesAutonomousMisses(
   keysPressed?: boolean[]
 ) {
   notes.forEach((n) => {
+    const usesTailTicks = n.holdRulesVersion === HOLD_TICK_RULES_VERSION;
     // 1. Head window expired: normal notes miss fully; holds only miss the head and stay salvageable for the tail
     if (!n.isHit && !n.isMissed && currentTime - n.time > missBound) {
       n.isMissed = true;
       if (n.type === 'hold') {
-        onMiss(n, false); // Head miss only — body/tail remain active
+        onMiss(n, false);
+        if (usesTailTicks) return;
+        // Head miss only — body/tail remain active
         // If the lane is already held when the head times out, engage the LN for tail scoring
         if (keysPressed && keysPressed[n.column]) {
           n.isHit = true;
           n.hitTime = currentTime;
+          if (usesTailTicks) markHoldTailEngaged(n, currentTime);
         }
       } else {
         onMiss(n, false);
       }
+    }
+
+    if (usesTailTicks) {
+      if (n.type === 'hold' && n.endTime !== undefined && !n.isReleased && currentTime - n.endTime > missBound) {
+        n.isReleased = true;
+        n.isReleaseMissed = true;
+        onMiss(n, false);
+      }
+      return;
     }
 
     // 1b. Head already missed, never engaged: tail times out separately
@@ -256,6 +283,10 @@ export default function GameplayCanvas({
     () => normalizeReplayFrames(replayRecord?.replayFrames, beatmap.keyCount),
     [replayRecord?.replayFrames, beatmap.keyCount]
   );
+  const holdRulesVersion = replayRecord?.holdRulesVersion ?? HOLD_TICK_RULES_VERSION;
+  const activeHoldTickIntervalMs = holdRulesVersion === HOLD_TICK_RULES_VERSION
+    ? replayRecord?.holdTickIntervalMs ?? holdTickIntervalMs
+    : undefined;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hitErrorCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -277,6 +308,7 @@ export default function GameplayCanvas({
       syncControllerRef.current = null;
       GameplayMediaRegistry.setVideo(null);
     }
+
     videoRef.current = node;
     GameplayMediaRegistry.setVideo(node);
     if (node) {
@@ -734,19 +766,35 @@ export default function GameplayCanvas({
       : 1;
   const judgementWindows = getJudgementWindows(beatmap.overallDifficulty, windowDifficultyMultiplier);
   const marvelousJudg = judgementWindows.find(w => w.type === 'marvelous') || judgementWindows[0];
+  const badJudg = judgementWindows.find(w => w.type === 'bad') || judgementWindows[judgementWindows.length - 2];
   const missJudg = judgementWindows.find(w => w.type === 'miss') || judgementWindows[judgementWindows.length - 1];
 
   const initializeGameplay = (runCountdown: boolean = false) => {
     // Deep copy notes from the beatmap, ensuring gameplay properties reset
-    notesRef.current = (beatmap.notes || []).map(note => ({
-      ...note,
-      isHit: false,
-      isReleased: false,
-      isMissed: false,
-      isHoldFailed: false,
-      hitTime: undefined,
-      releaseTime: undefined
-    }));
+    notesRef.current = (beatmap.notes || []).map(note => {
+      const playNote: HitObject = {
+        ...note,
+        isHit: false,
+        isReleased: false,
+        isMissed: false,
+        isHoldFailed: false,
+        isHeadHit: false,
+        tailEngagedTime: undefined,
+        tailRequiresRepress: false,
+        isReleaseMissed: false,
+        isReleaseHit: false,
+        earlyReleaseTime: undefined,
+        tailResumedTime: undefined,
+        releaseZoneArmedTime: undefined,
+        holdRulesVersion,
+        hitTime: undefined,
+        releaseTime: undefined,
+      };
+      if (holdRulesVersion === HOLD_TICK_RULES_VERSION && playNote.type === 'hold' && activeHoldTickIntervalMs !== undefined) {
+        initializeHoldTailTicks(playNote, badJudg.windowMs, activeHoldTickIntervalMs);
+      }
+      return playNote;
+    });
     
     // Reset key arrays
     keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
@@ -780,7 +828,7 @@ export default function GameplayCanvas({
     };
 
     // osu!lazer mania standardised score: max combo portion for all-Marvelous FC
-    const totalJudgements = countMapJudgements(beatmap.notes);
+    const totalJudgements = holdRulesVersion === HOLD_TICK_RULES_VERSION ? 0 : countMapJudgements(beatmap.notes);
     totalJudgementsRef.current = totalJudgements;
     maxComboPortionRef.current = computeMaxComboPortion(totalJudgements);
     currentComboPortionRef.current = 0;
@@ -1040,14 +1088,15 @@ export default function GameplayCanvas({
       counts[colIndex] = (counts[colIndex] || 0) + 1;
       if (counts[colIndex] !== 1) return;
 
+      advanceHoldTailTicks(notesRef.current, audioTimeRef.current - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       keysPressedRef.current[colIndex] = true;
       activeColumnsRef.current[colIndex] = true;
       laneGlowRef.current[colIndex] = 1.0;
       if (hasKeyPressedOnceRef.current) {
         hasKeyPressedOnceRef.current[colIndex] = true;
       }
-      
       triggerHitEvent(colIndex);
+      advanceHoldTailTicks(notesRef.current, audioTimeRef.current, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
 
       if (!isReplayMode) {
         replayFramesRef.current.push({
@@ -1066,8 +1115,10 @@ export default function GameplayCanvas({
       counts[colIndex] -= 1;
       if (counts[colIndex] > 0) return;
 
+      advanceHoldTailTicks(notesRef.current, audioTimeRef.current - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       keysPressedRef.current[colIndex] = false;
       activeColumnsRef.current[colIndex] = false;
+      advanceHoldTailTicks(notesRef.current, audioTimeRef.current, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       
       triggerReleaseEvent(colIndex);
 
@@ -1222,6 +1273,20 @@ export default function GameplayCanvas({
   // Judgement scoring evaluator
   const triggerHitEvent = (colIndex: number) => {
     const playTime = audioTimeRef.current;
+
+    const earlyReleasedHold = notesRef.current.find(
+      (n) => n.column === colIndex && n.type === 'hold' && n.holdRulesVersion === HOLD_TICK_RULES_VERSION &&
+        n.isHit && !n.isReleased && !n.isHoldFailed && n.earlyReleaseTime !== undefined,
+    );
+    if (earlyReleasedHold) {
+      if (earlyReleasedHold.endTime !== undefined && playTime >= earlyReleasedHold.endTime - missJudg.windowMs) {
+        markHoldReleaseZonePressed(earlyReleasedHold, playTime);
+      } else {
+        markHoldTailResumed(earlyReleasedHold, playTime);
+      }
+      spawnParticles(colIndex, '#22d3ee');
+      return;
+    }
     
     // Check if we are currently in a grace period for a hold note in this column
     const activeHoldAndReleased = notesRef.current.find(
@@ -1259,8 +1324,14 @@ export default function GameplayCanvas({
       if (note.endTime && playTime - note.endTime > missWindow) {
         return;
       }
+      if (note.endTime !== undefined && playTime >= note.endTime - missWindow) {
+        markHoldReleaseZonePressed(note, playTime);
+        spawnParticles(colIndex, '#22d3ee');
+        return;
+      }
       note.isHit = true;
       note.hitTime = playTime;
+      markHoldTailEngaged(note, playTime);
       spawnParticles(colIndex, '#22d3ee');
       return;
     }
@@ -1283,6 +1354,7 @@ export default function GameplayCanvas({
       // Registrations
       note.isHit = true;
       note.hitTime = playTime;
+      markHoldStartHit(note);
       
       applyJudgement(resolvedJudgement, colIndex);
       mainAudio.playBeatmapHitsound(note.hitSound, note.hitSample?.filename);
@@ -1321,6 +1393,9 @@ export default function GameplayCanvas({
         applyJudgement(resolvedJudgement, colIndex); // Head miss only
         note.isHit = true; // Engage body/tail while key is down
         note.hitTime = playTime;
+        if (note.holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+          markHoldTailEngaged(note, playTime);
+        }
       } else {
         applyJudgement(resolvedJudgement, colIndex);
       }
@@ -1331,9 +1406,10 @@ export default function GameplayCanvas({
     const playTime = audioTimeRef.current;
     
     // Find active hold note currently marked "Hit" but not yet "Released" or "HoldFailed"
-    const holdNote = notesRef.current.find(
-      (n) => n.column === colIndex && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed
-    );
+    const holdNote = notesRef.current.find((n) => n.column === colIndex && n.type === 'hold' && !n.isReleased &&
+      (n.holdRulesVersion === HOLD_TICK_RULES_VERSION
+        ? (n.isHeadHit || n.tailEngagedTime !== undefined || n.releaseZoneArmedTime !== undefined)
+        : (n.isHit && !n.isHoldFailed)));
     
     if (!holdNote || !holdNote.endTime) return;
 
@@ -1341,8 +1417,30 @@ export default function GameplayCanvas({
     const graceThreshold = -missJudg.windowMs;
     const graceDuration = missJudg.windowMs;
 
+    if (holdNote.holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+      if (endDiff < -missJudg.windowMs) {
+        markHoldEarlyRelease(holdNote, playTime);
+        return;
+      }
+      holdNote.isReleased = true;
+      holdNote.releaseTime = playTime;
+      const releaseJudgement = getHoldTailJudgement(endDiff, judgementWindows);
+      const releaseMissed = releaseJudgement.type === 'miss';
+      holdNote.isReleaseMissed = releaseMissed;
+      holdNote.isReleaseHit = !releaseMissed;
+       if (releaseMissed) markHoldEarlyRelease(holdNote, playTime);
+      applyJudgement(releaseJudgement, colIndex);
+      if (!releaseMissed) {
+        markHoldReleaseHit(holdNote);
+        recordHitErrorSample(endDiff);
+        mainAudio.playBeatmapHitsound(holdNote.hitSound, holdNote.hitSample?.filename);
+      }
+      return;
+    }
+
     // If released prematurely: trigger a grace re-key window
     if (endDiff < graceThreshold) {
+      holdNote.releaseTime = playTime;
       holdNote.releaseGraceUntil = playTime + graceDuration; // derived grace window
       return;
     }
@@ -1427,13 +1525,18 @@ export default function GameplayCanvas({
     };
     state.accuracy = computeAccuracyPercent(counts);
 
+    const judgedCount = countTotalHits(counts);
+    if (holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+      totalJudgementsRef.current = judgedCount;
+      maxComboPortionRef.current = computeMaxComboPortion(judgedCount);
+    }
     currentComboPortionRef.current += getComboScoreChange(judg.type, state.combo);
     const modMultiplier = computeModMultiplier(settings.selectedMods);
     state.score = computeTotalScore({
       currentComboPortion: currentComboPortionRef.current,
       maxComboPortion: maxComboPortionRef.current,
       accuracyPercent: state.accuracy,
-      judgedCount: countTotalHits(counts),
+      judgedCount,
       totalJudgements: totalJudgementsRef.current,
       modMultiplier,
     });
@@ -1532,6 +1635,7 @@ export default function GameplayCanvas({
 
     // Track notes elapsed to trigger automatic Miss judgments
     const checkAutonomousMisses = (currentTime: number) => {
+      advanceHoldTailTicks(notesRef.current, currentTime, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       checkNotesAutonomousMisses(
         notesRef.current,
         currentTime,
@@ -1629,6 +1733,7 @@ export default function GameplayCanvas({
       if (replayData && replayData.length > 0 && isPlayingRef.current && !isPaused && showCountdown === 0) {
         consumeReplayFrames(replayData, replayCursorRef.current, songTime, frame => {
           audioTimeRef.current = frame.time;
+          advanceHoldTailTicks(notesRef.current, frame.time - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
           checkNotesAutonomousMisses(
             notesRef.current,
             frame.time,
@@ -1651,6 +1756,7 @@ export default function GameplayCanvas({
               triggerReleaseEvent(col);
             }
           }
+          advanceHoldTailTicks(notesRef.current, frame.time, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
         });
         audioTimeRef.current = songTime;
         checkNotesAutonomousMisses(
@@ -1660,6 +1766,7 @@ export default function GameplayCanvas({
           (note) => applyJudgement(missJudg, note.column),
           keysPressedRef.current
         );
+        advanceHoldTailTicks(notesRef.current, songTime, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       }
 
       if (isPlayingRef.current && !isPaused && showCountdown === 0) {
@@ -1670,7 +1777,7 @@ export default function GameplayCanvas({
             if (!note.isHit && !note.isMissed && note.time <= songTime) {
               dueEvents.push({ type: 'head', note, eventTime: note.time });
             }
-            if (note.type === 'hold' && note.isHit && !note.isReleased && !note.isHoldFailed && note.endTime !== undefined && note.endTime <= songTime) {
+            if (note.type === 'hold' && (note.holdRulesVersion === HOLD_TICK_RULES_VERSION || (note.isHit && !note.isHoldFailed)) && !note.isReleased && note.endTime !== undefined && note.endTime <= songTime) {
               dueEvents.push({ type: 'tail', note, eventTime: note.endTime });
             }
           }
@@ -1684,6 +1791,7 @@ export default function GameplayCanvas({
                 if (n.isHit || n.isMissed) continue;
                 n.isHit = true;
                 n.hitTime = n.time;
+                markHoldStartHit(n);
 
                 applyJudgement(marvelousJudg, n.column);
                 recordHitErrorSample(0);
@@ -1705,6 +1813,7 @@ export default function GameplayCanvas({
                 if (n.isReleased || n.isHoldFailed) continue;
                 n.isReleased = true;
                 n.releaseTime = n.endTime!;
+                markHoldReleaseHit(n);
 
                 applyJudgement(marvelousJudg, n.column);
                 recordHitErrorSample(0);
@@ -1713,6 +1822,13 @@ export default function GameplayCanvas({
               }
             }
           }
+
+          advanceHoldTailTicks(
+            notesRef.current,
+            songTime,
+            new Array(beatmap.keyCount).fill(true),
+            note => applyJudgement(missJudg, note.column),
+          );
 
           // Maintain active receptor/lane state for holds, including chords
           for (let col = 0; col < beatmap.keyCount; col++) {
@@ -2056,16 +2172,31 @@ export default function GameplayCanvas({
 
   const simulateGameToTime = (targetTimeMs: number) => {
     // 1. Reset all notes to default states
-    notesRef.current = (beatmap.notes || []).map(note => ({
-      ...note,
-      isHit: false,
-      isReleased: false,
-      isMissed: false,
-      isHoldFailed: false,
-      hitTime: undefined,
-      releaseTime: undefined,
-      releaseGraceUntil: undefined
-    }));
+    notesRef.current = (beatmap.notes || []).map(note => {
+      const playNote: HitObject = {
+        ...note,
+        isHit: false,
+        isReleased: false,
+        isMissed: false,
+        isHoldFailed: false,
+        isHeadHit: false,
+        tailEngagedTime: undefined,
+        tailRequiresRepress: false,
+        isReleaseMissed: false,
+        isReleaseHit: false,
+        earlyReleaseTime: undefined,
+        tailResumedTime: undefined,
+        releaseZoneArmedTime: undefined,
+        holdRulesVersion,
+        hitTime: undefined,
+        releaseTime: undefined,
+        releaseGraceUntil: undefined,
+      };
+      if (holdRulesVersion === HOLD_TICK_RULES_VERSION && playNote.type === 'hold' && activeHoldTickIntervalMs !== undefined) {
+        initializeHoldTailTicks(playNote, badJudg.windowMs, activeHoldTickIntervalMs);
+      }
+      return playNote;
+    });
 
     // 2. Reset keyboard arrays
     keysPressedRef.current = new Array(beatmap.keyCount).fill(false);
@@ -2094,7 +2225,7 @@ export default function GameplayCanvas({
       columnJudgements: initializeColumnJudgements(beatmap.keyCount),
     };
 
-    totalJudgementsRef.current = countMapJudgements(beatmap.notes);
+    totalJudgementsRef.current = holdRulesVersion === HOLD_TICK_RULES_VERSION ? 0 : countMapJudgements(beatmap.notes);
     maxComboPortionRef.current = computeMaxComboPortion(totalJudgementsRef.current);
 
     // Reset hit error timing ticks
@@ -2145,6 +2276,11 @@ export default function GameplayCanvas({
         missCount: state.missCount,
       };
       state.accuracy = computeAccuracyPercent(counts);
+      const judgedCount = countTotalHits(counts);
+      if (holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+        totalJudgementsRef.current = judgedCount;
+        maxComboPortionRef.current = computeMaxComboPortion(judgedCount);
+      }
 
       simCurrentComboPortion += getComboScoreChange(judg.type, state.combo);
       const modMultiplier = computeModMultiplier(settings.selectedMods);
@@ -2152,13 +2288,25 @@ export default function GameplayCanvas({
         currentComboPortion: simCurrentComboPortion,
         maxComboPortion: maxComboPortionRef.current,
         accuracyPercent: state.accuracy,
-        judgedCount: countTotalHits(counts),
+        judgedCount,
         totalJudgements: totalJudgementsRef.current,
         modMultiplier,
       });
     };
 
-    const simTriggerHit = (colIndex: number, frameTime: number) => {
+      const simTriggerHit = (colIndex: number, frameTime: number) => {
+      const earlyReleasedHold = notesRef.current.find(
+        (n) => n.column === colIndex && n.type === 'hold' && n.holdRulesVersion === HOLD_TICK_RULES_VERSION &&
+          n.isHit && !n.isReleased && !n.isHoldFailed && n.earlyReleaseTime !== undefined,
+      );
+      if (earlyReleasedHold) {
+        if (earlyReleasedHold.endTime !== undefined && frameTime >= earlyReleasedHold.endTime - missJudg.windowMs) {
+          markHoldReleaseZonePressed(earlyReleasedHold, frameTime);
+        } else {
+          markHoldTailResumed(earlyReleasedHold, frameTime);
+        }
+        return;
+      }
       const activeHoldAndReleased = notesRef.current.find(
         (n) => n.column === colIndex && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed && n.releaseGraceUntil !== undefined
       );
@@ -2188,8 +2336,13 @@ export default function GameplayCanvas({
         if (note.endTime && frameTime - note.endTime > maxWindow) {
           return;
         }
+        if (note.endTime !== undefined && frameTime >= note.endTime - maxWindow) {
+          markHoldReleaseZonePressed(note, frameTime);
+          return;
+        }
         note.isHit = true;
         note.hitTime = frameTime;
+        markHoldTailEngaged(note, frameTime);
         return;
       }
 
@@ -2201,6 +2354,7 @@ export default function GameplayCanvas({
       if (resolvedJudgement.type !== 'miss') {
         note.isHit = true;
         note.hitTime = frameTime;
+        markHoldStartHit(note);
         simApplyJudgement(resolvedJudgement, colIndex);
         recordHitErrorSample(frameTime - note.time);
       } else {
@@ -2209,6 +2363,9 @@ export default function GameplayCanvas({
           simApplyJudgement(resolvedJudgement, colIndex);
           note.isHit = true;
           note.hitTime = frameTime;
+          if (note.holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+            markHoldTailEngaged(note, frameTime);
+          }
         } else {
           simApplyJudgement(resolvedJudgement, colIndex);
         }
@@ -2216,14 +2373,35 @@ export default function GameplayCanvas({
     };
 
     const simTriggerRelease = (colIndex: number, frameTime: number) => {
-      const holdNote = notesRef.current.find(
-        (n) => n.column === colIndex && n.type === 'hold' && n.isHit && !n.isReleased && !n.isHoldFailed
-      );
+      const holdNote = notesRef.current.find((n) => n.column === colIndex && n.type === 'hold' && !n.isReleased &&
+        (n.holdRulesVersion === HOLD_TICK_RULES_VERSION
+          ? (n.isHeadHit || n.tailEngagedTime !== undefined || n.releaseZoneArmedTime !== undefined)
+          : (n.isHit && !n.isHoldFailed)));
       if (!holdNote || !holdNote.endTime) return;
       const endDiff = frameTime - holdNote.endTime;
       const graceThreshold = -missJudg.windowMs;
       const graceDuration = missJudg.windowMs;
+      if (holdNote.holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+        if (endDiff < -missJudg.windowMs) {
+          markHoldEarlyRelease(holdNote, frameTime);
+          return;
+        }
+        holdNote.isReleased = true;
+        holdNote.releaseTime = frameTime;
+        const releaseJudgement = getHoldTailJudgement(endDiff, judgementWindows);
+        const releaseMissed = releaseJudgement.type === 'miss';
+        holdNote.isReleaseMissed = releaseMissed;
+        holdNote.isReleaseHit = !releaseMissed;
+         if (releaseMissed) markHoldEarlyRelease(holdNote, frameTime);
+        simApplyJudgement(releaseJudgement, colIndex);
+        if (!releaseMissed) {
+          markHoldReleaseHit(holdNote);
+          recordHitErrorSample(endDiff);
+        }
+        return;
+      }
       if (endDiff < graceThreshold) {
+        holdNote.releaseTime = frameTime;
         holdNote.releaseGraceUntil = frameTime + graceDuration;
         return;
       }
@@ -2239,6 +2417,7 @@ export default function GameplayCanvas({
     };
 
     const simCheckAutonomousMisses = (currentTime: number, keysPressed?: boolean[]) => {
+      advanceHoldTailTicks(notesRef.current, currentTime, keysPressed || [], note => simApplyJudgement(missJudg, note.column));
       checkNotesAutonomousMisses(
         notesRef.current,
         currentTime,

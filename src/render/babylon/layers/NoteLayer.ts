@@ -12,6 +12,7 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Constants } from '@babylonjs/core/Engines/constants';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import type { PlayfieldFrame } from '../../types';
@@ -69,13 +70,16 @@ export class NoteLayer {
       if (!col) continue;
 
       // Head: normal notes, and hold heads that are still approaching.
-      const shouldDrawHead = n.type === 'normal' || (n.type === 'hold' && !n.isHit && !n.isMissed);
+       const shouldDrawHead = n.type === 'normal' || (n.type === 'hold' && (n.isMissed || !n.isHit));
       if (shouldDrawHead) {
         const key = `${n.id}_h`;
         const mesh = this.acquire(key);
         if (!mesh) continue;
         keep.add(key);
+        mesh.renderingGroupId = 0;
         const mat = mesh.material as StandardMaterial;
+        mat.depthFunction = Constants.LESS;
+        mat.disableDepthWrite = false;
 
         const depthFactor = yToDepthFactor(n.y, receptorY);
         const pos = runwayPosition(n.column, ctx.keyCount, depthFactor, RUNWAY_CONVERGENCE, ctx.nearWidth);
@@ -92,12 +96,16 @@ export class NoteLayer {
       }
 
       // Tail cap for holds (scales with the converged lane width at the tail depth).
-      if (n.type === 'hold' && n.endY !== undefined && !n.isReleased && !n.isHoldFailed) {
+      if (n.type === 'hold' && n.endY !== undefined &&
+        (n.holdRulesVersion !== 2 ? (!n.isReleased || n.isReleaseMissed) : !n.isReleaseHit)) {
         const key = `${n.id}_e`;
          const mesh = this.acquire(key);
-         if (!mesh) continue;
-         keep.add(key);
+        if (!mesh) continue;
+        keep.add(key);
+        mesh.renderingGroupId = 2;
         const mat = mesh.material as StandardMaterial;
+        mat.depthFunction = Constants.ALWAYS;
+        mat.disableDepthWrite = true;
 
         // Keep the cap on the same far plane as the hold body when a long note
         // spawns with its tail beyond the visible runway.

@@ -24,6 +24,7 @@ export class ReceptorLayer {
       material.backFaceCulling = false;
       mesh.material = material;
       mesh.isPickable = false;
+      mesh.renderingGroupId = 1;
       this.segments.push(mesh);
       this.segmentMats.push(material);
     }
@@ -33,6 +34,7 @@ export class ReceptorLayer {
     if (!this.line) {
       this.line = MeshBuilder.CreateBox('receptorLine', { width: 1, height: 0.06, depth: 0.12 }, this.scene);
       this.line.isPickable = false;
+      this.line.renderingGroupId = 1;
       this.lineMat = new StandardMaterial('receptorLineMat', this.scene);
       this.lineMat.disableLighting = true;
       this.lineMat.backFaceCulling = false;
@@ -50,6 +52,7 @@ export class ReceptorLayer {
     for (let i = 0; i < this.segments.length; i++) {
       const enabled = i < ctx.keyCount;
       const segment = this.segments[i];
+      segment.renderingGroupId = 1;
       segment.setEnabled(enabled);
       if (!enabled) continue;
       const column = frame.columns[i];

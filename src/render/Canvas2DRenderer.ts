@@ -15,6 +15,7 @@ import { hexToRgba } from './color';
 import { getLaneColors } from './skinTheme';
 import { getNoteVisualY } from './playfieldLayout';
 import { isHoldBodyAnchored } from './noteState';
+import { mergeVisibleTailSegments } from './tailSegments';
 
 function applyFade(colorStr: string, stopOpacity: number) {
   return hexToRgba(colorStr, stopOpacity);
@@ -160,18 +161,13 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
          ctx.rect(rx, ry, rw, rh);
          ctx.stroke();
          ctx.shadowBlur = 0;
-       } else {
-        ctx.beginPath();
-        if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
-          ctx.strokeStyle = noteColorFor(noteObj.column);
-          ctx.lineWidth = 4;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(rx, ry + rh / 2);
-          ctx.lineTo(rx + rw, ry + rh / 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
         } else {
+         ctx.beginPath();
+         if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
+           const barHeight = 8 * noteScale;
+           ctx.fillStyle = noteColorFor(noteObj.column);
+           ctx.fillRect(rx, ey - barHeight / 2, rw, barHeight);
+         } else {
           const noteColor = noteColorFor(noteObj.column);
 
           ctx.roundRect(rx, ry, rw, rh, 4);
@@ -206,29 +202,28 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       ctx.restore();
     };
 
+    const deferredEndpointTails: Array<() => void> = [];
+
     // 2. Draw hold note bodies
     notes.forEach((n) => {
       if (n.type === 'hold' && n.endY !== undefined) {
         const xPos = columns[n.column].x;
         const colW = columns[n.column].width;
 
-// Anchor the body start to the receptor only while the LN is actively engaged
+        // Anchor the body start to the receptor only while the LN is actively engaged
         // (head hit & held). A missed head must not ground the body — the LN keeps its
         // fixed length and scrolls off naturally; the release stays salvageable.
-        let visualStartY = getNoteVisualY(n.y, colW, settingsSlice);
-         if (isHoldBodyAnchored(n)) {
+        let visualStartY = getNoteVisualY(n.bodyStartY ?? n.y, colW, settingsSlice);
+        if (isHoldBodyAnchored(n)) {
           visualStartY = receptorY;
         }
 
         const visualEndY = getNoteVisualY(n.endY, colW, settingsSlice);
 
-        const isOff = settingsSlice.upsurfaceNoteMode
-          ? (visualEndY < receptorY && visualStartY < receptorY && n.isReleased)
-          : (visualEndY > receptorY && visualStartY > receptorY && n.isReleased);
+        const isOff = Math.max(visualStartY, visualEndY) < -100 ||
+          Math.min(visualStartY, visualEndY) > height + 100;
 
         if (!isOff) {
-          const clipHeight = visualStartY - visualEndY;
-
           ctx.save();
           ctx.globalAlpha = 1.0;
           const holdGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
@@ -241,16 +236,10 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
               holdGrad.addColorStop(0, applyFade(dynamicHoldColor, fadeStart * 0.55));
               holdGrad.addColorStop(1, applyFade(dynamicHoldColor, fadeEnd * 0.55));
            } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-            const rpColor = noteColorFor(n.column);
-            if (n.isHit && !n.isReleased) {
-              if (n.releaseGraceUntil) {
-                const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                holdGrad.addColorStop(0, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeStart));
-                holdGrad.addColorStop(1, applyFade(flicker ? rpColor : hexToRgba(rpColor, 0.5), fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
-                holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
-              }
+             const rpColor = noteColorFor(n.column);
+             if (n.isHit && !n.isReleased) {
+               holdGrad.addColorStop(0, applyFade(rpColor, fadeStart));
+               holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
             } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.5)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(100,116,139,0.5)', fadeEnd));
@@ -259,16 +248,10 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
               holdGrad.addColorStop(1, applyFade(rpColor, fadeEnd));
             }
           } else if (settingsSlice.playfieldStyle !== 'circle') {
-            const rmColor = noteColorFor(n.column);
-            if (n.isHit && !n.isReleased) {
-              if (n.releaseGraceUntil) {
-                const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                holdGrad.addColorStop(0, applyFade(flicker ? hexToRgba(rmColor, 0.8) : hexToRgba(rmColor, 0.2), fadeStart));
-                holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.8), fadeStart));
-                holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
-              }
+             const rmColor = noteColorFor(n.column);
+             if (n.isHit && !n.isReleased) {
+               holdGrad.addColorStop(0, applyFade(hexToRgba(rmColor, 0.8), fadeStart));
+               holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.3), fadeEnd));
             } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
@@ -277,16 +260,10 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
               holdGrad.addColorStop(1, applyFade(hexToRgba(rmColor, 0.2), fadeEnd));
             }
           } else {
-            const noteColor = noteColorFor(n.column);
-            if (n.isHit && !n.isReleased) {
-              if (n.releaseGraceUntil) {
-                const flicker = (Math.floor(Date.now() / 40) % 2 === 0);
-                holdGrad.addColorStop(0, applyFade(flicker ? hexToRgba(noteColor, 0.75) : hexToRgba(noteColor, 0.2), fadeStart));
-                holdGrad.addColorStop(1, applyFade(hexToRgba(noteColor, 0.3), fadeEnd));
-              } else {
-                holdGrad.addColorStop(0, applyFade(hexToRgba(noteColor, 0.8), fadeStart));
-                holdGrad.addColorStop(1, applyFade(hexToRgba(noteColor, 0.3), fadeEnd));
-              }
+             const noteColor = noteColorFor(n.column);
+             if (n.isHit && !n.isReleased) {
+               holdGrad.addColorStop(0, applyFade(hexToRgba(noteColor, 0.8), fadeStart));
+               holdGrad.addColorStop(1, applyFade(hexToRgba(noteColor, 0.3), fadeEnd));
             } else if (n.isHoldFailed) {
               holdGrad.addColorStop(0, applyFade('rgba(100,116,139,0.3)', fadeStart));
               holdGrad.addColorStop(1, applyFade('rgba(71,85,105,0.1)', fadeEnd));
@@ -302,67 +279,285 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
            const notePadding = isFocusMode ? 1.5 : 6;
            const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
            const useNotePadding = settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode;
+           const toSegmentY = (timingY: number) =>
+             useNotePadding && n.holdRulesVersion === 2
+               ? getNoteVisualY(timingY, colW, settingsSlice)
+               : timingY;
+           const mapHoldSegment = (segment: { startY: number; endY: number }) => ({
+             startY: toSegmentY(segment.startY),
+             endY: toSegmentY(segment.endY),
+           });
 
-           const basePadding = isDynamicStyle
-             ? (isFocusMode ? 1.5 : 3)
-             : useNotePadding ? notePadding : padding;
-           const rw = (colW - basePadding * 2) * noteScale;
-           const rx = xPos + (colW - rw) / 2;
+            const basePadding = isDynamicStyle
+              ? (isFocusMode ? 1.5 : 3)
+              : useNotePadding ? notePadding : padding;
+            const rw = (colW - basePadding * 2) * noteScale;
+            const rx = xPos + (colW - rw) / 2;
 
-           let drawY = Math.min(visualStartY, visualEndY);
-           let drawH = Math.abs(clipHeight);
+             const getHoldSegmentRect = (
+               segmentStartY: number,
+               segmentEndY: number,
+               trimStart = false,
+               trimEnd = false,
+             ) => {
+               const lowerY = Math.min(segmentStartY, segmentEndY);
+               const upperY = Math.max(segmentStartY, segmentEndY);
+               const startsAtLowerEdge = segmentStartY <= segmentEndY;
+               const extension = (useNotePadding || (isDynamicStyle && !isCircleMode))
+                 ? (useNotePadding ? (8 * noteScale) / 2 : ((20 / 3) * noteScale) / 2)
+                 : 0;
+               const lowerExtension = startsAtLowerEdge
+                 ? (trimStart ? 0 : extension)
+                 : (trimEnd ? 0 : extension);
+               const upperExtension = startsAtLowerEdge
+                 ? (trimEnd ? 0 : extension)
+                 : (trimStart ? 0 : extension);
+               return {
+                 drawY: lowerY - lowerExtension,
+                 drawH: upperY - lowerY + lowerExtension + upperExtension,
+               };
+             };
 
-           if (useNotePadding) {
-             drawY -= 4;
-             drawH += 8;
-           }
-           if (isDynamicStyle && !isCircleMode) {
-             const halfNoteHeight = ((20 / 3) * (settingsSlice.noteSizeMultiplier ?? 1)) / 2;
-             drawY -= halfNoteHeight;
-             drawH += halfNoteHeight * 2;
-           }
+             const drawHoldPath = (
+               segmentStartY: number,
+               segmentEndY: number,
+                trimStart = false,
+                trimEnd = false,
+                flatStart = false,
+                flatEnd = false,
+              ) => {
+               const segment = getHoldSegmentRect(segmentStartY, segmentEndY, trimStart, trimEnd);
+               ctx.beginPath();
+               if (isCircleMode) {
+                 const circleRadius = (colW * noteScale) / 3;
+                 const railStartY = n.holdRulesVersion === 2
+                   ? getNoteVisualY(segmentStartY, colW, settingsSlice)
+                   : segmentStartY;
+                 const railEndY = n.holdRulesVersion === 2
+                   ? getNoteVisualY(segmentEndY, colW, settingsSlice)
+                   : segmentEndY;
+                  const centerX = xPos + colW / 2;
+                  ctx.save();
+                  const railStyle = ctx.fillStyle;
+                  const previousAlpha = ctx.globalAlpha;
+                  ctx.fillStyle = railStyle;
+                  ctx.globalAlpha = previousAlpha * 0.55;
+                  ctx.fillRect(
+                    centerX - circleRadius,
+                    Math.min(railStartY, railEndY),
+                    circleRadius * 2,
+                    Math.abs(railStartY - railEndY),
+                  );
+                  ctx.globalAlpha = previousAlpha;
+                  ctx.strokeStyle = railStyle;
+                  ctx.lineWidth = Math.max(2, 3 * noteScale);
+                 ctx.lineCap = 'butt';
+                 ctx.beginPath();
+                 ctx.moveTo(centerX - circleRadius, railStartY);
+                 ctx.lineTo(centerX - circleRadius, railEndY);
+                 ctx.moveTo(centerX + circleRadius, railStartY);
+                 ctx.lineTo(centerX + circleRadius, railEndY);
+                 ctx.stroke();
+                 ctx.restore();
+                 ctx.beginPath();
+                 return segment;
+               }
+               // A missed tick is often only a few pixels tall. Rounded skin
+               // corners then consume its visible width, making it look like
+               // a narrow separate note instead of the same tail texture.
+               const isCompactDiscreteTail = n.holdRulesVersion === 2 &&
+                 Math.abs(segmentStartY - segmentEndY) <= Math.max(24, 20 * noteScale);
+               if (isCompactDiscreteTail || settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode ||
+                 settingsSlice.skinId === 'classic-bar' || settingsSlice.skinId === 'minimalist') {
+                 ctx.rect(rx, segment.drawY, rw, segment.drawH);
+               } else if (isDynamicStyle && !isCircleMode) {
+                 const radius = 4;
+                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
+                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+               } else if (isCircleMode) {
+                 const radius = rw / 2;
+                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
+                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+               } else {
+                 const radius = 6;
+                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
+                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+               }
+               return segment;
+             };
 
-          ctx.beginPath();
-            if (isDynamicStyle && !isCircleMode) {
-              ctx.roundRect(rx, drawY, rw, drawH, 4);
-           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
-             ctx.rect(rx, drawY, rw, drawH);
-          } else {
-            if (isCircleMode) {
-              ctx.roundRect(rx, drawY, rw, drawH, rw / 2);
-            } else if (settingsSlice.skinId === 'classic-bar' || settingsSlice.skinId === 'minimalist') {
-              ctx.rect(rx, drawY, rw, drawH);
-            } else {
-              ctx.roundRect(rx, drawY, rw, drawH, 6);
+             const drawHoldStroke = (
+               segmentStartY: number,
+               segmentEndY: number,
+                trimStart = false,
+                trimEnd = false,
+                flatStart = false,
+                flatEnd = false,
+                skipStartEdge = false,
+                skipEndEdge = false,
+              ) => {
+               if (isDynamicStyle && !isCircleMode) {
+                 const dynamicHoldColor = n.isHoldFailed ? '#64748b' : noteColorFor(n.column);
+                 const segment = getHoldSegmentRect(segmentStartY, segmentEndY, trimStart, trimEnd);
+                 const isCompactDiscreteTail = n.holdRulesVersion === 2 &&
+                   Math.abs(segmentStartY - segmentEndY) <= Math.max(24, 20 * noteScale);
+                 ctx.save();
+                 ctx.strokeStyle = applyFade(dynamicHoldColor, Math.min(1, fadeStart));
+                  ctx.lineWidth = 2;
+                  ctx.shadowColor = dynamicHoldColor;
+                  ctx.shadowBlur = n.isHoldFailed ? 0 : 7;
+                  ctx.beginPath();
+                  if (isCompactDiscreteTail) {
+                    ctx.rect(rx, segment.drawY, rw, segment.drawH);
+                    if (skipStartEdge || skipEndEdge) {
+                      const startsAtLowerEdge = segmentStartY <= segmentEndY;
+                      const skipTopEdge = startsAtLowerEdge ? skipStartEdge : skipEndEdge;
+                      const skipBottomEdge = startsAtLowerEdge ? skipEndEdge : skipStartEdge;
+                      const topY = segment.drawY;
+                      const bottomY = segment.drawY + segment.drawH;
+                      ctx.beginPath();
+                      ctx.moveTo(rx, topY);
+                      ctx.lineTo(rx, bottomY);
+                      ctx.moveTo(rx + rw, topY);
+                      ctx.lineTo(rx + rw, bottomY);
+                      if (!skipTopEdge) {
+                        ctx.moveTo(rx, topY);
+                        ctx.lineTo(rx + rw, topY);
+                      }
+                      if (!skipBottomEdge) {
+                        ctx.moveTo(rx, bottomY);
+                       ctx.lineTo(rx + rw, bottomY);
+                       }
+                     }
+                   } else {
+                    const startsAtLowerEdge = segmentStartY <= segmentEndY;
+                    const skipTopEdge = startsAtLowerEdge ? skipStartEdge : skipEndEdge;
+                    const skipBottomEdge = startsAtLowerEdge ? skipEndEdge : skipStartEdge;
+                    if (!skipTopEdge && !skipBottomEdge) {
+                      const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : 4;
+                      const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : 4;
+                      ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+                    } else {
+                      const topRadius = skipTopEdge || (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : 4;
+                      const bottomRadius = skipBottomEdge || (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : 4;
+                      const topY = segment.drawY;
+                      const bottomY = segment.drawY + segment.drawH;
+                      ctx.moveTo(rx, topY + topRadius);
+                      ctx.lineTo(rx, bottomY - bottomRadius);
+                      ctx.moveTo(rx + rw, topY + topRadius);
+                      ctx.lineTo(rx + rw, bottomY - bottomRadius);
+                      if (!skipTopEdge) {
+                        ctx.moveTo(rx + topRadius, topY);
+                        ctx.lineTo(rx + rw - topRadius, topY);
+                      }
+                      if (!skipBottomEdge) {
+                        ctx.moveTo(rx + bottomRadius, bottomY);
+                        ctx.lineTo(rx + rw - bottomRadius, bottomY);
+                      }
+                    }
+                  }
+                 ctx.stroke();
+                 ctx.restore();
+                } else if (!isCircleMode && !(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
+                 const color = n.isHit && !n.isReleased ? '#22d3ee' : 'rgba(56,189,248,0.4)';
+                 const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
+                 strokeGrad.addColorStop(0, applyFade(color, fadeStart));
+                 strokeGrad.addColorStop(1, applyFade(color, fadeEnd));
+                 ctx.save();
+                 ctx.strokeStyle = strokeGrad;
+                 ctx.lineWidth = 2;
+                 ctx.beginPath();
+                 ctx.moveTo(xPos + colW / 2, segmentStartY);
+                 ctx.lineTo(xPos + colW / 2, segmentEndY);
+                 ctx.stroke();
+                 ctx.restore();
+               }
+             };
+
+            const bodySegments = n.tailSegments?.map(mapHoldSegment) || [{ startY: visualStartY, endY: visualEndY }];
+             const renderSegments = n.holdRulesVersion === 2
+               ? mergeVisibleTailSegments([...bodySegments, ...(n.missedTailSegments || []).map(mapHoldSegment)])
+               : bodySegments;
+             const endpointTailSegment = n.endpointTailSegment
+               ? mapHoldSegment(n.endpointTailSegment)
+               : undefined;
+              for (const segment of renderSegments) {
+                const endpointBoundary = endpointTailSegment?.startY;
+                const joinsEndpointAtStart = endpointBoundary !== undefined &&
+                  Math.abs(segment.startY - endpointBoundary) < 0.001;
+                const joinsEndpointAtEnd = endpointBoundary !== undefined &&
+                  Math.abs(segment.endY - endpointBoundary) < 0.001;
+                drawHoldPath(
+                  segment.startY,
+                  segment.endY,
+                  joinsEndpointAtStart,
+                  joinsEndpointAtEnd,
+                  joinsEndpointAtStart,
+                  joinsEndpointAtEnd,
+                );
+                ctx.fill();
+              }
+
+            ctx.fillStyle = holdGrad;
+
+            // Preserve the portion that was actually held instead of dimming it
+            // together with the failed remainder after an early release.
+            if (n.hitSegmentStartY !== undefined && n.hitSegmentEndY !== undefined) {
+              const hitColor = noteColorFor(n.column);
+              const hitGrad = ctx.createLinearGradient(xPos, n.hitSegmentStartY, xPos, n.hitSegmentEndY);
+              hitGrad.addColorStop(0, applyFade(hitColor, fadeStart));
+              hitGrad.addColorStop(1, applyFade(hitColor, fadeEnd));
+              ctx.fillStyle = hitGrad;
+              drawHoldPath(
+                getNoteVisualY(n.hitSegmentStartY, colW, settingsSlice),
+                getNoteVisualY(n.hitSegmentEndY, colW, settingsSlice),
+              );
+              ctx.fill();
+              ctx.fillStyle = holdGrad;
             }
-          }
-           ctx.fill();
 
-            if (isDynamicStyle && !isCircleMode) {
-              const dynamicHoldColor = n.isHoldFailed ? '#64748b' : noteColorFor(n.column);
-              ctx.strokeStyle = applyFade(dynamicHoldColor, Math.min(1, fadeStart));
-              ctx.lineWidth = 2;
-              ctx.shadowColor = dynamicHoldColor;
-              ctx.shadowBlur = n.isHoldFailed ? 0 : 7;
-              ctx.beginPath();
-              ctx.roundRect(rx, drawY, rw, drawH, 4);
-              ctx.stroke();
-              ctx.shadowBlur = 0;
-           } else if (!(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-            const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
-            const baseStrokeColor = n.isHit && !n.isReleased
-              ? (n.releaseGraceUntil ? '#eab308' : '#22d3ee')
-              : 'rgba(56,189,248,0.4)';
-            strokeGrad.addColorStop(0, applyFade(baseStrokeColor, fadeStart));
-            strokeGrad.addColorStop(1, applyFade(baseStrokeColor, fadeEnd));
+              for (const segment of renderSegments) {
+                const endpointBoundary = endpointTailSegment?.startY;
+                const joinsEndpointAtStart = endpointBoundary !== undefined &&
+                  Math.abs(segment.startY - endpointBoundary) < 0.001;
+                const joinsEndpointAtEnd = endpointBoundary !== undefined &&
+                  Math.abs(segment.endY - endpointBoundary) < 0.001;
+                drawHoldStroke(
+                  segment.startY,
+                  segment.endY,
+                  joinsEndpointAtStart,
+                  joinsEndpointAtEnd,
+                  joinsEndpointAtStart,
+                  joinsEndpointAtEnd,
+                  joinsEndpointAtStart,
+                  joinsEndpointAtEnd,
+                );
+              }
 
-            ctx.strokeStyle = strokeGrad;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(xPos + colW / 2, visualStartY);
-            ctx.lineTo(xPos + colW / 2, visualEndY);
-            ctx.stroke();
-          }
+             if (endpointTailSegment) {
+               const endpointSegment = endpointTailSegment;
+               deferredEndpointTails.push(() => {
+                 ctx.save();
+                 ctx.fillStyle = holdGrad;
+                 drawHoldPath(
+                   endpointSegment.startY,
+                   endpointSegment.endY,
+                   true,
+                   false,
+                   true,
+                   false,
+                 );
+                 ctx.fill();
+                 drawHoldStroke(endpointSegment.startY, endpointSegment.endY, true, false, true, false, true, false);
+                 ctx.restore();
+               });
+             }
 
           ctx.restore();
         }
@@ -376,17 +571,12 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         return;
       }
 
-      // Skip completely consumed holds
-      if (n.type === 'hold' && n.isReleased) {
-        return;
-      }
-
       const xPos = columns[n.column].x;
       const colW = columns[n.column].width;
       const notePadding = isFocusMode ? 1.5 : 6;
       const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
 
-      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && !n.isHit && !n.isMissed);
+       const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && (n.isMissed || !n.isHit));
 
       if (shouldDrawHead) {
          if (!(n.type === 'hold' && (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) && settingsSlice.playfieldStyle !== 'circle')) {
@@ -537,9 +727,6 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         }
       }
 
-       if (n.type === 'hold' && n.endY !== undefined && !n.isReleased && !isDynamicStyle) {
-         drawEndReceptor(getNoteVisualY(n.endY, colW, settingsSlice), xPos, colW, notePadding, n);
-      }
     });
 
     // 4. Draw mobile zone overlay if active
@@ -680,6 +867,23 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 
       ctx.restore();
     }
+
+    // Draw the endpoint segment after the receptor, using the exact same
+    // geometry, fill, and edge treatment as the body pass.
+    deferredEndpointTails.forEach((drawEndpointTail) => drawEndpointTail());
+
+    // An unjudged long-note endpoint is still an actionable note. Draw its cap
+    // last so the shared body texture joins the cap instead of covering it.
+    notes.forEach((n) => {
+      if (n.type !== 'hold' || n.endY === undefined || isDynamicStyle ||
+        (n.holdRulesVersion !== 2 ? (n.isReleased && !n.isReleaseMissed) : n.isReleaseHit)) {
+        return;
+      }
+      const xPos = columns[n.column].x;
+      const colW = columns[n.column].width;
+      const notePadding = isFocusMode ? 1.5 : 6;
+      drawEndReceptor(getNoteVisualY(n.endY, colW, settingsSlice), xPos, colW, notePadding, n);
+    });
 
     // 6. RENDER PARTICLES BURST GENERATION
     if (!settingsSlice.disableParticles) {

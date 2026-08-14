@@ -4,6 +4,7 @@
 
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Constants } from '@babylonjs/core/Engines/constants';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import type { Scene } from '@babylonjs/core/scene';
@@ -11,6 +12,7 @@ import type { PlayfieldFrame } from '../../types';
 import type { RunwayContext } from '../BabylonPlayfieldRenderer';
 import { clampNoteDepth, laneWidthAt, runwayPosition, RUNWAY_CONVERGENCE, safeColorAlpha, safeHex, yToDepthFactor } from '../coords';
 import { isHoldBodyAnchored } from '../../noteState';
+import { mergeVisibleTailSegments } from '../../tailSegments';
 
 const MAX_FRUSTUMS = 128;
 const POSITION_KIND = 'position';
@@ -41,14 +43,12 @@ export class HoldLayer {
       const data = new VertexData();
       const positions = new Float32Array(24);
       data.positions = positions;
-      data.indices = [
-        0, 1, 5, 0, 5, 4,
-        2, 3, 7, 2, 7, 6,
-        0, 1, 3, 0, 3, 2,
-        4, 5, 7, 4, 7, 6,
-        0, 2, 6, 0, 6, 4,
-        1, 3, 7, 1, 7, 5,
-      ];
+       data.indices = [
+         0, 1, 5, 0, 5, 4,
+         2, 3, 7, 2, 7, 6,
+         0, 2, 6, 0, 6, 4,
+         1, 3, 7, 1, 7, 5,
+       ];
       data.applyToMesh(mesh, true);
       mesh.holdPositions = positions;
       this.pool.push(mesh);
@@ -76,52 +76,81 @@ export class HoldLayer {
     const { notes, columns, receptorY, settingsSlice } = frame;
     const keep = new Set<string>();
 
+    const updateSegment = (
+      key: string,
+      columnIndex: number,
+      headY: number,
+      tailY: number,
+      color: string,
+      alpha: number,
+      inFrontOfReceptor = false,
+    ): void => {
+      const mesh = this.acquire(key);
+      if (!mesh) return;
+      keep.add(key);
+      mesh.renderingGroupId = inFrontOfReceptor ? 2 : 0;
+      const material = mesh.material as StandardMaterial;
+      material.depthFunction = inFrontOfReceptor ? Constants.ALWAYS : Constants.LESS;
+      material.disableDepthWrite = inFrontOfReceptor;
+
+      const headDepth = clampNoteDepth(yToDepthFactor(headY, receptorY));
+      const tailDepth = clampNoteDepth(yToDepthFactor(tailY, receptorY));
+      const head = runwayPosition(columnIndex, ctx.keyCount, headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
+      const tail = runwayPosition(columnIndex, ctx.keyCount, tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
+      const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
+      const headHalfWidth = laneWidthAt(headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
+      const tailHalfWidth = laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
+      const positions = mesh.holdPositions;
+      if (positions) {
+        positions.set([
+          head.x - headHalfWidth, 0.07, head.z,
+          head.x + headHalfWidth, 0.07, head.z,
+          head.x - headHalfWidth, 0.17, head.z,
+          head.x + headHalfWidth, 0.17, head.z,
+          tail.x - tailHalfWidth, 0.07, tail.z,
+          tail.x + tailHalfWidth, 0.07, tail.z,
+          tail.x - tailHalfWidth, 0.17, tail.z,
+          tail.x + tailHalfWidth, 0.17, tail.z,
+        ]);
+        mesh.updateVerticesData(POSITION_KIND, positions, false, false);
+      }
+
+      material.emissiveColor = Color3.FromHexString(safeHex(color)).scale(0.7);
+      material.alpha = alpha;
+    };
+
     for (const note of notes) {
       if (note.type !== 'hold' || note.endY === undefined) continue;
       const column = columns[note.column];
       if (!column) continue;
 
-      const key = note.id;
-      const mesh = this.acquire(key);
-      if (!mesh) continue;
-      keep.add(key);
-      const material = mesh.material as StandardMaterial;
-
-      // An engaged hold is anchored at the receptor. A missed head is clamped
-      // to the near plane because the portion behind the camera is invisible.
-      const headY = isHoldBodyAnchored(note) ? receptorY : note.y;
-      const headDepth = clampNoteDepth(yToDepthFactor(headY, receptorY));
-      const tailDepth = clampNoteDepth(yToDepthFactor(note.endY, receptorY));
-      const head = runwayPosition(note.column, ctx.keyCount, headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
-      const tail = runwayPosition(note.column, ctx.keyCount, tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth);
-
-       // Match the exact full width of the head and tail note slabs. Connecting
-       // those two widths makes the hold body taper with the runway lanes.
-        const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
-        const headHalfWidth = laneWidthAt(headDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
-        const tailHalfWidth = laneWidthAt(tailDepth, RUNWAY_CONVERGENCE, ctx.nearWidth, ctx.keyCount) * NOTE_WIDTH_FRAC * noteScale * 0.5;
-      const yBottom = 0.07;
-      const yTop = 0.17;
-      const positions = mesh.holdPositions;
-      if (positions) {
-        positions.set([
-          head.x - headHalfWidth, yBottom, head.z,
-          head.x + headHalfWidth, yBottom, head.z,
-          head.x - headHalfWidth, yTop, head.z,
-          head.x + headHalfWidth, yTop, head.z,
-          tail.x - tailHalfWidth, yBottom, tail.z,
-          tail.x + tailHalfWidth, yBottom, tail.z,
-          tail.x - tailHalfWidth, yTop, tail.z,
-          tail.x + tailHalfWidth, yTop, tail.z,
-        ]);
-        mesh.updateVerticesData(POSITION_KIND, positions, false, false);
-      }
-
       const holdColor = settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[note.column] || column.color;
       let alpha = note.opacity * safeColorAlpha(holdColor) * 0.62;
       if (note.isHoldFailed) alpha *= 0.35;
-       material.emissiveColor = Color3.FromHexString(safeHex(settingsSlice.receptorColorsByKeyCount?.[ctx.keyCount]?.[note.column] || column.color)).scale(0.7);
-      material.alpha = alpha;
+      const bodySegments = note.tailSegments || [{
+        startY: isHoldBodyAnchored(note) ? receptorY : (note.bodyStartY ?? note.y),
+        endY: note.endY,
+      }];
+      const segments = note.holdRulesVersion === 2
+        ? mergeVisibleTailSegments([...bodySegments, ...(note.missedTailSegments || [])])
+        : bodySegments;
+      segments.forEach((segment, index) => updateSegment(`${note.id}_body_${index}`, note.column, segment.startY, segment.endY, holdColor, alpha));
+      if (note.endpointTailSegment) {
+        updateSegment(
+          `${note.id}_endpoint_tail`,
+          note.column,
+          note.endpointTailSegment.startY,
+          note.endpointTailSegment.endY,
+          holdColor,
+          alpha,
+          true,
+        );
+      }
+
+      if (note.hitSegmentStartY !== undefined && note.hitSegmentEndY !== undefined) {
+        const hitAlpha = note.opacity * safeColorAlpha(holdColor) * 0.9;
+        updateSegment(`${note.id}_hit`, note.column, note.hitSegmentStartY, note.hitSegmentEndY, holdColor, hitAlpha);
+      }
     }
 
     this.releaseUnused(keep);

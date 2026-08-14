@@ -4,6 +4,7 @@ import {
   COMBO_BASE_SCORE,
   computeAccuracyPercent,
   computeGrade,
+  computeMaxComboPortion,
   computeModMultiplier,
   computeTotalScore,
   getComboMultiplier,
@@ -59,6 +60,8 @@ export interface ReplayUploadInput {
   beatmapHash: string;
   checksum: string;
   checksumAlgorithm: ChecksumAlgorithm;
+  holdRulesVersion: 1 | 2;
+  holdTickIntervalMs?: number;
 }
 
 export interface ReplayFrameInput {
@@ -105,6 +108,8 @@ const MIRROR_HOSTS = new Set(['catboy.best', 'osudl.org']);
 const MIRROR_CONNECT_TIMEOUT_MS = 5_000;
 const MIRROR_READ_TIMEOUT_MS = 5_000;
 const MIRROR_TOTAL_TIMEOUT_MS = 20_000;
+const MIN_HOLD_TICK_INTERVAL_MS = 10;
+const MAX_HOLD_TICK_INTERVAL_MS = 100;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -190,6 +195,8 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
     ? {}
     : isRecord(raw.recordedSettings) ? raw.recordedSettings : null;
   const mods = normalizeMods(raw.mods, typeof keyCount === 'number' ? keyCount : 0);
+  const holdRulesVersion = raw.holdRulesVersion === 2 ? 2 : 1;
+  const holdTickIntervalMs = raw.holdTickIntervalMs;
   if (
     typeof raw.id !== 'string' || raw.id.length > MAX_REPLAY_ID_LENGTH || !REPLAY_ID_PATTERN.test(raw.id) ||
     !integer(keyCount, 2, 8) ||
@@ -201,7 +208,8 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
     typeof raw.chartRevisionId !== 'string' || raw.chartRevisionId.length < 1 || raw.chartRevisionId.length > MAX_CHART_REVISION_ID_LENGTH ||
     typeof raw.beatmapHash !== 'string' || !BEATMAP_HASH_PATTERN.test(raw.beatmapHash) ||
     typeof raw.checksum !== 'string' || raw.checksum.length < 1 || raw.checksum.length > 128 ||
-    (raw.checksumAlgorithm !== 'md5' && raw.checksumAlgorithm !== 'sha256')
+    (raw.checksumAlgorithm !== 'md5' && raw.checksumAlgorithm !== 'sha256') ||
+    (holdRulesVersion === 2 && !integer(holdTickIntervalMs, MIN_HOLD_TICK_INTERVAL_MS, MAX_HOLD_TICK_INTERVAL_MS))
   ) {
     return { ok: false, error: 'Replay payload contains invalid fields' };
   }
@@ -225,6 +233,8 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
       beatmapHash: raw.beatmapHash,
       checksum: raw.checksum,
       checksumAlgorithm: raw.checksumAlgorithm,
+      holdRulesVersion,
+      ...(holdRulesVersion === 2 ? { holdTickIntervalMs: holdTickIntervalMs as number } : {}),
     },
   };
 }
@@ -285,7 +295,20 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     { type: 'miss', ms: judgementWindow(chart.overallDifficulty, 188, 173, 158, windowMultiplier) },
   ];
   const missWindow = windows[windows.length - 1].ms;
-  const notes = chart.notes.map((note) => ({ ...note, headDone: false, headMissed: false, engaged: false, tailDone: note.endTimeMs === undefined, graceUntil: undefined as number | undefined }));
+  const usesTailTicks = input.holdRulesVersion === 2;
+  const tailTickIntervalMs = input.holdTickIntervalMs;
+  const badWindow = windows.find((window) => window.type === 'bad')?.ms || missWindow;
+  const notes = chart.notes.map((note) => ({
+    ...note,
+    headDone: false,
+    headMissed: false,
+    engaged: false,
+    tailDone: note.endTimeMs === undefined,
+    graceUntil: undefined as number | undefined,
+    nextTailTickTime: usesTailTicks && note.endTimeMs !== undefined ? note.timeMs + badWindow + 0.000001 : undefined as number | undefined,
+    tailTickEndTime: usesTailTicks && note.endTimeMs !== undefined ? note.endTimeMs - badWindow : undefined as number | undefined,
+    tailMissRunActive: false,
+  }));
   const counts: Record<Judgement, number> = { marvelous: 0, perfect: 0, great: 0, good: 0, bad: 0, miss: 0 };
   const columnJudgements = Array.from({ length: chart.keyCount }, (_, column) => ({ column, marvelousCount: 0, perfectCount: 0, greatCount: 0, goodCount: 0, badCount: 0, missCount: 0 }));
   let combo = 0;
@@ -329,13 +352,29 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
   };
   const score = () => computeTotalScore({
     currentComboPortion: comboPortion,
-    maxComboPortion,
+    maxComboPortion: usesTailTicks ? computeMaxComboPortion(Object.values(counts).reduce((sum, value) => sum + value, 0)) : maxComboPortion,
     accuracyPercent: accuracy(),
     judgedCount: Object.values(counts).reduce((sum, value) => sum + value, 0),
-    totalJudgements,
+    totalJudgements: usesTailTicks ? Object.values(counts).reduce((sum, value) => sum + value, 0) : totalJudgements,
     modMultiplier: computeModMultiplier(mods),
   });
   const resolve = (error: number): Judgement => windows.find((window) => Math.abs(error) <= window.ms)?.type || 'miss';
+
+  const advanceTailTicks = (time: number, keys: readonly boolean[]) => {
+    if (!usesTailTicks || tailTickIntervalMs === undefined) return;
+    for (const note of notes) {
+      if (note.nextTailTickTime === undefined || note.tailTickEndTime === undefined) continue;
+      while (note.nextTailTickTime < note.tailTickEndTime && note.nextTailTickTime <= time) {
+        if (keys[note.lane]) {
+          note.tailMissRunActive = false;
+        } else if (!note.tailMissRunActive) {
+          note.tailMissRunActive = true;
+          apply('miss', note.lane);
+        }
+        note.nextTailTickTime += tailTickIntervalMs;
+      }
+    }
+  };
 
   const autoMiss = (time: number, keys: readonly boolean[]) => {
     for (const note of notes) {
@@ -346,6 +385,13 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
         if (note.endTimeMs !== undefined && keys[note.lane]) note.engaged = true;
       }
       if (note.endTimeMs === undefined || note.tailDone) continue;
+      if (usesTailTicks) {
+        if (time - note.endTimeMs > missWindow) {
+          note.tailDone = true;
+          apply('miss', note.lane);
+        }
+        continue;
+      }
       if (note.graceUntil !== undefined && time > note.graceUntil) {
         note.graceUntil = undefined;
         note.tailDone = true;
@@ -381,9 +427,15 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     }
   };
   const release = (lane: number, time: number) => {
-    const note = notes.find((candidate) => candidate.lane === lane && candidate.engaged && !candidate.tailDone);
+    const note = notes.find((candidate) => candidate.lane === lane && !candidate.tailDone && (usesTailTicks || candidate.engaged));
     if (!note || note.endTimeMs === undefined) return;
     const error = time - note.endTimeMs;
+    if (usesTailTicks) {
+      if (error < -missWindow) return;
+      note.tailDone = true;
+      apply(resolve(error), lane);
+      return;
+    }
     if (error < -missWindow) { note.graceUntil = time + missWindow; return; }
     note.tailDone = true;
     note.graceUntil = undefined;
@@ -394,13 +446,16 @@ export function verifyReplayAgainstChart(input: ReplayUploadInput, chart: Canoni
     if (frame.time - currentTime > 60_000) return null;
     currentTime = frame.time;
     if (currentTime > chart.durationMs + missWindow + 5_000) return null;
+    advanceTailTicks(currentTime - 0.000001, previousKeys);
     autoMiss(currentTime, previousKeys);
     for (let lane = 0; lane < chart.keyCount; lane++) {
       if (!previousKeys[lane] && frame.keysPressed[lane]) press(lane, currentTime);
       else if (previousKeys[lane] && !frame.keysPressed[lane]) release(lane, currentTime);
     }
+    advanceTailTicks(currentTime, frame.keysPressed);
     previousKeys = [...frame.keysPressed];
   }
+  advanceTailTicks(Math.max(currentTime, chart.durationMs), previousKeys);
   autoMiss(Math.max(currentTime, chart.durationMs), previousKeys);
   if (notes.some((note) => !note.headDone || !note.tailDone)) return null;
 

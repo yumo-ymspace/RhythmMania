@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings as SettingsIcon, Play, History, Loader2, Github, BookOpen, MessageSquareWarning } from 'lucide-react';
+import { Settings as SettingsIcon, Play, History, Paintbrush, Loader2, Github, BookOpen, MessageSquareWarning } from 'lucide-react';
 import metadata from '../../metadata.json';
 import { AuthUser } from '../utils/authClient';
 
@@ -59,7 +59,7 @@ export const MainMenu = ({
   onSignOut,
   authError,
 }: {
-  onNavigate: (screen: 'select' | 'history' | 'profile') => void;
+  onNavigate: (screen: 'select' | 'history' | 'skins' | 'profile') => void;
   onOpenSettings: () => void;
   currentUser?: AuthUser | null;
   authLoading?: boolean;
@@ -234,6 +234,20 @@ export const MainMenu = ({
                       </div>
                     </button>
 
+                    {/* Skin button */}
+                    <button
+                      onClick={() => onNavigate('skins')}
+                      className="flex-1 bg-[#187b8f]/95 hover:bg-[#2097ad]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-cyan-500/20 cursor-pointer"
+                      style={{
+                        boxShadow: '0 0 15px rgba(24, 123, 143, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
+                      }}
+                    >
+                      <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
+                        <Paintbrush className="w-5 h-5 text-white mb-0.5" />
+                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Skin</span>
+                      </div>
+                    </button>
+
                     {/* History button */}
                     <button
                       onClick={() => onNavigate('history')}
@@ -393,6 +407,17 @@ export const MainMenu = ({
                     <span className="font-sans font-bold text-sm md:text-base">mania</span>
                   </div>
                 </button>
+
+                {/* Skin */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onNavigate('skins'); }}
+                  className="w-32 md:w-48 bg-[#187b8f] hover:bg-[#2097ad] border-y-[3px] border-l-[3px] border-black/30 group transition-colors outline-none focus:outline-none -ml-[3px]"
+                >
+                  <div className="transform skew-x-[15deg] flex flex-col items-center justify-center h-full text-white group-hover:scale-110 transition-transform">
+                    <Paintbrush className="w-6 h-6 md:w-8 md:h-8 mb-1" />
+                    <span className="font-sans font-bold text-sm md:text-base">skin</span>
+                  </div>
+                </button>
                 
                 {/* History */}
                 <button 
@@ -414,7 +439,7 @@ export const MainMenu = ({
           {/* MAIN CENTER CIRCLE */}
           <motion.div 
             initial={{ x: 0 }}
-            animate={{ x: showOptions ? (isMobile ? -64 : -96) : 0 }}
+            animate={{ x: showOptions ? (isMobile ? -64 : -192) : 0 }}
             transition={{ duration: 0.5, ease: [0.19, 1.0, 0.22, 1.0] }}
             className="absolute z-20 flex items-center justify-center pointer-events-none"
           >

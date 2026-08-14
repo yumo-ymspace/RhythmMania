@@ -114,6 +114,8 @@ function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
     checksum: typeof value.checksum === 'string' ? value.checksum : undefined,
     checksumAlgorithm: value.checksumAlgorithm === 'sha256' ? 'sha256' : value.checksumAlgorithm === 'md5' ? 'md5' : undefined,
     beatmapHash: typeof value.beatmapHash === 'string' ? value.beatmapHash : undefined,
+    holdRulesVersion: value.holdRulesVersion === 2 ? 2 : 1,
+    holdTickIntervalMs: integer(value.holdTickIntervalMs, 10, 100) ? value.holdTickIntervalMs : undefined,
     uploadEligibility: value.uploadEligibility === 'eligible' ? 'eligible' : 'ineligible_no_replay_frames',
     uploadStatus,
     isServerCatalogMap: value.isServerCatalogMap === true,

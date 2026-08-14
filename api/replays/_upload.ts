@@ -10,6 +10,13 @@ import {
 import { handleCors, requireSameOrigin, sendError, sendJson } from '../_lib/response.js';
 
 const MAX_REPLAY_PAYLOAD_BYTES = 8 * 1024 * 1024;
+const MIN_HOLD_TICK_INTERVAL_MS = 10;
+const MAX_HOLD_TICK_INTERVAL_MS = 100;
+
+function serverHoldTickInterval(): number | null {
+  const value = Number(process.env.HOLD_TICK_INTERVAL_MS);
+  return Number.isInteger(value) && value >= MIN_HOLD_TICK_INTERVAL_MS && value <= MAX_HOLD_TICK_INTERVAL_MS ? value : null;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -33,6 +40,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!parsed.ok) return sendError(res, 400, parsed.error);
     const input = parsed.value;
     if (input.scoreState.isAutoplay === true) return sendError(res, 422, 'Autoplay runs cannot be uploaded');
+    if (input.holdRulesVersion === 2 && input.holdTickIntervalMs !== serverHoldTickInterval()) {
+      return sendError(res, 422, 'Replay hold rules do not match this deployment');
+    }
 
     const chart = await findChartRevision(input.chartRevisionId);
     if (!chart) return sendError(res, 400, 'Replay does not reference a known catalog chart revision');

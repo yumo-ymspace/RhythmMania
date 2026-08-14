@@ -11,6 +11,7 @@
  */
 
 export type NoteType = 'normal' | 'hold';
+export type HoldRulesVersion = 1 | 2;
 
 export type CloudBeatmapSource = 'osuapi';
 export type CloudCatalogState = 'pending' | 'active';
@@ -64,7 +65,23 @@ export interface HitObject {
   isReleased: boolean;
   isMissed: boolean;
   isHoldFailed: boolean; // if released early
+  isHeadHit?: boolean;
+  tailEngagedTime?: number;
+  tailRequiresRepress?: boolean;
   releaseGraceUntil?: number; // For brief key-bounces / re-keying
+  isReleaseMissed?: boolean;
+  isReleaseHit?: boolean;
+  earlyReleaseTime?: number;
+  tailResumedTime?: number;
+  releaseZoneArmedTime?: number;
+  nextTailTickTime?: number;
+  tailTickStartTime?: number;
+  tailTickEndTime?: number;
+  tailTickIntervalMs?: number;
+  tailMissRunActive?: boolean;
+  clearedTailIntervals?: Array<{ startTime: number; endTime: number }>;
+  missedTailIntervals?: Array<{ startTime: number; endTime: number }>;
+  holdRulesVersion?: HoldRulesVersion;
   hitSound?: number;
   hitSample?: HitSample;
 
@@ -210,6 +227,8 @@ export interface PlayHistoryRecord {
   uploadEligibility?: UploadEligibility;
   uploadStatus?: UploadStatus;
   isServerCatalogMap?: boolean;
+  holdRulesVersion?: HoldRulesVersion;
+  holdTickIntervalMs?: number;
 }
 
 export interface KeyBindings {

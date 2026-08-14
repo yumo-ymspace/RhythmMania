@@ -13,6 +13,7 @@
 import { Beatmap, GameSettings, PlayHistoryRecord, ReplayFrame, ReplaySource, ScoreState, UploadEligibility, UploadStatus } from '../types';
 import { sanitizeSavedBeatmap, storageManager } from './storageManager';
 import { computeGradeFromScoreState } from './scoreCalculator';
+import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs, LEGACY_HOLD_RULES_VERSION, resolveHoldTickInterval } from './holdTickRules';
 
 export const CURRENT_REPLAY_SCHEMA_VERSION = 2;
 
@@ -104,8 +105,9 @@ export function createPlayHistoryRecord(params: {
   recordedSettings?: GameSettings;
   mods?: string[];
   replaySource?: ReplaySource;
+  holdRules?: HoldRulesInfo;
 }): PlayHistoryRecord {
-  const { id, timestamp, beatmap, scoreState, replayFrames, recordedSettings, mods, replaySource = 'guest-local' } = params;
+  const { id, timestamp, beatmap, scoreState, replayFrames, recordedSettings, mods, replaySource = 'guest-local', holdRules = { holdRulesVersion: HOLD_TICK_RULES_VERSION, holdTickIntervalMs } } = params;
   
   const catalogInfo = determineCatalogIdentity(beatmap, beatmap.id);
   const hash = beatmap.beatmapHash || computeBeatmapHash(beatmap);
@@ -149,6 +151,8 @@ export function createPlayHistoryRecord(params: {
     uploadEligibility,
     uploadStatus: 'local_only',
     isServerCatalogMap: catalogInfo.isServerCatalogMap,
+    holdRulesVersion: holdRules.holdRulesVersion,
+    ...(holdRules.holdRulesVersion === HOLD_TICK_RULES_VERSION ? { holdTickIntervalMs: holdRules.holdTickIntervalMs } : {}),
   };
 }
 
@@ -157,6 +161,18 @@ export function createPlayHistoryRecord(params: {
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export interface HoldRulesInfo {
+  holdRulesVersion: 1 | 2;
+  holdTickIntervalMs?: number;
+}
+
+export function getHoldRulesInfo(record: Record<string, unknown> | null | undefined): HoldRulesInfo {
+  if (record?.holdRulesVersion === HOLD_TICK_RULES_VERSION) {
+    return { holdRulesVersion: HOLD_TICK_RULES_VERSION, holdTickIntervalMs: resolveHoldTickInterval(record.holdTickIntervalMs) };
+  }
+  return { holdRulesVersion: LEGACY_HOLD_RULES_VERSION };
 }
 
 export function hasCatalogIdentity(beatmap: Beatmap | null): boolean {
@@ -231,6 +247,7 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
     chartRevisionId: typeof rawRecord.chartRevisionId === 'string' || rawRecord.chartRevisionId === null ? rawRecord.chartRevisionId : catalogInfo.chartRevisionId,
     checksum: typeof rawRecord.checksum === 'string' ? rawRecord.checksum : undefined,
     checksumAlgorithm: rawRecord.checksumAlgorithm === 'md5' || rawRecord.checksumAlgorithm === 'sha256' ? rawRecord.checksumAlgorithm : undefined,
+    ...getHoldRulesInfo(rawRecord),
   };
 }
 
