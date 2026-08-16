@@ -256,7 +256,7 @@ export function parseReplayUploadPayload(raw: unknown): ReplayPayloadResult {
 }
 
 export function decodeCanonicalChart(value: unknown): CanonicalChart | null {
-  if (!isRecord(value) || value.mode !== 3 || !integer(value.keyCount, 2, 8)) return null;
+  if (!isRecord(value) || value.mode !== 3 || !integer(value.keyCount, 2, 9)) return null;
   if (
     typeof value.chartRevisionId !== 'string' || value.chartRevisionId.length < 1 ||
     typeof value.checksum !== 'string' || !finiteNumber(value.overallDifficulty, 0, 10) ||

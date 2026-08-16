@@ -82,6 +82,7 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let creator = 'Unknown Mapper';
   let difficulty = 'Normal';
   let keyCount = 4; // CircleSize stores the mania lane count
+  let hasExplicitKeyCount = false;
   let overallDifficulty = 8;
   let hpDrainRate = 8;
   let previewTime: number | undefined = undefined;
@@ -139,12 +140,13 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
           case 'version':
             difficulty = value.replace(/\s*[([][1-9]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
-           case 'circlesize': {
-             const parsed = Number(value);
-             if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || !isSupportedKeyCount(parsed)) throw new Error('Invalid CircleSize value.');
-             keyCount = parsed;
-             break;
-           }
+            case 'circlesize': {
+              const parsed = Number(value);
+              if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || !isSupportedKeyCount(parsed)) throw new Error('Invalid CircleSize value.');
+              keyCount = parsed;
+              hasExplicitKeyCount = true;
+              break;
+            }
            case 'overalldifficulty': {
              const parsed = Number(value);
              if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10) throw new Error('Invalid OverallDifficulty value.');
@@ -325,9 +327,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   const detectedKeyCount = clusteredX.length;
   let finalKeyCount = keyCount;
 
-  // Prefer the detected count of unique columns when it is between 2 and 8
+  // Prefer the detected count of unique columns when it is between 2 and 9
   // and the parsed/default value falls back to 4.
-  if (detectedKeyCount > MAX_KEY_COUNT || keyCount > MAX_KEY_COUNT || (keyCount >= MIN_KEY_COUNT && !Number.isInteger(keyCount))) {
+  if ((!hasExplicitKeyCount && detectedKeyCount > MAX_KEY_COUNT) || keyCount > MAX_KEY_COUNT || (keyCount >= MIN_KEY_COUNT && !Number.isInteger(keyCount))) {
     throw new Error('Unsupported beatmap key count. RhythmMania supports 2K through 9K.');
   }
   if (detectedKeyCount >= MIN_KEY_COUNT && detectedKeyCount <= MAX_KEY_COUNT) {
