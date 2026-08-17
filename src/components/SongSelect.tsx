@@ -32,6 +32,7 @@ import { extractZipEntry } from '../utils/zipResolver';
 import { LeaderboardReplayItem, fetchLeaderboardReplays, fetchReplayDetail } from '../utils/replayClient';
 import { previewPlayer } from '../utils/previewPlayer';
 import { resolveStarRating } from '../utils/starRating';
+import { calculateChartStarRating, CHART_STAR_RATING_VERSION } from '../utils/chartStarRating';
 import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN } from './settings/defaultSettings';
 import metadata from '../../metadata.json';
 import { getCatalogSetMetadata } from '../utils/catalogSetMetadata';
@@ -915,6 +916,9 @@ export default function SongSelect({
         mapWithMeta.catalogSetId = null;
         mapWithMeta.catalogMapId = null;
         mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
+        mapWithMeta.starRating = calculateChartStarRating(parsedMap);
+        mapWithMeta.starRatingSource = 'chart-content';
+        mapWithMeta.starRatingVersion = CHART_STAR_RATING_VERSION;
 
         onImportBeatmap(parsedMap);
         setImportStatus({ type: 'ok', msg: `Successfully imported "${parsedMap.title}" - [${parsedMap.difficulty}] difficulty!` });
@@ -965,6 +969,9 @@ export default function SongSelect({
             mapWithMeta.catalogSetId = null;
             mapWithMeta.catalogMapId = null;
             mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
+            mapWithMeta.starRating = calculateChartStarRating(parsedMap);
+            mapWithMeta.starRatingSource = 'chart-content';
+            mapWithMeta.starRatingVersion = CHART_STAR_RATING_VERSION;
 
              stagedMaps.push(parsedMap);
             successCount++;

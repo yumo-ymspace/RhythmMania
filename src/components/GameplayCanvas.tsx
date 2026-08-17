@@ -73,8 +73,6 @@ import {
   PLAYFIELD_WIDTH_MIN,
 } from './settings/defaultSettings';
 
-const COUNTDOWN_DURATION_MS = 2100;
-
 export function checkNotesAutonomousMisses(
   notes: HitObject[],
   currentTime: number,
@@ -350,8 +348,6 @@ export default function GameplayCanvas({
           finishTimeoutRef.current,
           uiJudgementTimeoutRef.current,
           comboBurstTimeoutRef.current,
-          countdownTimeoutRef.current,
-          unpauseTimeoutRef.current,
           scrollTimeoutRef.current,
           notificationTimeoutRef.current,
         ].filter((timer): timer is ReturnType<typeof setTimeout> => timer !== null),
@@ -526,8 +522,6 @@ export default function GameplayCanvas({
   const [uiJudgement, setUiJudgement] = useState<{ text: string; color: string; time: number } | null>(null);
   const [comboBurst, setComboBurst] = useState<number | null>(null);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [showCountdown, setShowCountdown] = useState<number>(0);
-  const [unpauseCountdown, setUnpauseCountdown] = useState<number>(0);
   const [isFailed, setIsFailed] = useState<boolean>(false);
 
   // Active inputs trace (boolean edge + refcount for multi-source keyboard/touch)
@@ -537,6 +531,7 @@ export default function GameplayCanvas({
   const hasKeyPressedOnceRef = useRef<boolean[]>([]);
   const progressBarRef = useRef<HTMLElement | HTMLInputElement | null>(null);
   const isScrubbingRef = useRef<boolean>(false);
+  const suppressSeekParticlesRef = useRef<boolean>(false);
   const lastVideoSeekTimeRef = useRef<number>(0);
   const wasPlayingRef = useRef<boolean>(false);
   const timeLabelRef = useRef<HTMLSpanElement>(null);
@@ -549,19 +544,13 @@ export default function GameplayCanvas({
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uiJudgementTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const comboBurstTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const countdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const unpauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef<boolean>(true);
   const isPausedRef = useRef<boolean>(false);
-  const showCountdownRef = useRef<number>(0);
-  const unpauseCountdownRef = useRef<number>(0);
   const showSettingsModalRef = useRef<boolean>(false);
   const showInfoModalRef = useRef<boolean>(false);
 
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
-  useEffect(() => { showCountdownRef.current = showCountdown; }, [showCountdown]);
-  useEffect(() => { unpauseCountdownRef.current = unpauseCountdown; }, [unpauseCountdown]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -572,8 +561,6 @@ export default function GameplayCanvas({
           finishTimeoutRef.current,
           uiJudgementTimeoutRef.current,
           comboBurstTimeoutRef.current,
-          countdownTimeoutRef.current,
-          unpauseTimeoutRef.current,
           scrollTimeoutRef.current,
           notificationTimeoutRef.current,
         ].filter((timer): timer is ReturnType<typeof setTimeout> => timer !== null),
@@ -594,8 +581,6 @@ export default function GameplayCanvas({
   // Hit error timing logs
   const hitErrorTicksRef = useRef<HitErrorTick[]>([]);
   const colsLayoutBufferRef = useRef<ColumnLayout[]>([]);
-  const countdownStartTimeRef = useRef<number | null>(null);
-
   const [loadingAudioProgress, setLoadingAudioProgress] = useState<number>(0);
   const [isAudioLoaded, setIsAudioLoaded] = useState<boolean>(false);
   const [rendererLoading, setRendererLoading] = useState<boolean>(false);
@@ -896,11 +881,6 @@ export default function GameplayCanvas({
       console.warn('Silent fallback for scroll transition bounds:', scrollErr);
     }
 
-    if (runCountdown) {
-      setShowCountdown(3);
-    } else {
-      setShowCountdown(0);
-    }
   };
 
   // Initialize and load track + background media
@@ -1025,60 +1005,6 @@ export default function GameplayCanvas({
     } catch (_e) {}
   };
 
-  // Handle countdown intervals
-  useEffect(() => {
-    if (showCountdown > 0) {
-      if (showCountdown === 3) {
-        countdownStartTimeRef.current = performance.now();
-      }
-       const t = setTimeout(() => {
-         countdownTimeoutRef.current = null;
-        setShowCountdown(prev => {
-          if (prev === 1) {
-            // Play audio as soon as countdown wraps up; hard-align video to master clock
-            audioStartPendingRef.current = true;
-            void mainAudio.playAsync(beatmap.bpm, settings.audioOffset, startDelayMs).then(() => {
-              audioStartPendingRef.current = false;
-              isPlayingRef.current = true;
-              audioTimeRef.current = mainAudio.getCurrentTimeMs();
-              snapVideoToAudio(audioTimeRef.current, true);
-            }).catch(() => {
-              audioStartPendingRef.current = false;
-            });
-          }
-          return prev - 1;
-        });
-       }, 700);
-       countdownTimeoutRef.current = t;
-       return () => clearTimeout(t);
-    }
-  }, [showCountdown, beatmap.bpm, settings.audioOffset, startDelayMs]);
-
-  // Handle unpause countdown intervals
-  useEffect(() => {
-    if (unpauseCountdown > 0) {
-       const t = setTimeout(() => {
-         unpauseTimeoutRef.current = null;
-        setUnpauseCountdown(prev => {
-          if (prev === 1) {
-            // Unpause visual systems — snap A/V phase before free-run
-            lastProcessedReplayTimeRef.current = -1;
-            setIsPaused(false);
-            isPausedRef.current = false;
-            isPlayingRef.current = true;
-            void mainAudio.playAsync(beatmap.bpm, settings.audioOffset).then(() => {
-              audioTimeRef.current = mainAudio.getCurrentTimeMs();
-              snapVideoToAudio(audioTimeRef.current, true);
-            });
-          }
-          return prev - 1;
-        });
-       }, 1000); // Actual 1-second countdown ticks to give the player optimal physical recovery window
-       unpauseTimeoutRef.current = t;
-       return () => clearTimeout(t);
-    }
-  }, [unpauseCountdown]);
-
   // Unified Keyboard processing & Multi-Touch Input Adapter
   // Listeners stay mounted for the play session; gate state is read from refs to avoid
   // teardown/reset mid-hold when pause/countdown/modals flip.
@@ -1094,7 +1020,7 @@ export default function GameplayCanvas({
     
     // Refcounted lane press so keyboard + touch on the same column do not fight.
     const virtualKeyDown = (colIndex: number) => {
-      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
+      if (isPrePlayRef.current || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
       if (colIndex < 0 || colIndex >= keyCount) return;
 
       const counts = lanePressCountRef.current;
@@ -1121,7 +1047,7 @@ export default function GameplayCanvas({
     };
 
     const virtualKeyUp = (colIndex: number) => {
-      if (isPrePlayRef.current || showCountdownRef.current > 0 || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
+      if (isPrePlayRef.current || isPausedRef.current || scoreStateRef.current.failed || isAutoplay) return;
       if (colIndex < 0 || colIndex >= keyCount) return;
 
       const counts = lanePressCountRef.current;
@@ -1175,9 +1101,6 @@ export default function GameplayCanvas({
 
       if (isPauseTrigger) {
         e.preventDefault();
-        if (showCountdownRef.current > 0 || unpauseCountdownRef.current > 0) {
-          return; // Ignore / disable Escape key during active countdowns
-        }
         if (isFocusModeRef.current) {
           // Programmatically exit focus mode which triggers the fullscreen change listener to exit and pause
           FullscreenManager.exitFocusMode();
@@ -1213,7 +1136,7 @@ export default function GameplayCanvas({
 
     // On focus restore after blur/pause, drop stale press counts so holds do not stick forever
     const reconcileInputOnFocus = () => {
-      if (isPausedRef.current || showCountdownRef.current > 0 || unpauseCountdownRef.current > 0) return;
+      if (isPausedRef.current) return;
       lanePressCountRef.current.fill(0);
       for (let i = 0; i < keyCount; i++) {
         if (keysPressedRef.current[i]) {
@@ -1588,7 +1511,7 @@ export default function GameplayCanvas({
 
   // Sparkles particle engine
   const spawnParticles = (colIndex: number, color: string) => {
-    if (settings.disableParticles) return;
+    if (settings.disableParticles || suppressSeekParticlesRef.current) return;
     const canvas = settings.renderEngine === 'babylon' ? rendererCanvasRef.current : canvasRef.current;
     if (!canvas) return;
     
@@ -1686,17 +1609,8 @@ export default function GameplayCanvas({
       } else {
         const offsetDiff = currentSettings.audioOffset - smoothOffsetRef.current;
 
-        // Keep the countdown clock until AudioContext resume/start has completed.
-        // Otherwise getCurrentTimeMs() briefly reports 0 and notes jump forward,
-        // then snap back to the delayed audio start position.
-        if ((showCountdown > 0 || audioStartPendingRef.current) && countdownStartTimeRef.current !== null) {
-          const elapsed = performance.now() - countdownStartTimeRef.current;
-          // Freeze at the handoff point if audio startup takes longer than a frame.
-          songTime = -startDelayMs - COUNTDOWN_DURATION_MS + Math.min(elapsed, COUNTDOWN_DURATION_MS);
-        } else {
-          const rawSongTime = mainAudio.getCurrentTimeMs();
-          songTime = rawSongTime + offsetDiff;
-        }
+        const rawSongTime = mainAudio.getCurrentTimeMs();
+        songTime = rawSongTime + offsetDiff;
 
         audioTimeRef.current = songTime;
       }
@@ -1746,7 +1660,7 @@ export default function GameplayCanvas({
       }
 
       // Replay simulation playback
-      if (replayData && replayData.length > 0 && isPlayingRef.current && !isPaused && showCountdown === 0) {
+      if (replayData && replayData.length > 0 && isPlayingRef.current && !isPaused) {
         consumeReplayFrames(replayData, replayCursorRef.current, songTime, frame => {
           audioTimeRef.current = frame.time;
           advanceHoldTailTicks(notesRef.current, frame.time - TICK_BOUNDARY_EPSILON_MS, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
@@ -1785,7 +1699,7 @@ export default function GameplayCanvas({
         advanceHoldTailTicks(notesRef.current, songTime, keysPressedRef.current, note => applyJudgement(missJudg, note.column));
       }
 
-      if (isPlayingRef.current && !isPaused && showCountdown === 0) {
+      if (isPlayingRef.current && !isPaused) {
         if (isAutoplay) {
           const dueEvents: { type: 'head' | 'tail'; note: HitObject; eventTime: number }[] = [];
 
@@ -2093,14 +2007,14 @@ export default function GameplayCanvas({
         }, 1200);
       }
 
-      if ((isPlayingRef.current && !isPaused) || audioStartPendingRef.current || showCountdown > 0 || unpauseCountdown > 0) {
+      if ((isPlayingRef.current && !isPaused) || audioStartPendingRef.current) {
         requestId = requestAnimationFrame(render);
         animationFrameRef.current = requestId;
       }
     };
 
     // Begin looping
-    if ((isPlayingRef.current && !isPaused) || audioStartPendingRef.current || showCountdown > 0 || unpauseCountdown > 0) {
+    if ((isPlayingRef.current && !isPaused) || audioStartPendingRef.current) {
       requestId = requestAnimationFrame(render);
       animationFrameRef.current = requestId;
     } else {
@@ -2114,12 +2028,11 @@ export default function GameplayCanvas({
       }
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [beatmap, settings.renderEngine, isPaused, showCountdown, unpauseCountdown, startDelayMs]);
+  }, [beatmap, settings.renderEngine, isPaused, isPrePlay]);
 
   // Pause / Resume Handlers
   const pauseGameplay = () => {
-    if (showCountdown > 0 || scoreStateRef.current.failed) return;
-    setUnpauseCountdown(0); // Safely cancel any active recovery countdown on window focus loss/tab change
+    if (scoreStateRef.current.failed) return;
     if (isPausedRef.current) return;
     setIsPaused(true);
     isPausedRef.current = true;
@@ -2153,24 +2066,19 @@ export default function GameplayCanvas({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [isPaused, showCountdown]);
+  }, [isPaused]);
 
   const togglePause = () => {
-    if (showCountdown > 0 || unpauseCountdown > 0 || scoreStateRef.current.failed) return;
+    if (scoreStateRef.current.failed) return;
 
     if (isPausedRef.current) {
-      if (isReplayMode) {
-        setIsPaused(false);
-        isPausedRef.current = false;
-        isPlayingRef.current = true;
-        void mainAudio.playAsync(beatmap.bpm, settingsRef.current.audioOffset).then(() => {
-          audioTimeRef.current = mainAudio.getCurrentTimeMs();
-          snapVideoToAudio(audioTimeRef.current, true);
-        });
-      } else {
-        // Start recovery countdown instead of starting immediately
-        setUnpauseCountdown(3);
-      }
+      setIsPaused(false);
+      isPausedRef.current = false;
+      isPlayingRef.current = true;
+      void mainAudio.playAsync(beatmap.bpm, settingsRef.current.audioOffset).then(() => {
+        audioTimeRef.current = mainAudio.getCurrentTimeMs();
+        snapVideoToAudio(audioTimeRef.current, true);
+      });
     } else {
       setIsPaused(true);
       isPausedRef.current = true;
@@ -2500,7 +2408,56 @@ export default function GameplayCanvas({
     setUiHp(scoreStateRef.current.hp);
   };
 
+  const simulateAutoplayToTime = (targetTimeMs: number) => {
+    const wasPaused = isPausedRef.current;
+    initializeGameplay(false);
+    setIsPaused(wasPaused);
+    isPausedRef.current = wasPaused;
+
+    const boundedTime = Math.max(0, Math.min(targetTimeMs, beatmap.duration * 1000));
+    for (const note of notesRef.current) {
+      if (note.time <= boundedTime) {
+        note.isHit = true;
+        note.hitTime = note.time;
+        markHoldStartHit(note);
+        applyJudgement(marvelousJudg, note.column);
+      }
+      if (
+        note.type === 'hold' &&
+        note.endTime !== undefined &&
+        note.endTime <= boundedTime
+      ) {
+        note.isReleased = true;
+        note.releaseTime = note.endTime;
+        markHoldReleaseHit(note);
+        applyJudgement(marvelousJudg, note.column);
+      }
+    }
+
+    advanceHoldTailTicks(
+      notesRef.current,
+      boundedTime,
+      new Array(beatmap.keyCount).fill(true),
+      note => applyJudgement(missJudg, note.column),
+    );
+
+    for (let col = 0; col < beatmap.keyCount; col++) {
+      const isHolding = notesRef.current.some(
+        note => note.column === col && note.type === 'hold' && note.isHit && !note.isReleased && !note.isHoldFailed,
+      );
+      keysPressedRef.current[col] = isHolding;
+      activeColumnsRef.current[col] = isHolding;
+    }
+
+    audioTimeRef.current = boundedTime;
+    isPlayingRef.current = wasPlayingRef.current;
+    setUiScore(scoreStateRef.current.score);
+    setUiCombo(scoreStateRef.current.combo);
+    setUiHp(scoreStateRef.current.hp);
+  };
+
   const handleSeek = (newTimeMs: number) => {
+    suppressSeekParticlesRef.current = true;
     mainAudio.seekGameplayTimeMs(newTimeMs);
     audioTimeRef.current = newTimeMs;
     smoothOffsetRef.current = settings.audioOffset;
@@ -2515,6 +2472,8 @@ export default function GameplayCanvas({
     
     if (isReplayMode) {
       simulateGameToTime(newTimeMs);
+    } else if (isAutoplay) {
+      simulateAutoplayToTime(newTimeMs);
     } else {
       // Normal playing seek
       // Hide or miss nodes prior to the seek point so they don't pile up on screen
@@ -2536,6 +2495,8 @@ export default function GameplayCanvas({
       });
       lastProcessedReplayTimeRef.current = newTimeMs;
     }
+
+    suppressSeekParticlesRef.current = false;
   };
 
   const restartMap = () => {
@@ -2546,16 +2507,12 @@ export default function GameplayCanvas({
     for (const timer of [
       uiJudgementTimeoutRef.current,
       comboBurstTimeoutRef.current,
-      countdownTimeoutRef.current,
-      unpauseTimeoutRef.current,
       scrollTimeoutRef.current,
     ]) {
       if (timer !== null) clearTimeout(timer);
     }
     uiJudgementTimeoutRef.current = null;
     comboBurstTimeoutRef.current = null;
-    countdownTimeoutRef.current = null;
-    unpauseTimeoutRef.current = null;
     scrollTimeoutRef.current = null;
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -2570,13 +2527,18 @@ export default function GameplayCanvas({
 
   const handleStartGameplay = () => {
     if (!isAudioLoaded || rendererLoading) return;
-    // Clear any stale pause state caused by a fullscreen transition while the
-    // pre-play screen was mounted. The countdown is the single start gate.
     setIsPaused(false);
     isPausedRef.current = false;
-    setUnpauseCountdown(0);
     setIsPrePlay(false);
-    setShowCountdown(3);
+    audioStartPendingRef.current = true;
+    void mainAudio.playAsync(beatmap.bpm, settings.audioOffset, startDelayMs).then(() => {
+      audioStartPendingRef.current = false;
+      isPlayingRef.current = true;
+      audioTimeRef.current = mainAudio.getCurrentTimeMs();
+      snapVideoToAudio(audioTimeRef.current, true);
+    }).catch(() => {
+      audioStartPendingRef.current = false;
+    });
   };
 
   // Handle keys in PrePlay
@@ -3158,57 +3120,6 @@ export default function GameplayCanvas({
           </div>
         )}
 
-        {/* GET READY COUNTDOWN OVERLAY */}
-        {showCountdown > 0 && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#050508]/85 pointer-events-none select-none animate-fade-in font-sans">
-            {!isReplayMode && (
-              <div className="text-4xl md:text-5xl font-black text-white tracking-widest uppercase mb-4 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] animate-pulse">
-                Get Ready...
-              </div>
-            )}
-            <div className="text-6xl md:text-8xl font-black text-cyan-400 drop-shadow-[0_4px_16px_rgba(34,211,238,0.5)]">
-              {showCountdown}
-            </div>
-          </div>
-        )}
-
-        {/* UNPAUSE RESUME RECOVERY COUNTDOWN OVERLAY */}
-        {unpauseCountdown > 0 && (
-          <div className="absolute inset-0 z-45 flex items-center justify-center bg-black/45 select-none pointer-events-none animate-fade-in">
-            <div className="relative flex items-center justify-center">
-              {/* Glowing, high-performance circular tick HUD */}
-              <svg className="w-40 h-40 transform -rotate-90">
-                <circle
-                  cx="80"
-                  cy="80"
-                  r="64"
-                  className="stroke-slate-800"
-                  strokeWidth="5"
-                  fill="transparent"
-                />
-                <circle
-                  cx="80"
-                  cy="80"
-                  r="64"
-                  stroke="#f59e0b"
-                  className="stroke-amber-500 unpause-circle-animation"
-                  strokeWidth="7"
-                  fill="transparent"
-                  strokeDasharray="402.12"
-                  strokeLinecap="round"
-                  style={{
-                    filter: 'drop-shadow(0 0 10px rgba(245, 158, 11, 0.65))',
-                  }}
-                />
-              </svg>
-              {/* Countdown Tick Value */}
-              <div className="absolute font-sans font-[900] text-5xl text-white tracking-widest drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
-                {unpauseCountdown}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* FPS counter overlay (direct DOM updates from the render loop) */}
         {(propSettings.showFpsCounter ?? settings.showFpsCounter) && (
           <span
@@ -3220,11 +3131,11 @@ export default function GameplayCanvas({
         {/* SONG TIMING PROGRESS BAR OR REPLAY SCRUBBER */}
         {!isPrePlay && (
           <div className={`absolute left-0 right-0 z-35 ${
-            isReplayMode ? (settings.progressBarTop ? 'top-0' : 'bottom-0 flex flex-col justify-end') :
+            (isReplayMode || isAutoplay) ? (settings.progressBarTop ? 'top-0' : 'bottom-0 flex flex-col justify-end') :
             (settings.progressBarTop ? 'top-0 h-1.5' : 'bottom-0 h-1.5')
           } pointer-events-none transition-all duration-300`}
           >
-            {isReplayMode ? (
+            {(isReplayMode || isAutoplay) ? (
               <div className="w-full flex flex-col items-center px-4 md:px-8 py-4 bg-slate-950/95 border-t border-white/10 pointer-events-auto backdrop-blur-2xl shadow-[0_-15px_35px_rgba(0,0,0,0.95)] z-40">
                 <div className="w-full max-w-5xl flex flex-col gap-2.5">
                      
@@ -3249,6 +3160,7 @@ export default function GameplayCanvas({
                               defaultValue={0}
                               onPointerDown={() => {
                                   isScrubbingRef.current = true;
+                                  suppressSeekParticlesRef.current = true;
                                   wasPlayingRef.current = isPlayingRef.current && !isPaused;
                                   mainAudio.pause();
                                   if (videoRef.current) {
@@ -3353,7 +3265,7 @@ export default function GameplayCanvas({
 
         {/* FLOATING ACCURACY AND SCORE (Bottom Left) */}
         {!isPrePlay && (
-          <div className={`absolute left-6 ${isReplayMode ? 'bottom-28' : 'bottom-8'} z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]`}>
+          <div className={`absolute left-6 ${(isReplayMode || isAutoplay) ? 'bottom-28' : 'bottom-8'} z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]`}>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ACCURACY</span>
             <span className="text-2xl md:text-3xl font-black text-cyan-400 font-mono tracking-tight leading-none mb-1">
               {scoreStateRef.current.accuracy.toFixed(2)}%
@@ -3575,7 +3487,7 @@ export default function GameplayCanvas({
           )}
 
           {/* PAUSED DRAWER CARD */}
-          {!isPrePlay && isPaused && unpauseCountdown === 0 && (
+          {!isPrePlay && isPaused && (
             <div id="game-paused-overlay" className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
               <h2 className="text-4xl font-extrabold font-sans tracking-tight text-slate-100 mb-2">GAME PAUSED</h2>
               <p className="text-sm text-slate-400 font-mono tracking-wider mb-8">

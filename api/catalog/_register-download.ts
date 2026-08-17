@@ -24,7 +24,7 @@ interface RegisteredChart {
   version: string;
   keyCount: number;
   checksum: string;
-  starRating: number;
+  starRating?: number;
 }
 
 interface CatalogResponse {
@@ -109,8 +109,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       const existingRow = existing.rows[0];
       if (existingRow?.catalog_state === 'active') {
-        const charts = await client.query<{ id: number; source_chart_id: number; original_osu_filename: string; difficulty_name: string; checksum: string; key_count: number; is_active: boolean }>(
-          `SELECT id, source_chart_id, original_osu_filename, difficulty_name, checksum, key_count, is_active
+        const charts = await client.query<{ id: number; source_chart_id: number; original_osu_filename: string; difficulty_name: string; checksum: string; key_count: number; difficulty_rating: number | null; is_active: boolean }>(
+          `SELECT id, source_chart_id, original_osu_filename, difficulty_name, checksum, key_count, difficulty_rating, is_active
            FROM beatmap_chart_revisions WHERE beatmap_set_id = $1 ORDER BY key_count, difficulty_name`,
           [cloudSetId],
         );
@@ -118,7 +118,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           cloudSetId,
           sourceSetId: existingRow.source_set_id,
           state: 'active',
-           charts: charts.rows.map((chart) => toCatalogChart({ id: chart.source_chart_id, filename: chart.original_osu_filename, version: chart.difficulty_name, keyCount: chart.key_count, checksum: chart.checksum, starRating: 0 }, cloudSetId, chart.is_active)),
+           charts: charts.rows.map((chart) => toCatalogChart({ id: chart.source_chart_id, filename: chart.original_osu_filename, version: chart.difficulty_name, keyCount: chart.key_count, checksum: chart.checksum, starRating: chart.difficulty_rating ?? undefined }, cloudSetId, chart.is_active)),
         };
       }
       await client.query(
@@ -142,12 +142,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       for (const chart of normalizedCharts) {
         await client.query(
-          `INSERT INTO beatmap_chart_revisions (id, beatmap_set_id, source_chart_id, original_osu_filename, difficulty_name, key_count, mode, checksum, checksum_algorithm, is_current, is_active, canonical_chart)
-           VALUES ($1,$2,$3,$4,$5,$6,3,$7,$8,TRUE,FALSE,NULL)
-           ON CONFLICT (id) DO UPDATE SET checksum=EXCLUDED.checksum, checksum_algorithm=EXCLUDED.checksum_algorithm,
+          `INSERT INTO beatmap_chart_revisions (id, beatmap_set_id, source_chart_id, original_osu_filename, difficulty_name, key_count, mode, checksum, checksum_algorithm, difficulty_rating, is_current, is_active, canonical_chart)
+            VALUES ($1,$2,$3,$4,$5,$6,3,$7,$8,$9,TRUE,FALSE,NULL)
+            ON CONFLICT (id) DO UPDATE SET checksum=EXCLUDED.checksum, checksum_algorithm=EXCLUDED.checksum_algorithm,
+                difficulty_rating=EXCLUDED.difficulty_rating,
              original_osu_filename=EXCLUDED.original_osu_filename, difficulty_name=EXCLUDED.difficulty_name,
              key_count=EXCLUDED.key_count, is_current=FALSE, is_active=FALSE, canonical_chart=NULL`,
-          [`osuapi_${sourceSetId}_b${chart.id}_${chart.checksum}`, cloudSetId, chart.id, chart.filename, chart.version, chart.keyCount, chart.checksum, chart.checksum.length === 64 ? 'sha256' : 'md5'],
+          [`osuapi_${sourceSetId}_b${chart.id}_${chart.checksum}`, cloudSetId, chart.id, chart.filename, chart.version, chart.keyCount, chart.checksum, chart.checksum.length === 64 ? 'sha256' : 'md5', Number.isFinite(chart.starRating) && chart.starRating >= 0 ? chart.starRating : null],
         );
       }
       return {

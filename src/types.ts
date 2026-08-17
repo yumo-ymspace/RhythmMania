@@ -15,6 +15,7 @@ export type HoldRulesVersion = 1 | 2;
 
 export type CloudBeatmapSource = 'osuapi';
 export type CloudCatalogState = 'pending' | 'active';
+export type StarRatingSource = 'osu-api-download' | 'chart-content' | 'legacy-fallback';
 
 export interface CloudChartRef {
   chartRevisionId: string;
@@ -122,6 +123,9 @@ export interface BeatmapMetadata {
   chartRevisionId?: string | null;
   checksum?: string;
   checksumAlgorithm?: 'md5' | 'sha256';
+  starRating?: number;
+  starRatingSource?: StarRatingSource;
+  starRatingVersion?: number;
 }
 
 export interface Beatmap extends BeatmapMetadata {

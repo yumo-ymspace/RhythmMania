@@ -207,20 +207,6 @@ body {
   user-select: none !important;
 }
 
-/* Unpause recovery countdown circle animation */
-@keyframes unpause-countdown-drain {
-  from {
-    stroke-dashoffset: 0px;
-  }
-  to {
-    stroke-dashoffset: 402.12px;
-  }
-}
-
-.unpause-circle-animation {
-  animation: unpause-countdown-drain 3s linear forwards !important;
-}
-
 /* Portrait orientation overrides for mobile adaptation */
 @media (max-width: 768px) or (orientation: portrait) {
   /* Let gameplay container fill the screen and remove gap */

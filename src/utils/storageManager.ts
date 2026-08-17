@@ -39,6 +39,9 @@ export interface SavedBeatmap extends Beatmap {
   checksum?: string;
   checksumAlgorithm?: 'md5' | 'sha256';
   importedAt?: number; // epoch ms when first saved locally; used by "Date Added" sort
+  starRating?: number;
+  starRatingSource?: 'osu-api-download' | 'chart-content' | 'legacy-fallback';
+  starRatingVersion?: number;
   isCached?: boolean;
 }
 
@@ -175,6 +178,13 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
   }
   const originalContent = raw.originalContent === undefined ? undefined : safeString(raw.originalContent, MAX_OSU_TEXT_BYTES);
   if (raw.originalContent !== undefined && (originalContent === '' || new TextEncoder().encode(originalContent).byteLength > MAX_OSU_TEXT_BYTES)) return null;
+  const starRating = raw.starRating === undefined ? undefined : finiteNumber(raw.starRating, 0, 20);
+  if (raw.starRating !== undefined && starRating === null) return null;
+  const starRatingSource = raw.starRatingSource === 'osu-api-download' || raw.starRatingSource === 'chart-content' || raw.starRatingSource === 'legacy-fallback'
+    ? raw.starRatingSource
+    : undefined;
+  const starRatingVersion = raw.starRatingVersion === undefined ? undefined : finiteNumber(raw.starRatingVersion, 1, 100);
+  if (raw.starRatingVersion !== undefined && (starRatingVersion === null || !Number.isInteger(starRatingVersion))) return null;
   const result: SavedBeatmap = {
     id: safeString(raw.id, 300),
     title: safeString(raw.title, 300, 'Unknown Title'),
@@ -217,6 +227,9 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     sourceChartId: raw.sourceChartId === undefined ? undefined : finiteNumber(raw.sourceChartId, 1, 2147483647) ?? undefined,
     originalOsuFilename: safeString(raw.originalOsuFilename, 512) || undefined,
     importedAt: raw.importedAt === undefined ? undefined : finiteNumber(raw.importedAt, 0, 2000000000000) ?? undefined,
+    starRating: starRating ?? undefined,
+    starRatingSource,
+    starRatingVersion: starRatingVersion ?? undefined,
     isCached: raw.isCached === undefined ? undefined : Boolean(raw.isCached),
   };
   if (!result.id) return null;

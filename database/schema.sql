@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS beatmap_chart_revisions (
     mode INT NOT NULL DEFAULT 3 CHECK (mode = 3),
     checksum VARCHAR(128) NOT NULL,
     checksum_algorithm VARCHAR(8) NOT NULL CHECK (checksum_algorithm IN ('md5', 'sha256')),
+    difficulty_rating REAL,
     is_current BOOLEAN NOT NULL DEFAULT TRUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     -- Server-produced canonical chart; client checksums are never sufficient
@@ -112,6 +113,9 @@ CREATE TABLE IF NOT EXISTS beatmap_chart_revisions (
 
 ALTER TABLE beatmap_chart_revisions
     ADD COLUMN IF NOT EXISTS canonical_chart JSONB;
+
+ALTER TABLE beatmap_chart_revisions
+    ADD COLUMN IF NOT EXISTS difficulty_rating REAL;
 
 CREATE TABLE IF NOT EXISTS replays (
     id VARCHAR(64) PRIMARY KEY, -- Unique record UUID/identifier

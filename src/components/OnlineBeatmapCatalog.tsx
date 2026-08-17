@@ -388,6 +388,11 @@ export default function OnlineBeatmapCatalog({
         mapWithMeta.originalContent = beatmapStr.content;
         mapWithMeta.isServerMap = googleLinked && catalogActivated;
         mapWithMeta.beatmapHash = computeBeatmapHash(parsedMap);
+        if (Number.isFinite(matchedDiff.starRating) && Number(matchedDiff.starRating) >= 0) {
+          mapWithMeta.starRating = Number(matchedDiff.starRating);
+          mapWithMeta.starRatingSource = 'osu-api-download';
+        }
+        mapWithMeta.starRatingVersion = undefined;
         parsedMap.audioUrl = '';
         parsedMap.videoUrl = '';
         parsedMap.bgUrl = '';
