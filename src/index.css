@@ -89,7 +89,6 @@ body {
 
   --animate-combo-pop: combo-pop 0.15s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
   --animate-judgement-pulse: judgement-pulse 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-  --animate-phone-rotate: phone-rotate 3.5s ease-in-out infinite;
 
   @keyframes combo-pop {
     0% { transform: scale(0.7); opacity: 0.5; }
@@ -100,11 +99,6 @@ body {
     0% { transform: scale(0.6); opacity: 0.2; }
     25% { transform: scale(1.12); opacity: 1; }
     100% { transform: scale(1.0); opacity: 0.85; }
-  }
-  @keyframes phone-rotate {
-    0%, 100% { transform: rotate(90deg); }
-    15%, 50% { transform: rotate(0deg); }
-    65%, 90% { transform: rotate(90deg); }
   }
 }
 
@@ -207,6 +201,16 @@ body {
   user-select: none !important;
 }
 
+/* Unpause recovery countdown circle animation */
+@keyframes unpause-countdown-drain {
+  from { stroke-dashoffset: 0px; }
+  to { stroke-dashoffset: 402.12px; }
+}
+
+.unpause-circle-animation {
+  animation: unpause-countdown-drain 3s linear forwards !important;
+}
+
 /* Portrait orientation overrides for mobile adaptation */
 @media (max-width: 768px) or (orientation: portrait) {
   /* Let gameplay container fill the screen and remove gap */
@@ -268,11 +272,4 @@ body {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none; /* Chrome, Safari and Opera */
-}
-
-/* Force mobile landscape orientation warning blocker under mobile landscape conditions */
-@media (orientation: landscape) and (max-height: 580px) and (max-width: 1024px) {
-  .mobile-landscape-blocker {
-    display: flex !important;
-  }
 }

@@ -21,17 +21,21 @@ const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/backgrounds/- Y u m i J i-.webp',
   '/backgrounds/Arushii.webp',
   '/backgrounds/Ferineon.webp',
-  '/backgrounds/Kourihase.webp',
   '/backgrounds/MPDisplay.webp',
+  '/backgrounds/PEALEERD_TAK.webp',
   '/backgrounds/Porukana.webp',
   '/backgrounds/RedcXca.webp',
   '/backgrounds/Sm0llBanana.webp',
   '/backgrounds/THICC Jeff.webp',
+  '/backgrounds/Triantafyllia.webp',
+  '/backgrounds/YellowX21.webp',
   '/backgrounds/mimile1606.webp',
   '/backgrounds/nikio.webp',
-  '/backgrounds/tehfire.webp',
+  '/backgrounds/serr.webp',
+  '/backgrounds/soncak.webp',
   '/backgrounds/wxyz.webp'
 ];
 

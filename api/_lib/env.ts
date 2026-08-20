@@ -35,6 +35,10 @@ export interface ServerEnvConfig {
 let localDevelopmentSecret: string | undefined;
 const DATABASE_TLS_QUERY_PARAMETERS = new Set(['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'sslpassword']);
 
+export function isProductionEnvironment(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
 function getSessionSecret(isProduction: boolean): string {
   const configured = process.env.SESSION_SECRET?.trim();
   if (configured) {

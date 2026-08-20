@@ -87,6 +87,8 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
   let hpDrainRate = 8;
   let previewTime: number | undefined = undefined;
   let sliderMultiplier = 1.4; // Base map multiplier defined in [Difficulty]
+  let sourceSetId: number | undefined = undefined;
+  let sourceChartId: number | undefined = undefined;
   
   const rawNotes: Array<{
     x: number;
@@ -137,6 +139,20 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
           case 'creator':
             creator = value;
             break;
+          case 'beatmapsetid': {
+            const parsed = Number(value);
+            if (Number.isInteger(parsed) && parsed > 0) {
+              sourceSetId = parsed;
+            }
+            break;
+          }
+          case 'beatmapid': {
+            const parsed = Number(value);
+            if (Number.isInteger(parsed) && parsed > 0) {
+              sourceChartId = parsed;
+            }
+            break;
+          }
           case 'version':
             difficulty = value.replace(/\s*[([][1-9]K(ey|eys)?(?:\s*Mania)?[\])]/gi, '').trim();
             break;
@@ -429,6 +445,9 @@ export function parseBeatmap(content: string, customId: string): Beatmap {
     sliderMultiplier,
     baseBeatLength,
     breaks: breaks.sort((a, b) => a.startTime - b.startTime),
+    sourceSetId,
+    sourceChartId,
+    coverUrl: sourceSetId ? `https://assets.ppy.sh/beatmaps/${sourceSetId}/covers/slimcover@2x.jpg` : undefined,
   };
 }
 

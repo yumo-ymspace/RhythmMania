@@ -293,6 +293,11 @@ export async function migrateAndNormalizeBeatmaps(rawMaps: unknown[]): Promise<{
         dirty = true;
       }
 
+      const rawCover = isRecord(raw) && typeof raw.coverUrl === 'string' ? raw.coverUrl : undefined;
+      if (map.coverUrl && map.coverUrl !== rawCover) {
+        dirty = true;
+      }
+
       if (dirty) {
         migratedCount++;
         try {

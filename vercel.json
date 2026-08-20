@@ -19,7 +19,7 @@
       "destination": "/api/catalog-router?_route=:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|sitemap\\.xml|robots\\.txt|manifest\\.webmanifest|sw\\.js|icons/|backgrounds/|avatars/|skin/).*)",
       "destination": "/index.html"
     }
   ]

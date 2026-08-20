@@ -71,6 +71,22 @@ function safeMediaUrl(value: unknown): string {
   return !value || isSafeAssetUrl(value) ? value : '';
 }
 
+function safeCoverUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > MAX_MEDIA_URL_LENGTH) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (isSafeAssetUrl(trimmed)) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === 'https:' && (url.hostname === 'assets.ppy.sh' || url.hostname.endsWith('.ppy.sh')) && url.pathname.startsWith('/beatmaps/')) {
+      return trimmed;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function isPackageRecord(value: unknown, expectedId: string): value is PackageRecord {
   if (!isRecord(value) || value.id !== expectedId || !(value.zipData instanceof ArrayBuffer)) return false;
   return value.zipData.byteLength <= MAX_COMPRESSED_SIZE_BYTES;
@@ -185,6 +201,23 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     : undefined;
   const starRatingVersion = raw.starRatingVersion === undefined ? undefined : finiteNumber(raw.starRatingVersion, 1, 100);
   if (raw.starRatingVersion !== undefined && (starRatingVersion === null || !Number.isInteger(starRatingVersion))) return null;
+  let sourceSetId = raw.sourceSetId === undefined ? undefined : finiteNumber(raw.sourceSetId, 1, 2147483647) ?? undefined;
+  if (sourceSetId === undefined && originalContent) {
+    const match = originalContent.match(/^BeatmapSetID\s*:\s*(\d+)/im);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
+    }
+  }
+  let sourceChartId = raw.sourceChartId === undefined ? undefined : finiteNumber(raw.sourceChartId, 1, 2147483647) ?? undefined;
+  if (sourceChartId === undefined && originalContent) {
+    const match = originalContent.match(/^BeatmapID\s*:\s*(\d+)/im);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isInteger(parsed) && parsed > 0) sourceChartId = parsed;
+    }
+  }
+  const coverUrl = safeCoverUrl(raw.coverUrl) || (sourceSetId ? `https://assets.ppy.sh/beatmaps/${sourceSetId}/covers/slimcover@2x.jpg` : undefined);
   const result: SavedBeatmap = {
     id: safeString(raw.id, 300),
     title: safeString(raw.title, 300, 'Unknown Title'),
@@ -204,6 +237,7 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     audioUrl: safeMediaUrl(raw.audioUrl),
     videoUrl: safeMediaUrl(raw.videoUrl),
     bgUrl: safeMediaUrl(raw.bgUrl),
+    coverUrl,
     hitSoundUrls,
     videoStartTime: raw.videoStartTime === undefined ? undefined : finiteNumber(raw.videoStartTime, -1000000, 10000000) ?? undefined,
     previewTime: raw.previewTime === undefined ? undefined : finiteNumber(raw.previewTime, -1, 10000000) ?? undefined,
@@ -223,8 +257,8 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
     originalContent,
     cloudSetId: safeString(raw.cloudSetId, 300) || undefined,
     source: raw.source === 'osuapi' ? 'osuapi' : undefined,
-    sourceSetId: raw.sourceSetId === undefined ? undefined : finiteNumber(raw.sourceSetId, 1, 2147483647) ?? undefined,
-    sourceChartId: raw.sourceChartId === undefined ? undefined : finiteNumber(raw.sourceChartId, 1, 2147483647) ?? undefined,
+    sourceSetId,
+    sourceChartId,
     originalOsuFilename: safeString(raw.originalOsuFilename, 512) || undefined,
     importedAt: raw.importedAt === undefined ? undefined : finiteNumber(raw.importedAt, 0, 2000000000000) ?? undefined,
     starRating: starRating ?? undefined,

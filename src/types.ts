@@ -111,6 +111,7 @@ export interface BeatmapMetadata {
   videoStartTime?: number; // storyboard video start offset (in milliseconds)
   previewTime?: number; // .osu General:PreviewTime in ms; negative/undefined means unset
   bgUrl?: string;
+  coverUrl?: string;
   hitSoundUrls?: Record<string, string>;
   id: string;
   mode?: 3; // osu!mania only
@@ -123,6 +124,8 @@ export interface BeatmapMetadata {
   chartRevisionId?: string | null;
   checksum?: string;
   checksumAlgorithm?: 'md5' | 'sha256';
+  sourceSetId?: number;
+  sourceChartId?: number;
   starRating?: number;
   starRatingSource?: StarRatingSource;
   starRatingVersion?: number;
@@ -273,6 +276,7 @@ export interface GameSettings {
   selectedMods?: string[]; // list of active gameplay modifiers (e.g., 'NF', 'HD', 'HR', 'DT')
   bindPause?: string; // gameplay pause/resume keybind
   bindRetry?: string; // gameplay quick retry keybind
+  bindSkipIntro?: string; // gameplay skip-intro keybind
   renderEngine?: 'canvas' | 'babylon';
   babylonFloor?: boolean;
   enableMapSV?: boolean;

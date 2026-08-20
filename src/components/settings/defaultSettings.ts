@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({
   selectedMods: [],
   bindPause: 'escape',
   bindRetry: 'r',
+  bindSkipIntro: 'enter',
   renderEngine: 'canvas',
   babylonFloor: true,
   enableMapSV: true,

@@ -222,7 +222,6 @@ export default function App() {
     return DEFAULT_SETTINGS;
   });
   const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/Ferineon.webp');
-  const [isMobileLandscape, setIsMobileLandscape] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showFindBeatmapOverlay, setShowFindBeatmapOverlay] = useState<boolean>(false);
 
@@ -361,40 +360,25 @@ export default function App() {
     return selectedBeatmap;
   }, [selectedBeatmap, settings.selectedMods, activeReplayRecord]);
 
-
-  // Monitor landscape orientation on mobile devices
-  useEffect(() => {
-    const checkOrientation = () => {
-      const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-      const isLandscape = window.innerWidth > window.innerHeight;
-      const isSmallScreen = Math.min(window.innerWidth, window.innerHeight) < 600;
-      setIsMobileLandscape(isTouch && isLandscape && isSmallScreen);
-    };
-
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-    return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, []);
-
   // Preload default backgrounds for instant, low-latency visual performance
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const defaultBgs = [
+        '/backgrounds/- Y u m i J i-.webp',
         '/backgrounds/Arushii.webp',
         '/backgrounds/Ferineon.webp',
-        '/backgrounds/Kourihase.webp',
         '/backgrounds/MPDisplay.webp',
+        '/backgrounds/PEALEERD_TAK.webp',
         '/backgrounds/Porukana.webp',
         '/backgrounds/RedcXca.webp',
         '/backgrounds/Sm0llBanana.webp',
         '/backgrounds/THICC Jeff.webp',
+        '/backgrounds/Triantafyllia.webp',
+        '/backgrounds/YellowX21.webp',
         '/backgrounds/mimile1606.webp',
         '/backgrounds/nikio.webp',
-        '/backgrounds/tehfire.webp',
+        '/backgrounds/serr.webp',
+        '/backgrounds/soncak.webp',
         '/backgrounds/wxyz.webp'
       ];
       defaultBgs.forEach(src => {
@@ -675,6 +659,8 @@ export default function App() {
           isServerMap: true,
           packageId: pkgId,
           parentPackageId: pkgId,
+          sourceSetId: sourceSetId || parsed.sourceSetId,
+          coverUrl: (sourceSetId || parsed.sourceSetId) ? `https://assets.ppy.sh/beatmaps/${sourceSetId || parsed.sourceSetId}/covers/slimcover@2x.jpg` : parsed.coverUrl,
           isCached: true,
         };
         importedMaps.push(fullMap as Beatmap);
@@ -871,6 +857,7 @@ export default function App() {
         selectedMods: updated.selectedMods || [],
         bindPause: updated.bindPause !== undefined ? String(updated.bindPause) : 'escape',
         bindRetry: updated.bindRetry !== undefined ? String(updated.bindRetry) : 'r',
+        bindSkipIntro: updated.bindSkipIntro !== undefined ? String(updated.bindSkipIntro) : 'enter',
          renderEngine,
         babylonFloor: updated.babylonFloor !== undefined ? Boolean(updated.babylonFloor) : true,
         enableMapSV: updated.enableMapSV !== false,
@@ -1089,85 +1076,6 @@ export default function App() {
         (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
     >
-      {/* LANDSCAPE ORIENTATION WARNING BLOCKER FOR MOBILE PHONES */}
-      <div className="mobile-landscape-blocker fixed inset-0 bg-[#050508]/95 backdrop-blur-xl z-[9999] hidden flex-col items-center justify-center p-6 text-center select-none">
-        <div className="relative flex flex-col items-center justify-center p-8 bg-slate-950/60 border border-white/5 rounded-3xl max-w-sm shadow-2xl">
-          {/* Pulsing glow background decoration */}
-          <div className="absolute inset-0 bg-cyan-500/5 rounded-3xl blur-2xl pointer-events-none" />
-          
-          {/* Rotating phone graphic container */}
-          <div className="w-14 h-24 border-[3px] border-cyan-400 rounded-2xl relative flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(34,211,238,0.25)] animate-phone-rotate">
-            {/* Speaker Notch */}
-            <div className="absolute top-2.5 w-6 h-1 bg-cyan-400/50 rounded-full" />
-            {/* Home bar */}
-            <div className="absolute bottom-2.5 w-5 h-1 bg-cyan-400/50 rounded-full" />
-            {/* Screen simulation */}
-            <div className="w-9 h-14 bg-cyan-400/10 rounded-lg flex items-center justify-center">
-              <div className="w-4 h-4 bg-cyan-400/40 rounded-full animate-ping" />
-            </div>
-          </div>
-
-          <h2 className="text-xl font-sans font-black text-white uppercase tracking-wider mb-2 animate-pulse">
-            Portrait Mode Required
-          </h2>
-          <p className="text-xs text-slate-400 font-mono leading-relaxed uppercase">
-            Please turn your phone into portrait mode to continue playing RhythmMania as normal.
-          </p>
-        </div>
-      </div>
-
-       {/* Mobile landscape blocker */}
-       {isMobileLandscape && (
-        <AnimatePresence>
-          {isMobileLandscape && (
-            <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 bg-[#050508]/95 backdrop-blur-xl z-[9999] flex flex-col items-center justify-center p-6 text-center select-none"
-          >
-            <div className="relative flex flex-col items-center justify-center p-8 bg-slate-950/60 border border-white/5 rounded-3xl max-w-sm shadow-2xl">
-              {/* Pulsing glow background decoration */}
-              <div className="absolute inset-0 bg-cyan-500/5 rounded-3xl blur-2xl pointer-events-none" />
-              
-              {/* Rotating phone graphic container */}
-              <motion.div
-                animate={{ rotate: [90, 0, 0, 90, 90] }}
-                transition={{
-                  duration: 3,
-                  repeat: Infinity,
-                  repeatDelay: 0.5,
-                  ease: "easeInOut"
-                }}
-                className="w-14 h-24 border-[3px] border-cyan-400 rounded-2xl relative flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
-              >
-                {/* Speaker Notch */}
-                <div className="absolute top-2.5 w-6 h-1 bg-cyan-400/50 rounded-full" />
-                {/* Home bar */}
-                <div className="absolute bottom-2.5 w-5 h-1 bg-cyan-400/50 rounded-full" />
-                {/* Screen simulation */}
-                <div className="w-9 h-14 bg-cyan-400/10 rounded-lg flex items-center justify-center">
-                  <motion.div 
-                    animate={{ scale: [1, 1.15, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-4 h-4 bg-cyan-400/30 rounded-full" 
-                  />
-                </div>
-              </motion.div>
-
-              <h2 className="text-xl font-sans font-black text-white uppercase tracking-wider mb-2 animate-pulse">
-                Portrait Mode Required
-              </h2>
-              <p className="text-xs text-slate-400 font-mono leading-relaxed uppercase">
-                Please turn your phone into portrait mode to continue playing RhythmMania as normal.
-              </p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      )}
-
       {/* DYNAMIC CROSS-FADING BACKGROUND LAYERS */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden select-none">
         <AnimatePresence initial={false}>
@@ -1680,6 +1588,8 @@ export default function App() {
                   historyLimit={historyLimit}
                   onSetHistoryLimit={handleSetHistoryLimit}
                   settings={settings}
+                  onBack={() => navigateScreen('menu')}
+                  onSelectSong={() => navigateScreen('select')}
                />
             </motion.div>
           )}

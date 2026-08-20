@@ -344,6 +344,7 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     selectedMods: selectedMods,
     bindPause: sanitizeString(settings.bindPause, defaultSettings.bindPause || 'escape', 15),
     bindRetry: sanitizeString(settings.bindRetry, defaultSettings.bindRetry || 'r', 15),
+    bindSkipIntro: sanitizeString(settings.bindSkipIntro, (defaultSettings as unknown as Record<string, unknown>).bindSkipIntro as string || 'enter', 15),
      renderEngine,
      babylonFloor: settings.babylonFloor !== undefined ? Boolean(settings.babylonFloor) : (defaultSettings.babylonFloor ?? true),
      enableMapSV: settings.enableMapSV !== undefined ? Boolean(settings.enableMapSV) : true,

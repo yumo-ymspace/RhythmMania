@@ -252,6 +252,32 @@ export default function BindingMatrix({ settings, update }: BindingMatrixProps) 
               {activeRebind?.settingId === 'bindRetry' ? '?' : formatKeyName(settings.bindRetry || 'r')}
             </button>
           </div>
+
+          {/* Skip Intro */}
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/30 border border-white/5 hover:border-white/10 transition-all">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <span className="text-[11px]">⏭</span> Skip Intro
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Jump over long silence before first note
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveRebind({ 
+                type: 'shortcut', 
+                settingId: 'bindSkipIntro', 
+                label: 'Skip Intro' 
+              })}
+              className={`min-w-16 h-8 px-2 font-mono text-xs font-semibold rounded-md transition-all cursor-pointer border ${
+                activeRebind?.settingId === 'bindSkipIntro'
+                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50 animate-pulse'
+                  : 'bg-slate-800/50 border-slate-700/40 hover:bg-slate-700 text-slate-200'
+              }`}
+            >
+              {activeRebind?.settingId === 'bindSkipIntro' ? '?' : formatKeyName((settings as unknown as Record<string, string>).bindSkipIntro || 'enter')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -17,14 +17,6 @@ export class FullscreenManager {
       const requestMethod = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
       if (!requestMethod) return false;
       await requestMethod.call(elem);
-
-      const orientation = window.screen.orientation as ScreenOrientation & {
-        lock?: (type: string) => Promise<void>;
-        unlock?: () => void;
-      };
-      if (orientation.lock) {
-        await orientation.lock('portrait').catch(() => {});
-      }
       return true;
     } catch {
       // Silent fail on focus failures
@@ -38,11 +30,6 @@ export class FullscreenManager {
       const exitMethod = doc.exitFullscreen || doc.webkitExitFullscreen || doc.mozCancelFullScreen || doc.msExitFullscreen;
       if (exitMethod) {
         await exitMethod.call(doc);
-      }
-
-      const orientation = window.screen.orientation as ScreenOrientation & { unlock?: () => void };
-      if (orientation.unlock) {
-        orientation.unlock();
       }
     } catch {
       // Silent fail

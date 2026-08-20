@@ -340,9 +340,29 @@ export default function SongSelect({
     const mapCoverUrl = typeof map?.coverUrl === 'string' ? map.coverUrl : undefined;
     if (mapCoverUrl) return mapCoverUrl;
 
-    const sourceSetId = Number(
+    let sourceSetId = Number(
       map?.sourceSetId || String(map?.catalogSetId || '').replace(/^osuapi_/, ''),
     );
+
+    if (!Number.isInteger(sourceSetId) || sourceSetId < 1) {
+      const pkgId = map?.parentPackageId || map?.packageId;
+      if (typeof pkgId === 'string') {
+        const match = pkgId.match(/(?:osuapi_|pkg_)?(\d{1,10})/);
+        if (match) {
+          const parsed = Number(match[1]);
+          if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
+        }
+      }
+    }
+
+    if ((!Number.isInteger(sourceSetId) || sourceSetId < 1) && typeof map?.originalContent === 'string') {
+      const match = map.originalContent.match(/^BeatmapSetID\s*:\s*(\d+)/im);
+      if (match) {
+        const parsed = Number(match[1]);
+        if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
+      }
+    }
+
     if (!Number.isInteger(sourceSetId) || sourceSetId < 1) return undefined;
 
     return getCatalogSetMetadata(sourceSetId)?.slimCoverUrl
@@ -706,17 +726,21 @@ export default function SongSelect({
       } else if (!selectedCustomMap) {
         if (!defaultRandomBgRef.current) {
           const bgs = [
+            '- Y u m i J i-.webp',
             'Arushii.webp',
             'Ferineon.webp',
-            'Kourihase.webp',
             'MPDisplay.webp',
+            'PEALEERD_TAK.webp',
             'Porukana.webp',
             'RedcXca.webp',
             'Sm0llBanana.webp',
             'THICC Jeff.webp',
+            'Triantafyllia.webp',
+            'YellowX21.webp',
             'mimile1606.webp',
             'nikio.webp',
-            'tehfire.webp',
+            'serr.webp',
+            'soncak.webp',
             'wxyz.webp'
           ];
           defaultRandomBgRef.current = bgs[Math.floor(Math.random() * bgs.length)];
@@ -1204,24 +1228,19 @@ export default function SongSelect({
                       : 'border-white/[0.05] bg-[#0c0c12]/85 hover:bg-[#12121a]/90 hover:border-white/10 text-slate-100'
                   }`}
                 >
-                   {group.coverUrl ? (
+                   {group.coverUrl && (
                      <img
                        src={group.coverUrl}
                        className="absolute inset-0 h-full w-full object-cover opacity-15 blur-sm pointer-events-none"
                        referrerPolicy="no-referrer"
                        alt=""
                      />
-                   ) : group.bgUrl && (
-                     <div 
-                       className="absolute inset-0 bg-cover bg-center opacity-5 blur-sm pointer-events-none"
-                       style={{ backgroundImage: `url("${sanitizeCssUrl(group.bgUrl)}")` }}
-                     />
                    )}
 
                   <div className="flex items-center gap-3 relative z-10 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-lg bg-slate-900 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                       {group.coverUrl || group.bgUrl ? (
-                         <img src={group.coverUrl || group.bgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
+                       {group.coverUrl ? (
+                         <img src={group.coverUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
                       ) : (
                         <Music className="h-4 w-4 text-pink-500" />
                       )}
@@ -2294,7 +2313,7 @@ export default function SongSelect({
               songGroups.map((group) => {
                 const isGroupActive = selectedGroup?.songKey === group.songKey;
                 const hasActiveMap = group.maps.some(m => m.id === selectedCustomMapId);
-                const groupBannerUrl = group.coverUrl || group.bgUrl || DEFAULT_SONG_BANNER;
+                const groupBannerUrl = group.coverUrl || DEFAULT_SONG_BANNER;
 
                 return (
                   <div key={group.songKey} className="flex flex-col gap-0 transition-all pl-8">

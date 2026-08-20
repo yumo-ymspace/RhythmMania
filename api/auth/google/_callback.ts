@@ -21,11 +21,14 @@ import {
   isValidOAuthState,
   setSessionCookie,
 } from '../../_lib/auth.js';
-import { getRequestOrigin } from '../../_lib/response.js';
+import { getRequestOrigin, validateRequestOrigin } from '../../_lib/response.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).setHeader('Allow', 'GET').send('Method Not Allowed');
+  }
+  if (!validateRequestOrigin(req)) {
+    return res.status(403).setHeader('Content-Type', 'text/plain').send('Forbidden: Request origin is not allowed');
   }
   const code = getSingleQueryValue(req.query.code);
   const error = getSingleQueryValue(req.query.error);

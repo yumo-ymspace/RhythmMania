@@ -71,17 +71,21 @@ export const MainMenu = ({
   authError?: string | null;
 }) => {
   const bgImages = [
+    '- Y u m i J i-.webp',
     'Arushii.webp',
     'Ferineon.webp',
-    'Kourihase.webp',
     'MPDisplay.webp',
+    'PEALEERD_TAK.webp',
     'Porukana.webp',
     'RedcXca.webp',
     'Sm0llBanana.webp',
     'THICC Jeff.webp',
+    'Triantafyllia.webp',
+    'YellowX21.webp',
     'mimile1606.webp',
     'nikio.webp',
-    'tehfire.webp',
+    'serr.webp',
+    'soncak.webp',
     'wxyz.webp'
   ];
   const [bg, setBg] = useState<string | null>(null);
