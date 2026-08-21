@@ -96,6 +96,7 @@ export default function OnlineBeatmapCatalog({
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [osuConnected, setOsuConnected] = useState(false);
   const [googleUser, setGoogleUser] = useState<AuthUser | null>(null);
+  const [googleAuthLoading, setGoogleAuthLoading] = useState(true);
   const [byoClientId, setByoClientId] = useState('');
   const [byoClientSecret, setByoClientSecret] = useState('');
   const [byoBusy, setByoBusy] = useState(false);
@@ -106,6 +107,7 @@ export default function OnlineBeatmapCatalog({
 
   const refreshAuthState = useCallback(async () => {
     const generation = ++authGeneration.current;
+    setGoogleAuthLoading(true);
     setOsuConnected(hasOsuConnection());
     try {
       const user = await fetchCurrentUser();
@@ -114,6 +116,10 @@ export default function OnlineBeatmapCatalog({
     } catch (error) {
       if (generation === authGeneration.current) {
         setCatalogError(error instanceof Error ? error.message : 'Unable to load account state');
+      }
+    } finally {
+      if (generation === authGeneration.current) {
+        setGoogleAuthLoading(false);
       }
     }
   }, []);
@@ -714,7 +720,7 @@ export default function OnlineBeatmapCatalog({
                       title="Disconnect osu!"
                     >
                       <LogOut className="h-3 w-3" />
-                      osu!
+                     Logout of Osu!
                      </button>
                    </div>
                  </div>
@@ -725,7 +731,7 @@ export default function OnlineBeatmapCatalog({
                       {catalogError}
                     </div>
                   )}
-                  {!googleUser && (
+                  {!googleAuthLoading && !googleUser && (
                     <div className="p-3 mb-4 rounded-xl text-[10px] font-mono border bg-amber-950/20 text-amber-200/90 border-amber-500/20">
                       Google not signed in — downloads stay local only (no online leaderboard activation).
                     </div>

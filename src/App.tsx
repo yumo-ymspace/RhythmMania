@@ -221,7 +221,14 @@ export default function App() {
     }
     return DEFAULT_SETTINGS;
   });
-  const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>('/backgrounds/Ferineon.webp');
+  const [songSelectBgUrl, setSongSelectBgUrl] = useState<string>(() => {
+    const bgs = ['- Y u m i J i-.webp','Arushii.webp','Ferineon.webp','MPDisplay.webp','PEALEERD_TAK.webp','Porukana.webp','RedcXca.webp','Sm0llBanana.webp','THICC Jeff.webp','Triantafyllia.webp','YellowX21.webp','mimile1606.webp','nikio.webp','serr.webp','soncak.webp','wxyz.webp'];
+    return `/backgrounds/${bgs[Math.floor(Math.random() * bgs.length)]}`;
+  });
+  const [historyBgUrl, setHistoryBgUrl] = useState<string>(() => {
+    const bgs = ['- Y u m i J i-.webp','Arushii.webp','Ferineon.webp','MPDisplay.webp','PEALEERD_TAK.webp','Porukana.webp','RedcXca.webp','Sm0llBanana.webp','THICC Jeff.webp','Triantafyllia.webp','YellowX21.webp','mimile1606.webp','nikio.webp','serr.webp','soncak.webp','wxyz.webp'];
+    return `/backgrounds/${bgs[Math.floor(Math.random() * bgs.length)]}`;
+  });
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showFindBeatmapOverlay, setShowFindBeatmapOverlay] = useState<boolean>(false);
 
@@ -1092,6 +1099,19 @@ export default function App() {
               }}
             />
           )}
+          {currentScreen === 'history' && (
+            <motion.div
+              key={historyBgUrl}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: "easeInOut" }}
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat bg-fixed"
+              style={{
+                backgroundImage: `linear-gradient(rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3}), rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3})), url("${sanitizeCssUrl(historyBgUrl)}")`
+              }}
+            />
+          )}
         </AnimatePresence>
       </div>
 
@@ -1555,6 +1575,7 @@ export default function App() {
                 <PersonalHistoryScreen
                   history={playHistory}
                   allBeatmaps={customMaps}
+                  setHistoryBgUrl={setHistoryBgUrl}
                   onWatchReplay={(record) => {
                     setViewingHistoryResult(false);
                     handleWatchReplay(record);

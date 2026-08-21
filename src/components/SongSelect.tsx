@@ -2459,7 +2459,7 @@ export default function SongSelect({
             )}
 
             {/* Underline lime status bar highlight */}
-            <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#a3e635] rounded-bl-lg" />
+            <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#a3e635] rounded-bl-lg" />
           </button>
 
           {/* RANDOM BUTTON CONTAINER */}
@@ -2485,7 +2485,7 @@ export default function SongSelect({
             </div>
 
             {/* Underline sky-blue status bar highlight */}
-            <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#38bdf8] rounded-br-lg" />
+            <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#38bdf8] rounded-br-lg" />
           </button>
         </div>
       </div>

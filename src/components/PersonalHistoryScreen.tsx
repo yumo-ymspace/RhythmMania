@@ -42,6 +42,7 @@ interface PersonalHistoryScreenProps {
   settings?: GameSettings;
   onBack?: () => void;
   onSelectSong?: () => void;
+  setHistoryBgUrl?: (url: string) => void;
 }
 
 type KeyCountFilter = 'all' | '4k' | '7k';
@@ -112,7 +113,8 @@ export default function PersonalHistoryScreen({
   historyLimit,
   onSetHistoryLimit,
   onBack,
-  onSelectSong
+  onSelectSong,
+  setHistoryBgUrl
 }: PersonalHistoryScreenProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [keyFilter, setKeyFilter] = useState<KeyCountFilter>('all');
@@ -239,6 +241,10 @@ export default function PersonalHistoryScreen({
 
   const currentBgUrl = selectedRecord?.bgUrl || randomBg || DEFAULT_SONG_BANNER;
 
+  useEffect(() => {
+    if (setHistoryBgUrl) setHistoryBgUrl(currentBgUrl || DEFAULT_SONG_BANNER);
+  }, [currentBgUrl, setHistoryBgUrl]);
+
   const handleDeleteRecord = (id: string) => {
     if (selectedRecordId === id) {
       const remaining = filteredHistory.filter(r => r.id !== id);
@@ -339,13 +345,13 @@ export default function PersonalHistoryScreen({
         </div>
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto">
           <div className="flex items-center gap-0.5 bg-[#09090d]/90 backdrop-blur-md border-t border-l border-r border-white/10 rounded-t-2xl pointer-events-auto shadow-2xl">
-            <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group" style={{ transform: 'skewX(-12deg)', borderTopLeftRadius: '14px', borderBottomLeftRadius: '14px' }}>
-              <div className="flex flex-col items-center gap-1.5" style={{ transform: 'skewX(12deg)' }}><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
-              <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#a3e635] rounded-bl-lg" />
+            <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
+              <div className="flex flex-col items-center gap-1.5"><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
+              <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#a3e635] rounded-b-xl" />
             </button>
-            <button type="button" onClick={() => onBack?.()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group" style={{ transform: 'skewX(-12deg)', borderTopRightRadius: '14px', borderBottomRightRadius: '14px' }}>
-              <div className="flex flex-col items-center gap-1.5" style={{ transform: 'skewX(12deg)' }}><ArrowLeft className="h-[22px] w-[22px] text-[#38bdf8] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Back</span></div>
-              <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#38bdf8] rounded-br-lg" />
+            <button type="button" onClick={() => onBack?.()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-r-xl">
+              <div className="flex flex-col items-center gap-1.5"><ArrowLeft className="h-[22px] w-[22px] text-[#38bdf8] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Back</span></div>
+              <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#38bdf8] rounded-b-xl" />
             </button>
           </div>
         </div>
@@ -467,7 +473,6 @@ export default function PersonalHistoryScreen({
     <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent">
       <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">{metadata.version}</div>
       <div className="absolute inset-0 bg-black/10 backdrop-blur-[0.5px] pointer-events-none z-0" />
-      {currentBgUrl && <div className="absolute inset-0 bg-cover bg-center pointer-events-none" style={{ backgroundImage: `url("${sanitizeCssUrl(currentBgUrl)}")`, filter: 'blur(0px) brightness(0.9)', opacity: 0.35 }} />}
       <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-black/20 to-transparent pointer-events-none z-[1]" />
       <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
       {importNotice && (
@@ -634,13 +639,13 @@ export default function PersonalHistoryScreen({
 
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto">
         <div className="flex items-center gap-0.5 bg-[#09090d]/90 backdrop-blur-md border-t border-l border-r border-white/10 rounded-t-2xl pointer-events-auto shadow-2xl">
-          <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group" style={{ transform: 'skewX(-12deg)', borderTopLeftRadius: '14px', borderBottomLeftRadius: '14px' }}>
-            <div className="flex flex-col items-center gap-1.5" style={{ transform: 'skewX(12deg)' }}><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
-            <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#a3e635] rounded-bl-lg" />
+          <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
+            <div className="flex flex-col items-center gap-1.5"><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
+            <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#a3e635] rounded-b-xl" />
           </button>
-          <button type="button" onClick={handleSelectRandom} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group" style={{ transform: 'skewX(-12deg)', borderTopRightRadius: '14px', borderBottomRightRadius: '14px' }}>
-            <div className="flex flex-col items-center gap-1.5" style={{ transform: 'skewX(12deg)' }}><Shuffle className="h-[22px] w-[22px] text-[#38bdf8] transition group-hover:rotate-12" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Random</span></div>
-            <div className="absolute bottom-0 inset-x-0 h-[3px] bg-[#38bdf8] rounded-br-lg" />
+          <button type="button" onClick={handleSelectRandom} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-r-xl">
+            <div className="flex flex-col items-center gap-1.5"><Shuffle className="h-[22px] w-[22px] text-[#38bdf8] transition group-hover:rotate-12" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Random</span></div>
+            <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#38bdf8] rounded-b-xl" />
           </button>
         </div>
       </div>

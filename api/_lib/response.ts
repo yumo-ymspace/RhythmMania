@@ -87,10 +87,25 @@ const APPROVED_OAUTH_REFERER_HOSTS = new Set([
   'osu.ppy.sh',
 ]);
 
+function isOAuthCallbackRequest(req: VercelRequest): boolean {
+  const url = req.url || '';
+  if (url.includes('/api/auth/google/callback') || url.includes('/api/auth/osu/callback')) return true;
+  const routeParam = (req.query as Record<string, unknown>)?._route;
+  const routeStr = Array.isArray(routeParam)
+    ? typeof routeParam[0] === 'string'
+      ? routeParam[0]
+      : ''
+    : typeof routeParam === 'string'
+      ? routeParam
+      : '';
+  return routeStr.includes('google/callback') || routeStr.includes('osu/callback');
+}
+
 export function validateRequestOrigin(req: VercelRequest): boolean {
+  const isOAuthCallback = isOAuthCallbackRequest(req);
   const fetchSite = req.headers['sec-fetch-site'];
   if (typeof fetchSite === 'string' && fetchSite.toLowerCase() === 'cross-site') {
-    return false;
+    if (!isOAuthCallback) return false;
   }
 
   const isProd = isProductionEnvironment();
@@ -107,7 +122,14 @@ export function validateRequestOrigin(req: VercelRequest): boolean {
   const origin = req.headers.origin;
   if (typeof origin === 'string' && origin.trim()) {
     if (!isAllowedOrigin(origin, isProd)) {
-      return false;
+      if (!isOAuthCallback) return false;
+      try {
+        const originUrl = new URL(origin);
+        if (!APPROVED_OAUTH_REFERER_HOSTS.has(originUrl.hostname.toLowerCase())) return false;
+        if (isProd && originUrl.protocol !== 'https:') return false;
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -117,7 +139,6 @@ export function validateRequestOrigin(req: VercelRequest): boolean {
     try {
       const refererUrl = new URL(referer);
       if (!isAllowedHost(refererUrl.host, isProd)) {
-        const isOAuthCallback = (req.url || '').includes('/api/auth/google/callback') || (req.url || '').includes('/api/auth/osu/callback');
         if (!isOAuthCallback || !APPROVED_OAUTH_REFERER_HOSTS.has(refererUrl.hostname.toLowerCase())) {
           return false;
         }
