@@ -24,8 +24,8 @@ const RESOURCE_LINKS = [
   { label: 'Bug Report', href: 'https://bug-report.rhythm-mania.com', icon: MessageSquareWarning },
 ] as const;
 
-const DiscordIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-current">
+const DiscordIcon = ({ className = "h-5 w-5 sm:h-6 sm:w-6" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className={`${className} fill-current`}>
     <path d="M19.54 4.86A16.9 16.9 0 0 0 15.4 3.57l-.5 1.02a15.6 15.6 0 0 0-5.8 0l-.5-1.02a16.9 16.9 0 0 0-4.14 1.29C1.84 8.73 1.13 12.5 1.48 16.2a16.7 16.7 0 0 0 5.1 2.58l1.23-1.65c-.68-.25-1.33-.56-1.94-.92l.47-.36c3.74 1.75 8.03 1.75 11.72 0l.48.36c-.62.36-1.27.67-1.95.92l1.23 1.65a16.7 16.7 0 0 0 5.1-2.58c.41-4.29-.7-8.02-3.38-11.34ZM8.5 14.03c-1.1 0-2-.99-2-2.2s.88-2.2 2-2.2c1.12 0 2.02.99 2 2.2 0 1.21-.88 2.2-2 2.2Zm7 0c-1.1 0-2-.99-2-2.2s.88-2.2 2-2.2c1.12 0 2.02.99 2 2.2s-.88 2.2-2 2.2Z" />
   </svg>
 );
@@ -40,9 +40,9 @@ const ResourceLinks = () => (
         rel="noopener noreferrer"
         aria-label={label}
         title={label}
-        className="group relative flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-[#263449]/90 text-white/90 shadow-[0_4px_12px_rgba(0,0,0,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:border-white/25 hover:bg-[#344762] hover:text-white hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80"
+        className="group relative flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full border border-white/10 bg-[#263449]/90 text-white/90 shadow-[0_4px_12px_rgba(0,0,0,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:border-white/25 hover:bg-[#344762] hover:text-white hover:shadow-[0_6px_16px_rgba(0,0,0,0.4)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/80"
       >
-        {Icon === 'discord' ? <DiscordIcon /> : <Icon className="h-6 w-6" strokeWidth={2.2} />}
+        {Icon === 'discord' ? <DiscordIcon /> : <Icon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.2} />}
         <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#111827]/95 px-2 py-1 text-[10px] font-semibold text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100">
           {label}
         </span>
@@ -184,89 +184,89 @@ export const MainMenu = ({
           </div>
         )}
 
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pt-4 pb-12 select-none h-full">
-          <div className="flex flex-col items-center justify-center gap-8 w-full">
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6 pt-2 pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom,0px)))] select-none h-full overflow-y-auto overflow-x-hidden">
+          <div className="flex flex-col items-center justify-center gap-4 sm:gap-6 w-full my-auto">
             {/* Center Glowing Neon Circle */}
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: showOptions ? 0.92 : 1, opacity: 1 }}
-              whileTap={{ scale: 0.88 }}
+              animate={{ scale: showOptions ? 0.88 : 1, opacity: 1 }}
+              whileTap={{ scale: 0.84 }}
               transition={{ type: "spring", stiffness: 450, damping: 24 }}
               onClick={() => setShowOptions(!showOptions)}
-              className="w-72 h-72 rounded-full flex flex-col items-center justify-center bg-[#ff4da6]/10 backdrop-blur-md border-[8px] border-white/20 shadow-[0_0_60px_rgba(255,77,166,0.5)] active:border-white/40 active:shadow-[0_0_80px_rgba(255,77,166,0.7)] relative cursor-pointer group"
+              className="w-56 h-56 sm:w-64 sm:h-64 md:w-72 md:h-72 rounded-full flex flex-col items-center justify-center bg-[#ff4da6]/10 backdrop-blur-md border-[6px] sm:border-[8px] border-white/20 shadow-[0_0_50px_rgba(255,77,166,0.45)] active:border-white/40 active:shadow-[0_0_70px_rgba(255,77,166,0.65)] relative cursor-pointer group shrink-0"
             >
               {/* Inner ambient pulse */}
               <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#ff1a75]/50 to-transparent pointer-events-none" />
               
-              <h1 className="text-5xl font-black italic tracking-tighter text-white text-center leading-[1.05] mt-2 select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10">
+              <h1 className="text-4xl sm:text-5xl font-black italic tracking-tighter text-white text-center leading-[1.05] mt-1 sm:mt-2 select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10">
                 Rhythm<br />Mania
               </h1>
-              <p className="mt-3 text-white/90 font-mono text-xs font-bold tracking-[0.2em] z-10 select-none drop-shadow">
+              <p className="mt-2 text-white/90 font-mono text-[11px] sm:text-xs font-bold tracking-[0.2em] z-10 select-none drop-shadow">
                 {metadata.version}
               </p>
             </motion.div>
 
             {/* Bottom slanted buttons - styled precisely like the reference image, positioned closer */}
-            <div className="w-full max-w-[420px] flex flex-col items-center min-h-[80px]">
+            <div className="w-full max-w-[380px] sm:max-w-[420px] flex flex-col items-center min-h-[64px] sm:min-h-[76px] shrink-0">
               <AnimatePresence>
                 {showOptions && (
                   <motion.div
-                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    initial={{ opacity: 0, y: 12, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                    exit={{ opacity: 0, y: 12, scale: 0.95 }}
                     transition={{ duration: 0.18, ease: "easeOut" }}
-                    className="w-full flex items-center justify-between gap-3"
+                    className="w-full flex items-center justify-between gap-2 sm:gap-3"
                   >
                     {/* Settings button */}
                     <button
                       onClick={() => onOpenSettings()}
-                      className="flex-1 bg-[#4a5260]/85 hover:bg-[#525a69]/90 border border-white/20 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-black/40 cursor-pointer"
+                      className="flex-1 bg-[#4a5260]/85 hover:bg-[#525a69]/90 border border-white/20 rounded-xl py-2.5 sm:py-3.5 px-1.5 sm:px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-black/40 cursor-pointer"
                     >
                       <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
-                        <SettingsIcon className="w-5 h-5 text-white mb-0.5" />
-                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Settings</span>
+                        <SettingsIcon className="w-4 h-4 sm:w-5 sm:h-5 text-white mb-0.5" />
+                        <span className="text-white text-[10px] sm:text-[11px] font-bold font-sans tracking-wide">Settings</span>
                       </div>
                     </button>
 
                     {/* Mania button */}
                     <button
                       onClick={() => onNavigate('select')}
-                      className="flex-1 bg-[#7e3ff2]/90 hover:bg-[#8d52ff]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-purple-500/20 cursor-pointer"
+                      className="flex-1 bg-[#7e3ff2]/90 hover:bg-[#8d52ff]/95 border border-white/25 rounded-xl py-2.5 sm:py-3.5 px-1.5 sm:px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-purple-500/20 cursor-pointer"
                       style={{
                         boxShadow: '0 0 15px rgba(126, 63, 242, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
                       }}
                     >
                       <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
-                        <Play className="w-5 h-5 text-white fill-current mb-0.5" />
-                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Mania</span>
+                        <Play className="w-4 h-4 sm:w-5 sm:h-5 text-white fill-current mb-0.5" />
+                        <span className="text-white text-[10px] sm:text-[11px] font-bold font-sans tracking-wide">Mania</span>
                       </div>
                     </button>
 
                     {/* Skin button */}
                     <button
                       onClick={() => onNavigate('skins')}
-                      className="flex-1 bg-[#187b8f]/95 hover:bg-[#2097ad]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-cyan-500/20 cursor-pointer"
+                      className="flex-1 bg-[#187b8f]/95 hover:bg-[#2097ad]/95 border border-white/25 rounded-xl py-2.5 sm:py-3.5 px-1.5 sm:px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-cyan-500/20 cursor-pointer"
                       style={{
                         boxShadow: '0 0 15px rgba(24, 123, 143, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
                       }}
                     >
                       <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
-                        <Paintbrush className="w-5 h-5 text-white mb-0.5" />
-                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">Skin</span>
+                        <Paintbrush className="w-4 h-4 sm:w-5 sm:h-5 text-white mb-0.5" />
+                        <span className="text-white text-[10px] sm:text-[11px] font-bold font-sans tracking-wide">Skin</span>
                       </div>
                     </button>
 
                     {/* History button */}
                     <button
                       onClick={() => onNavigate('history')}
-                      className="flex-1 bg-[#c25e1a]/95 hover:bg-[#d66a20]/95 border border-white/25 rounded-xl py-3.5 px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-orange-500/20 cursor-pointer"
+                      className="flex-1 bg-[#c25e1a]/95 hover:bg-[#d66a20]/95 border border-white/25 rounded-xl py-2.5 sm:py-3.5 px-1.5 sm:px-2 flex flex-col items-center justify-center gap-1 -skew-x-[15deg] transition-all duration-150 active:scale-95 shadow-lg shadow-orange-500/20 cursor-pointer"
                       style={{
                         boxShadow: '0 0 15px rgba(194, 94, 26, 0.35), 0 4px 12px rgba(0, 0, 0, 0.4)'
                       }}
                     >
                       <div className="skew-x-[15deg] flex flex-col items-center justify-center text-center">
-                        <History className="w-5 h-5 text-white mb-0.5" />
-                        <span className="text-white text-[11px] font-bold font-sans tracking-wide">History</span>
+                        <History className="w-4 h-4 sm:w-5 sm:h-5 text-white mb-0.5" />
+                        <span className="text-white text-[10px] sm:text-[11px] font-bold font-sans tracking-wide">History</span>
                       </div>
                     </button>
                   </motion.div>
@@ -277,9 +277,9 @@ export const MainMenu = ({
         </div>
 
         {/* Bottom resources and legal notice on mobile */}
-        <div className="absolute bottom-4 inset-x-6 flex flex-col items-center gap-1.5 z-30 pointer-events-auto">
+        <div className="absolute bottom-[max(0.75rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] inset-x-4 sm:inset-x-6 flex flex-col items-center gap-1 z-30 pointer-events-auto pb-[env(safe-area-inset-bottom,0px)]">
           <ResourceLinks />
-          <p className="text-[9px] text-white/35 font-sans text-center max-w-[300px]">
+          <p className="text-[9px] text-white/35 font-sans text-center max-w-[320px] leading-tight">
             By using RhythmMania, you acknowledge and agree to the{' '}
             <a href="/tos" className="text-white/50 hover:text-white underline transition-colors">
               Terms of Service
@@ -471,13 +471,13 @@ export const MainMenu = ({
         </motion.div>
 
         {/* Bottom Left Version Tag and resource links */}
-        <div className="absolute bottom-6 left-6 text-xs text-white/40 font-sans z-30 select-text text-left max-w-[280px] md:max-w-md pointer-events-auto flex flex-col gap-1">
+        <div className="absolute bottom-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))] left-6 text-xs text-white/40 font-sans z-30 select-text text-left max-w-[280px] md:max-w-md pointer-events-auto flex flex-col gap-1">
           <div className="font-mono text-white/30">{metadata.version}</div>
           <ResourceLinks />
         </div>
 
         {/* Bottom Right Legal Notice */}
-        <div className="absolute bottom-6 right-6 text-[10px] md:text-xs text-white/40 font-sans z-30 select-text text-right max-w-[280px] md:max-w-md pointer-events-auto">
+        <div className="absolute bottom-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))] right-6 text-[10px] md:text-xs text-white/40 font-sans z-30 select-text text-right max-w-[280px] md:max-w-md pointer-events-auto">
           By using RhythmMania, you acknowledge and agree to the{' '}
           <a href="/tos" className="text-white/60 hover:text-white underline transition-colors">
             Terms of Service

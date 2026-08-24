@@ -16,7 +16,59 @@ import { computeGradeFromScoreState } from './scoreCalculator';
 import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs, LEGACY_HOLD_RULES_VERSION, resolveHoldTickInterval } from './holdTickRules';
 import { sanitizeGameplayMods } from './modifiers';
 
-export const CURRENT_REPLAY_SCHEMA_VERSION = 2;
+export const CURRENT_REPLAY_SCHEMA_VERSION = 3;
+
+export const RMR_EXTENSION = '.rmr';
+export const RMR_MIME_TYPE = 'application/x-rhythmmania-replay';
+
+export function collectClientInfo(): import('../types').ReplayClientInfo {
+  let browser = 'unknown';
+  let os = 'unknown';
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const platform = typeof navigator !== 'undefined' ? (navigator.platform || '') : '';
+  const language = typeof navigator !== 'undefined' ? (navigator.language || '') : '';
+  let timezone = 'UTC';
+  let timezoneOffset = 0;
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    timezoneOffset = new Date().getTimezoneOffset();
+  } catch { /* keep defaults */ }
+  if (ua) {
+    if (/Edg\//.test(ua)) browser = 'Edge';
+    else if (/OPR|Opera/.test(ua)) browser = 'Opera';
+    else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) browser = 'Chrome';
+    else if (/Firefox\//.test(ua)) browser = 'Firefox';
+    else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
+    if (/Windows NT/.test(ua)) os = 'Windows';
+    else if (/Mac OS X/.test(ua)) os = 'macOS';
+    else if (/Android/.test(ua)) os = 'Android';
+    else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+    else if (/Linux/.test(ua)) os = 'Linux';
+  }
+  let appVersion = 'unknown';
+  try {
+    const meta = (globalThis as unknown as { __RM_VERSION?: string }).__RM_VERSION;
+    if (meta) appVersion = meta;
+  } catch { /* ignore */ }
+  try {
+    if (typeof window !== 'undefined') {
+      const g: unknown = (window as unknown as Record<string, unknown>).__RM_VERSION;
+      if (typeof g === 'string') appVersion = g;
+    }
+  } catch { /* ignore */ }
+  return {
+    userAgent: ua.slice(0, 500),
+    browser,
+    os,
+    platform: platform.slice(0, 80),
+    language: language.slice(0, 20),
+    timezone: timezone.slice(0, 80),
+    timezoneOffset,
+    screenWidth: typeof window !== 'undefined' ? window.screen?.width : undefined,
+    screenHeight: typeof window !== 'undefined' ? window.screen?.height : undefined,
+    appVersion: appVersion.slice(0, 40),
+  };
+}
 
 /**
  * Fast deterministic hash for beatmap content or metadata.
@@ -124,6 +176,9 @@ export function createPlayHistoryRecord(params: {
     mode: beatmap.mode,
   });
 
+  const sourceSetId = typeof beatmap.sourceSetId === 'number' ? beatmap.sourceSetId : (
+    catalogInfo.catalogSetId ? Number(catalogInfo.catalogSetId.replace(/^osuapi_/, '')) || null : null);
+  const sourceChartId = typeof beatmap.sourceChartId === 'number' ? beatmap.sourceChartId : null;
   return {
     id,
     timestamp,
@@ -141,7 +196,6 @@ export function createPlayHistoryRecord(params: {
     recordedSettings,
     mods: mods ? [...mods] : [],
 
-    // Schema V2 fields
     schemaVersion: CURRENT_REPLAY_SCHEMA_VERSION,
     replaySource,
     catalogSetId: catalogInfo.catalogSetId,
@@ -155,6 +209,11 @@ export function createPlayHistoryRecord(params: {
     isServerCatalogMap: catalogInfo.isServerCatalogMap,
     holdRulesVersion: holdRules.holdRulesVersion,
     ...(holdRules.holdRulesVersion === HOLD_TICK_RULES_VERSION ? { holdTickIntervalMs: holdRules.holdTickIntervalMs } : {}),
+    sourceSetId,
+    sourceChartId,
+    beatmapDifficulty: beatmap.difficulty,
+    playedBy: null,
+    clientInfo: collectClientInfo(),
   };
 }
 
@@ -224,6 +283,8 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
   const rawUploadStatus = rawRecord.uploadStatus === 'pending' || rawRecord.uploadStatus === 'uploaded' || rawRecord.uploadStatus === 'failed' || rawRecord.uploadStatus === 'local_only'
     ? rawRecord.uploadStatus : 'local_only';
   const recordId = typeof rawRecord.id === 'string' ? rawRecord.id : `replay_${Date.now()}`;
+  const srcSet = typeof rawRecord.sourceSetId === 'number' && Number.isFinite(rawRecord.sourceSetId) ? rawRecord.sourceSetId : null;
+  const srcChart = typeof rawRecord.sourceChartId === 'number' && Number.isFinite(rawRecord.sourceChartId) ? rawRecord.sourceChartId : null;
   return {
     id: recordId,
     timestamp: typeof rawRecord.timestamp === 'number' && Number.isFinite(rawRecord.timestamp) ? rawRecord.timestamp : Date.now(),
@@ -252,6 +313,11 @@ export function migrateHistoryRecord(rawRecord: unknown, availableBeatmaps: Beat
     checksum: typeof rawRecord.checksum === 'string' ? rawRecord.checksum : undefined,
     checksumAlgorithm: rawRecord.checksumAlgorithm === 'md5' || rawRecord.checksumAlgorithm === 'sha256' ? rawRecord.checksumAlgorithm : undefined,
     ...getHoldRulesInfo(rawRecord),
+    sourceSetId: srcSet ?? (catalogInfo.catalogSetId ? Number(String(catalogInfo.catalogSetId).replace(/^osuapi_/, '')) || null : null),
+    sourceChartId: srcChart,
+    beatmapDifficulty: typeof rawRecord.beatmapDifficulty === 'string' ? rawRecord.beatmapDifficulty.slice(0, 100) : undefined,
+    playedBy: typeof rawRecord.playedBy === 'string' ? rawRecord.playedBy.slice(0, 80) : null,
+    clientInfo: isRecord(rawRecord.clientInfo) ? rawRecord.clientInfo as unknown as PlayHistoryRecord['clientInfo'] : null,
   };
 }
 
@@ -313,3 +379,98 @@ export async function migrateAndNormalizeBeatmaps(rawMaps: unknown[]): Promise<{
 
   return { maps: normalized.filter((map): map is NonNullable<typeof map> => map !== null), migratedCount };
 }
+
+export function findMatchingBeatmap(
+  rec: {
+    beatmapId?: string | null;
+    catalogMapId?: string | null;
+    chartRevisionId?: string | null;
+    beatmapHash?: string | null;
+    sourceSetId?: number | null;
+    catalogSetId?: string | null;
+    beatmapTitle?: string;
+    beatmapArtist?: string;
+    beatmapDifficulty?: string;
+    difficultyName?: string;
+    keyCount?: number;
+  },
+  allBeatmaps: Beatmap[]
+): Beatmap | null {
+  if (!rec || !allBeatmaps || allBeatmaps.length === 0) return null;
+
+  const baseId = rec.beatmapId?.includes('_converted_') ? rec.beatmapId.split('_converted_')[0] : rec.beatmapId;
+
+  // 1. Direct ID / Hash / Revision match
+  const match = allBeatmaps.find(b =>
+    b.id === rec.beatmapId ||
+    (baseId && b.id === baseId) ||
+    (rec.catalogMapId && b.catalogMapId === rec.catalogMapId) ||
+    (rec.chartRevisionId && (b.chartRevisionId === rec.chartRevisionId || b.id === rec.chartRevisionId)) ||
+    (rec.beatmapHash && b.beatmapHash === rec.beatmapHash)
+  );
+  if (match) return match;
+
+  // 2. Source set ID match
+  let sourceSetId = rec.sourceSetId;
+  if (!sourceSetId && typeof rec.catalogSetId === 'string') {
+    const match = rec.catalogSetId.match(/(\d+)/);
+    if (match) sourceSetId = Number(match[1]);
+  }
+  if (!sourceSetId && typeof rec.beatmapId === 'string') {
+    const match = rec.beatmapId.match(/(\d+)/);
+    if (match) sourceSetId = Number(match[1]);
+  }
+
+  if (sourceSetId && Number.isInteger(sourceSetId) && sourceSetId > 0) {
+    const setMaps = allBeatmaps.filter(b =>
+      b.sourceSetId === sourceSetId ||
+      String(b.catalogSetId || '').replace(/^osuapi_/, '') === String(sourceSetId) ||
+      String((b as unknown as Record<string, unknown>).packageId || '').replace(/^osuapi_/, '') === String(sourceSetId) ||
+      String((b as unknown as Record<string, unknown>).parentPackageId || '').replace(/^osuapi_/, '') === String(sourceSetId)
+    );
+    if (setMaps.length > 0) {
+      const diffName = rec.beatmapDifficulty || rec.difficultyName;
+      if (diffName) {
+        const diffMatch = setMaps.find(b =>
+          b.difficulty.toLowerCase().trim() === diffName.toLowerCase().trim() &&
+          (!rec.keyCount || b.keyCount === rec.keyCount)
+        );
+        if (diffMatch) return diffMatch;
+      }
+      if (rec.keyCount) {
+        const keyMatch = setMaps.find(b => b.keyCount === rec.keyCount);
+        if (keyMatch) return keyMatch;
+      }
+      return setMaps[0];
+    }
+  }
+
+  // 3. Title & Artist match
+  if (rec.beatmapTitle) {
+    const normTitle = rec.beatmapTitle.toLowerCase().trim();
+    const normArtist = (rec.beatmapArtist || '').toLowerCase().trim();
+    const titleMaps = allBeatmaps.filter(b => {
+      const bTitle = (b.title || '').toLowerCase().trim();
+      const bArtist = (b.artist || '').toLowerCase().trim();
+      return bTitle === normTitle && (!normArtist || bArtist === normArtist || bTitle.includes(normTitle));
+    });
+    if (titleMaps.length > 0) {
+      const diffName = rec.beatmapDifficulty || rec.difficultyName;
+      if (diffName) {
+        const diffMatch = titleMaps.find(b =>
+          b.difficulty.toLowerCase().trim() === diffName.toLowerCase().trim() &&
+          (!rec.keyCount || b.keyCount === rec.keyCount)
+        );
+        if (diffMatch) return diffMatch;
+      }
+      if (rec.keyCount) {
+        const keyMatch = titleMaps.find(b => b.keyCount === rec.keyCount);
+        if (keyMatch) return keyMatch;
+      }
+      return titleMaps[0];
+    }
+  }
+
+  return null;
+}
+

@@ -341,3 +341,35 @@ export async function downloadBeatmapsetArchive(
     { type: 'application/octet-stream' },
   );
 }
+
+export async function searchOsuBeatmapSetId(title: string, artist: string): Promise<number | null> {
+  try {
+    if (!hasOsuConnection()) return null;
+    const token = await getValidOsuAccessToken();
+    const cleanTerm = `${title} ${artist}`.trim();
+    if (!cleanTerm) return null;
+    await waitForOsuSlot('api');
+    const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(cleanTerm)}&s=any`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    if (!json || !Array.isArray(json.data) || json.data.length === 0) return null;
+    const lowerTitle = title.toLowerCase().trim();
+    const lowerArtist = artist.toLowerCase().trim();
+    const exactMatch = json.data.find((item: any) =>
+      item.title?.toLowerCase().trim() === lowerTitle ||
+      (item.title?.toLowerCase().includes(lowerTitle) && item.artist?.toLowerCase().includes(lowerArtist))
+    );
+    const matched = exactMatch || json.data[0];
+    const setId = Number(matched.sourceSetId || String(matched.id || '').replace(/^osuapi_/, ''));
+    return Number.isInteger(setId) && setId > 0 ? setId : null;
+  } catch (err) {
+    console.warn('Failed to search osu! catalog for replay beatmapset:', err);
+    return null;
+  }
+}
+

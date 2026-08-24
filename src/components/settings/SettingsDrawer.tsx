@@ -151,7 +151,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
               </div>
 
               {/* Active Section with scrollable content */}
-              <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-5 pb-32">
+              <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-5 pb-[calc(8.5rem+env(safe-area-inset-bottom,0px))]">
                 {sectionDef && (
                   <div className="mb-2">
                     <h2 className="text-xl font-sans font-black text-white uppercase tracking-wider">{sectionDef.label}</h2>
@@ -193,9 +193,9 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         <div className="w-full">
                           <SettingsSlider
                             id={`setting-mobile-${row.id}`}
-                            value={currentValue === undefined || currentValue === null ? Number(row.defaultValue ?? 0) : Number(currentValue)}
-                             min={sliderMin}
-                             max={sliderMax}
+                            value={Number(currentValue)}
+                            min={sliderMin}
+                            max={sliderMax}
                             step={row.control.step}
                             format={row.control.format}
                             suffix={row.control.suffix}
@@ -208,7 +208,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
                         <div className="relative">
                           <SettingsSelect
                             id={`setting-mobile-${row.id}`}
-                            value={currentValue !== undefined ? String(currentValue) : (row.defaultValue !== undefined ? String(row.defaultValue) : '')}
+                            value={String(currentValue)}
                             options={row.control.options}
                             onChange={(v) => updateSettings({ [row.id]: v })}
                           />
@@ -276,7 +276,7 @@ export default function SettingsDrawer({ open, onClose, settings, updateSettings
               </div>
 
               {/* Restore Defaults & Version Sticky Footer */}
-              <div className="absolute bottom-0 inset-x-0 p-4 pb-6 bg-gradient-to-t from-[#181923] via-[#181923]/95 to-transparent border-t border-white/5 flex flex-col items-center">
+              <div className="absolute bottom-0 inset-x-0 p-4 pb-[max(1.5rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] bg-gradient-to-t from-[#181923] via-[#181923]/95 to-transparent border-t border-white/5 flex flex-col items-center">
                 <button
                   onClick={handleRestoreRequest}
                   className="w-full py-3.5 bg-red-650 hover:bg-red-750 active:scale-95 text-white font-sans font-black text-xs uppercase tracking-widest rounded-xl transition shadow-lg"

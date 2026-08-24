@@ -123,9 +123,11 @@ function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
     replayFrames,
     recordedSettings: sanitizeSettings(value.recordedSettings, DEFAULT_SETTINGS),
     mods,
-    schemaVersion: value.schemaVersion === 2 ? 2 : undefined,
+    schemaVersion: typeof value.schemaVersion === 'number' ? value.schemaVersion : (value.schemaVersion === 2 ? 2 : undefined),
     replaySource,
-    catalogSetId: typeof value.catalogSetId === 'string' ? value.catalogSetId : null,
+    catalogSetId: typeof value.catalogSetId === 'string'
+      ? value.catalogSetId
+      : (typeof value.sourceSetId === 'number' && Number.isFinite(value.sourceSetId) ? `osuapi_${value.sourceSetId}` : null),
     catalogMapId: typeof value.catalogMapId === 'string' ? value.catalogMapId : null,
     chartRevisionId: typeof value.chartRevisionId === 'string' ? value.chartRevisionId : null,
     checksum: typeof value.checksum === 'string' ? value.checksum : undefined,
@@ -136,6 +138,10 @@ function normalizeRemoteRecord(value: unknown): PlayHistoryRecord | null {
     uploadEligibility: value.uploadEligibility === 'eligible' ? 'eligible' : 'ineligible_no_replay_frames',
     uploadStatus,
     isServerCatalogMap: value.isServerCatalogMap === true,
+    sourceSetId: typeof value.sourceSetId === 'number' && Number.isFinite(value.sourceSetId) ? value.sourceSetId : null,
+    sourceChartId: typeof value.sourceChartId === 'number' && Number.isFinite(value.sourceChartId) ? value.sourceChartId : null,
+    beatmapDifficulty: typeof value.beatmapDifficulty === 'string' ? value.beatmapDifficulty : undefined,
+    playedBy: typeof value.playedBy === 'string' ? value.playedBy : (typeof value.username === 'string' ? value.username : null),
   };
 }
 

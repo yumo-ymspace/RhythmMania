@@ -318,7 +318,7 @@ export default function EditProfileScreen({
         </section>
 
         {/* Save bar */}
-        <div className="sticky bottom-0 flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/90 p-4 backdrop-blur">
+        <div className="sticky bottom-0 flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/90 p-4 pb-[max(1rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] backdrop-blur">
           <span className={`text-xs font-mono uppercase tracking-widest ${dirty ? 'text-amber-300' : 'text-slate-600'}`}>
             {dirty ? 'Unsaved changes' : 'All changes saved'}
           </span>

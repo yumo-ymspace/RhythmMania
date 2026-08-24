@@ -129,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       holdRulesVersion: row.hold_rules_version === 2 ? 2 : 1,
       holdTickIntervalMs: row.hold_rules_version === 2 ? row.hold_tick_interval_ms || undefined : undefined,
       uploadEligibility: row.upload_status === 'uploaded' ? 'eligible' : 'ineligible_no_replay_frames',
-      catalogSetId: row.beatmap_set_id || undefined,
+      catalogSetId: row.beatmap_set_id || (row.source_set_id ? `osuapi_${row.source_set_id}` : undefined),
       catalogMapId: row.chart_revision_id,
       chartRevisionId: row.chart_revision_id,
       beatmapHash: row.beatmap_hash,

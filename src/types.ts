@@ -201,6 +201,19 @@ export type UploadEligibility =
 
 export type UploadStatus = 'local_only' | 'pending' | 'uploaded' | 'failed';
 
+export interface ReplayClientInfo {
+  userAgent: string;
+  browser: string;
+  os: string;
+  platform: string;
+  language: string;
+  timezone: string;
+  timezoneOffset: number;
+  screenWidth?: number;
+  screenHeight?: number;
+  appVersion: string;
+}
+
 export interface PlayHistoryRecord {
   id: string;
   timestamp: number;
@@ -219,7 +232,7 @@ export interface PlayHistoryRecord {
   mods?: string[];
 
   // Versioned replay schema & canonical catalog identity fields
-  schemaVersion?: number; // e.g. 2
+  schemaVersion?: number; // e.g. 3
   replaySource?: ReplaySource;
   catalogSetId?: string | null; // e.g., 'osuapi_12345'
   catalogMapId?: string | null; // e.g., 'osuapi_12345_b67890_checksum'
@@ -232,6 +245,13 @@ export interface PlayHistoryRecord {
   isServerCatalogMap?: boolean;
   holdRulesVersion?: HoldRulesVersion;
   holdTickIntervalMs?: number;
+
+  // Extended metadata for .rmr exports (v3)
+  sourceSetId?: number | null;
+  sourceChartId?: number | null;
+  beatmapDifficulty?: string;
+  playedBy?: string | null;
+  clientInfo?: ReplayClientInfo | null;
 }
 
 export interface KeyBindings {

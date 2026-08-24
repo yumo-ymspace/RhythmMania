@@ -271,7 +271,7 @@ export function sanitizeSavedBeatmap(raw: unknown): SavedBeatmap | null {
 }
 
 const DB_NAME = 'RhythmManiaDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 class SimpleBlobCache {
   private cache = new Map<string, { audioUrl: string; videoUrl: string; bgUrl: string; hitSoundUrls: Record<string, string> }>();

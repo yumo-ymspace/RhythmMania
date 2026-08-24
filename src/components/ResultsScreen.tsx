@@ -250,7 +250,7 @@ export default function ResultsScreen({
       </header>
 
       {/* 3. VERTICALLY CENTERED HORIZONTAL SCORE BAR CONTAINER */}
-      <div className="flex-1 w-full flex flex-col justify-start md:justify-center items-center z-10 px-4 overflow-y-auto py-6">
+      <div className="flex-1 w-full flex flex-col justify-start md:justify-center items-center z-10 px-4 overflow-y-auto pt-4 md:pt-6 pb-[max(2.5rem,calc(1.5rem+env(safe-area-inset-bottom,0px))]">
         
         <div className="w-full max-w-5xl py-8 md:py-10 bg-black/75 backdrop-blur-md border-y border-white/10 relative shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
           
@@ -402,18 +402,18 @@ export default function ResultsScreen({
         )}
 
         {/* 4. Sleek control buttons arranged neatly underneath the horizontal bar */}
-        <div className="flex flex-row items-center justify-center gap-4 mt-8 w-full max-w-3xl px-4">
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-center gap-2.5 sm:gap-4 mt-6 sm:mt-8 w-full max-w-3xl px-2 sm:px-4 pb-[env(safe-area-inset-bottom,0px)]">
           
           <button
             id="results-retry-btn"
             onClick={onRetry}
-            className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-white font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+            className="flex-1 min-w-[100px] sm:min-w-[120px] md:min-w-[140px] py-3 sm:py-3.5 px-3 sm:px-6 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-white font-sans font-black text-[11px] sm:text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
           >
             <RotateCcw className="h-4 w-4 text-skin-accent" />
             <span className="whitespace-nowrap">Retry Song</span>
           </button>
           
-          {replayError && <p role="alert" className="mt-3 text-center text-xs font-mono text-rose-300">{replayError}</p>}
+          {replayError && <p role="alert" className="mt-3 text-center text-xs font-mono text-rose-300 w-full">{replayError}</p>}
 
           {onWatchReplay && activeRecord && activeRecord.replayFrames && activeRecord.replayFrames.length > 0 && (
             <button
@@ -423,7 +423,7 @@ export default function ResultsScreen({
                 const result = await onWatchReplay(activeRecord);
                 if (result && !result.success) setReplayError(result.error || 'Replay playback could not be started.');
               }}
-              className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-cyan-600/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+              className="flex-1 min-w-[100px] sm:min-w-[120px] md:min-w-[140px] py-3 sm:py-3.5 px-3 sm:px-6 bg-cyan-600/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-400 font-sans font-black text-[11px] sm:text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
             >
               <Video className="h-4 w-4" />
               <span className="whitespace-nowrap">Watch Replay</span>
@@ -435,7 +435,7 @@ export default function ResultsScreen({
               id="results-export-btn"
               title="Export this run as a replay file"
               onClick={() => downloadReplayExport([activeRecord], `${activeRecord.beatmapArtist} - ${activeRecord.beatmapTitle}`)}
-              className="py-3.5 px-4 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-slate-300 rounded-2xl flex items-center justify-center active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
+              className="py-3 sm:py-3.5 px-3.5 sm:px-4 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 hover:border-white/20 text-slate-300 rounded-2xl flex items-center justify-center active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01]"
             >
               <Download className="h-4 w-4" />
             </button>
@@ -457,7 +457,7 @@ export default function ResultsScreen({
                   setShowConfirmDelete(false);
                 }
               }}
-              className={`flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01] disabled:opacity-30 disabled:pointer-events-none transition-all duration-300 ${
+              className={`flex-1 min-w-[100px] sm:min-w-[120px] md:min-w-[140px] py-3 sm:py-3.5 px-3 sm:px-6 font-sans font-black text-[11px] sm:text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all outline-none cursor-pointer shadow-lg transform hover:scale-[1.01] disabled:opacity-30 disabled:pointer-events-none transition-all duration-300 ${
                 showConfirmDelete 
                   ? 'bg-rose-600 hover:bg-rose-700 text-white border border-rose-400 shadow-rose-500/20' 
                   : 'bg-rose-950/20 hover:bg-rose-900/30 border border-rose-500/30 text-rose-400'
@@ -472,7 +472,7 @@ export default function ResultsScreen({
           <button
             id="results-select-btn"
             onClick={onBack}
-            className="flex-1 min-w-[120px] md:min-w-[140px] py-3.5 px-4 md:px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-sans font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-all outline-none cursor-pointer border border-indigo-400/20 transform hover:scale-[1.01]"
+            className="flex-1 min-w-[100px] sm:min-w-[120px] md:min-w-[140px] py-3 sm:py-3.5 px-3 sm:px-6 bg-indigo-600 hover:bg-indigo-500 text-white font-sans font-black text-[11px] sm:text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(99,102,241,0.3)] active:scale-95 transition-all outline-none cursor-pointer border border-indigo-400/20 transform hover:scale-[1.01]"
           >
             <ArrowLeft className="h-4 w-4" />
             <span className="whitespace-nowrap">Back</span>

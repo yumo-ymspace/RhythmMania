@@ -3368,7 +3368,7 @@ export default function GameplayCanvas({
           } pointer-events-none transition-all duration-300`}
           >
             {(isReplayMode || isAutoplay) ? (
-              <div className="w-full flex flex-col items-center px-4 md:px-8 py-4 bg-slate-950/95 border-t border-white/10 pointer-events-auto backdrop-blur-2xl shadow-[0_-15px_35px_rgba(0,0,0,0.95)] z-40">
+              <div className="w-full flex flex-col items-center px-4 md:px-8 py-4 pb-[max(1rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] bg-slate-950/95 border-t border-white/10 pointer-events-auto backdrop-blur-2xl shadow-[0_-15px_35px_rgba(0,0,0,0.95)] z-40">
                 <div className="w-full max-w-5xl flex flex-col gap-2.5">
                      
                      {/* Slider track + Time stamp row */}
@@ -3501,7 +3501,7 @@ export default function GameplayCanvas({
 
         {/* FLOATING ACCURACY AND SCORE (Bottom Left) */}
         {!isPrePlay && (
-          <div className={`absolute left-6 ${(isReplayMode || isAutoplay) ? 'bottom-28' : 'bottom-8'} z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]`}>
+          <div className={`absolute left-4 sm:left-6 ${(isReplayMode || isAutoplay) ? 'bottom-28' : 'bottom-[max(1.5rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))]'} z-30 flex flex-col items-start select-none font-sans pointer-events-none text-left drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]`}>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ACCURACY</span>
             <span className="text-2xl md:text-3xl font-black text-cyan-400 font-mono tracking-tight leading-none mb-1">
               {scoreStateRef.current.accuracy.toFixed(2)}%
@@ -3516,7 +3516,7 @@ export default function GameplayCanvas({
         {/* TIME LEFT — bottom right, only in real play & replay watch (hidden in autoplay). */}
         <span
           ref={timeLeftLabelRef}
-          className={`absolute right-6 z-30 font-mono text-[13px] font-bold tracking-widest text-white/85 bg-black/40 px-2 py-0.5 rounded pointer-events-none select-none ${isReplayMode ? 'bottom-28' : 'bottom-8'}`}
+          className={`absolute right-4 sm:right-6 z-30 font-mono text-[13px] font-bold tracking-widest text-white/85 bg-black/40 px-2 py-0.5 rounded pointer-events-none select-none ${isReplayMode ? 'bottom-28' : 'bottom-[max(1.5rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))]'}`}
           style={{ display: 'none' }}
         />
 
@@ -3525,7 +3525,7 @@ export default function GameplayCanvas({
             type="button"
             onClick={performIntroSkip}
             aria-label="Skip intro"
-            className="absolute right-6 bottom-20 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-slate-900/85 px-4 py-2 font-mono text-xs font-black uppercase tracking-widest text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-cyan-400/40 hover:bg-slate-800 hover:text-cyan-200 active:scale-95"
+            className="absolute right-4 sm:right-6 bottom-[max(4.5rem,calc(3.5rem+env(safe-area-inset-bottom,0px)))] z-30 flex items-center gap-2 rounded-full border border-white/15 bg-slate-900/85 px-4 py-2 font-mono text-xs font-black uppercase tracking-widest text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-cyan-400/40 hover:bg-slate-800 hover:text-cyan-200 active:scale-95"
           >
             <span>Skip</span>
             <span className="text-[10px] leading-none opacity-70">{(((settings as unknown as Record<string, string>).bindSkipIntro || 'enter') === ' ' ? 'Space' : ((settings as unknown as Record<string, string>).bindSkipIntro || 'enter').toUpperCase())}</span>

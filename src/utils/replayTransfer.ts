@@ -10,14 +10,12 @@
  * from: https://github.com/yumo-ymspace/RhythmMania
  */
 
-import { Beatmap, GameSettings, PlayHistoryRecord } from '../types';
+import { Beatmap, GameSettings, PlayHistoryRecord, ReplayClientInfo } from '../types';
 import { sanitizeHistoryRecord } from './securityLimits';
-import { CURRENT_REPLAY_SCHEMA_VERSION } from './replayManager';
+import { CURRENT_REPLAY_SCHEMA_VERSION, RMR_EXTENSION, RMR_MIME_TYPE } from './replayManager';
 
 export const REPLAY_EXPORT_FORMAT = 'rhythmmania-replay-export';
 
-// Imported files carry per-frame replay data, so they can be large; still cap
-// them like any other hostile input.
 export const MAX_IMPORT_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_IMPORT_RECORDS = 500;
 
@@ -26,44 +24,82 @@ interface ReplayExportEnvelope {
   schemaVersion: number;
   exportedAt: number;
   records: PlayHistoryRecord[];
+  exporter?: ReplayClientInfo | null;
+  sourceSetIds?: number[];
+}
+
+function collectExporterInfo(): ReplayClientInfo | null {
+  try {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    let browser = 'unknown';
+    let os = 'unknown';
+    if (ua) {
+      if (/Edg\//.test(ua)) browser = 'Edge';
+      else if (/OPR|Opera/.test(ua)) browser = 'Opera';
+      else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) browser = 'Chrome';
+      else if (/Firefox\//.test(ua)) browser = 'Firefox';
+      else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
+      if (/Windows NT/.test(ua)) os = 'Windows';
+      else if (/Mac OS X/.test(ua)) os = 'macOS';
+      else if (/Android/.test(ua)) os = 'Android';
+      else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+      else if (/Linux/.test(ua)) os = 'Linux';
+    }
+    let timezone = 'UTC';
+    let timezoneOffset = 0;
+    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; timezoneOffset = new Date().getTimezoneOffset(); } catch { /* defaults */ }
+    return {
+      userAgent: ua.slice(0, 500),
+      browser,
+      os,
+      platform: typeof navigator !== 'undefined' ? (navigator.platform || '') : '',
+      language: typeof navigator !== 'undefined' ? (navigator.language || '') : '',
+      timezone: timezone.slice(0, 80),
+      timezoneOffset,
+      screenWidth: typeof window !== 'undefined' ? window.screen?.width : undefined,
+      screenHeight: typeof window !== 'undefined' ? window.screen?.height : undefined,
+      appVersion: 'v0.9.4',
+    };
+  } catch { return null; }
 }
 
 export function downloadReplayExport(records: PlayHistoryRecord[], filenameBase: string): void {
+  const sourceSetIds = Array.from(new Set(
+    records.map(r => r.sourceSetId).filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0)
+  )).slice(0, 100);
   const envelope: ReplayExportEnvelope = {
     format: REPLAY_EXPORT_FORMAT,
     schemaVersion: CURRENT_REPLAY_SCHEMA_VERSION,
     exportedAt: Date.now(),
     records,
+    exporter: collectExporterInfo(),
+    sourceSetIds: sourceSetIds.length ? sourceSetIds : undefined,
   };
-  const blob = new Blob([JSON.stringify(envelope)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(envelope)], { type: RMR_MIME_TYPE });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const safeBase = filenameBase.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().slice(0, 60) || 'replay';
   a.href = url;
-  a.download = `rhythmmania-${safeBase}.json`;
+  a.download = `rhythmmania-${safeBase}${RMR_EXTENSION}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/**
- * Parses an exported replay file back into sanitized local records.
- * Accepts the export envelope, a bare record array, or a single bare record.
- * Every record passes through sanitizeHistoryRecord (which also migrates the
- * schema) and is marked as imported/local-only so it can never be uploaded.
- */
 export function parseReplayImport(
   text: string,
   defaultSettings: GameSettings,
   availableBeatmaps: Beatmap[] = []
 ): { records: PlayHistoryRecord[]; rejectedCount: number } {
-  if (typeof text !== 'string' || new TextEncoder().encode(text).byteLength > MAX_IMPORT_FILE_BYTES) {
+  if (typeof text !== 'string') return { records: [], rejectedCount: 1 };
+  const stripped = text.trim().replace(/^\uFEFF/, '');
+  if (!stripped || new TextEncoder().encode(stripped).byteLength > MAX_IMPORT_FILE_BYTES) {
     return { records: [], rejectedCount: 1 };
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(stripped);
   } catch {
     return { records: [], rejectedCount: 1 };
   }
@@ -72,11 +108,17 @@ export function parseReplayImport(
   if (Array.isArray(parsed)) {
     rawRecords = parsed;
   } else if (parsed && typeof parsed === 'object') {
-    const envelope = parsed as { records?: unknown; scoreState?: unknown };
+    const envelope = parsed as { records?: unknown; scoreState?: unknown; data?: unknown };
     if (Array.isArray(envelope.records)) {
       rawRecords = envelope.records;
+    } else if (Array.isArray(envelope.data)) {
+      rawRecords = envelope.data;
     } else if (envelope.scoreState && typeof envelope.scoreState === 'object') {
       rawRecords = [parsed];
+    } else {
+      const vals = Object.values(parsed as Record<string, unknown>);
+      const maybeArr = vals.find(v => Array.isArray(v) && v.length > 0 && typeof v[0] === 'object');
+      if (Array.isArray(maybeArr)) rawRecords = maybeArr as unknown[];
     }
   }
 
@@ -89,7 +131,7 @@ export function parseReplayImport(
 
   const records: PlayHistoryRecord[] = [];
   for (const raw of rawRecords) {
-    const clean = sanitizeHistoryRecord(raw, defaultSettings, availableBeatmaps);
+    const clean = sanitizeHistoryRecord(raw, defaultSettings, availableBeatmaps, { allowFailed: true });
     if (clean && clean.id) {
       records.push({
         ...clean,
@@ -102,4 +144,8 @@ export function parseReplayImport(
     }
   }
   return { records, rejectedCount };
+}
+
+export function isRmrFilename(name: string): boolean {
+  return name.toLowerCase().endsWith(RMR_EXTENSION);
 }

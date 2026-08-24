@@ -1067,7 +1067,7 @@ export default function SongSelect({
   const currentStarRating = selectedCustomMap ? getStarRating(selectedCustomMap) : 0.0;
   if (isMobile) {
     return (
-      <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
+      <div className="relative w-full h-[calc(100dvh_-_60px)] sm:h-[calc(100dvh_-_68px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
         {/* BACKGROUND EFFECT LAYER */}
         <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-none z-0" />
 
@@ -1202,7 +1202,7 @@ export default function SongSelect({
         </div>
 
         {/* 4. HIGH-DENSITY SCROLLABLE BEATMAP LIST */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 z-10 pb-[90px] pr-0.5 min-h-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 z-10 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] pr-0.5 min-h-0">
           {songGroups.length > 0 ? (
             songGroups.map((group) => {
               const isGroupActive = selectedGroup?.songKey === group.songKey;
@@ -1291,7 +1291,7 @@ export default function SongSelect({
         </div>
 
         {/* 5. FLOATING BOTTOM NAVIGATION ACTION BAR (BACK, MODS, RANDOM) */}
-        <div className="fixed bottom-0 inset-x-0 bg-[#09090d]/95 backdrop-blur-md border-t border-white/10 p-4 pb-6 flex items-center justify-between gap-3 z-40 shadow-2xl">
+        <div className="fixed bottom-0 inset-x-0 bg-[#09090d]/95 backdrop-blur-md border-t border-white/10 p-4 pb-[max(1.5rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] flex items-center justify-between gap-3 z-40 shadow-2xl">
           <button
             onClick={() => {
               if (onBack) onBack();
@@ -1448,7 +1448,7 @@ export default function SongSelect({
                   </div>
                 </div>
 
-                <div className="flex-none px-5 py-4 bg-[#101016]/85 border-t border-white/5 flex justify-end">
+                <div className="flex-none px-5 py-4 pb-[max(1rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] bg-[#101016]/85 border-t border-white/5 flex justify-end">
                   <button
                     type="button"
                     onClick={() => setShowModsModal(false)}
@@ -1467,10 +1467,10 @@ export default function SongSelect({
 
   return (
     <div 
-      className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent"
+      className="relative w-full h-[calc(100dvh_-_60px)] sm:h-[calc(100dvh_-_68px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent"
     >
       {/* Bottom Left Version Tag */}
-      <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">
+      <div className="absolute bottom-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))] left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">
         {metadata.version}
       </div>
 
@@ -2424,7 +2424,7 @@ export default function SongSelect({
       </div>
 
       {/* 4. BOTTOM FLOATING CONTROL PANEL: MODS & RANDOM BUTTONS */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto">
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto pb-[env(safe-area-inset-bottom,0px)]">
         <div className="flex items-center gap-0.5 bg-[#09090d]/90 backdrop-blur-md border-t border-l border-r border-white/10 rounded-t-2xl pointer-events-auto shadow-2xl">
           {/* MODS BUTTON CONTAINER */}
           <button

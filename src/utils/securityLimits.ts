@@ -357,9 +357,10 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
  * Validates and sanitizes a history record loaded from local storage.
  * Ensures strip/clamp of values and removes potential dangerous blob URLs.
  */
-export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameSettings, availableBeatmaps: Beatmap[] = []): PlayHistoryRecord | null {
+export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameSettings, availableBeatmaps: Beatmap[] = [], opts: { allowFailed?: boolean } = {}): PlayHistoryRecord | null {
   if (!isRecord(rawRecord)) return null;
   const record = rawRecord;
+  const importMode = Boolean(opts.allowFailed) || record.replaySource === 'imported';
 
   const clamp = (val: unknown, min: number, max: number, fallback: number): number => {
     const num = Number(val);
@@ -369,14 +370,12 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
 
   const sanitizeString = (val: unknown, maxLength = 100): string => {
     if (typeof val !== 'string') return '';
-    // Strip HTML, blob URLs, or other dangerous content
     let cleaned = val.replace(/blob:/gi, '').replace(/javascript:/gi, '');
     cleaned = cleaned.replace(/[^a-zA-Z0-9_\-\s.#:()]/g, '').trim();
     if (cleaned.length > maxLength) return cleaned.slice(0, maxLength);
     return cleaned;
   };
 
-  // Validate ScoreState
   const scoreInput = isRecord(record.scoreState) ? record.scoreState : null;
   if (!scoreInput) return null;
 
@@ -431,18 +430,30 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     scoreState.isAutoplay = Boolean(scoreInput.isAutoplay);
   }
 
-  // Validate replayFrames
   const replayFrames: ReplayFrame[] = [];
   if (Array.isArray(record.replayFrames)) {
-    if (record.replayFrames.length > MAX_REPLAY_FRAMES) return null;
+    if (record.replayFrames.length > MAX_REPLAY_FRAMES) {
+      if (!importMode) return null;
+    }
     const framesByTime = new Map<number, ReplayFrame>();
-    for (const frame of record.replayFrames) {
-      if (!isRecord(frame) || !Array.isArray(frame.keysPressed) || frame.keysPressed.length !== keyCount ||
-        !frame.keysPressed.every((key): key is boolean => typeof key === 'boolean')) return null;
+    const sourceFrames = importMode
+      ? record.replayFrames.slice(0, MAX_REPLAY_FRAMES)
+      : record.replayFrames;
+    for (const frame of sourceFrames) {
+      if (!isRecord(frame) || !Array.isArray(frame.keysPressed)) {
+        if (importMode) continue;
+        return null;
+      }
+      const rawKeys = frame.keysPressed;
+      if (!importMode && (rawKeys.length !== keyCount || !rawKeys.every((key): key is boolean => typeof key === 'boolean'))) {
+        return null;
+      }
+      const keysPressed = Array.from({ length: keyCount }, (_, index) => rawKeys[index] === true);
       const time = Number(frame.time);
-      if (!Number.isFinite(time) || time < 0 || time > 10000000) return null;
-      const keysPressed = [...frame.keysPressed];
-      // Sorting and last-write-wins make duplicate timestamps deterministic.
+      if (!Number.isFinite(time) || time < 0 || time > 10000000) {
+        if (importMode) continue;
+        return null;
+      }
       framesByTime.set(time, { time, keysPressed });
     }
     const sortedTimes = Array.from(framesByTime.keys()).sort((a, b) => a - b);
@@ -450,24 +461,23 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
       const frame = framesByTime.get(time);
       if (frame) replayFrames.push(frame);
     }
+  } else if (record.replayFrames != null && !importMode) {
+    return null;
   }
 
-  const recordedSettings = record.recordedSettings 
+  const recordedSettings = record.recordedSettings
     ? sanitizeSettings(record.recordedSettings, defaultSettings)
     : undefined;
 
   const mods = sanitizeGameplayMods(record.mods);
-
   const isNoFail = mods.some(mod => mod.toUpperCase() === 'NF');
-
-  // Failed runs are intentionally ephemeral unless No Fail was active.
-  if ((Boolean(record.isFailed) || scoreState.failed) && !isNoFail) {
+  if ((Boolean(record.isFailed) || scoreState.failed) && !isNoFail && !importMode) {
     return null;
   }
-
-  // NF runs are completed ranked plays, not failed replays.
   if (isNoFail) {
     scoreState.failed = false;
+  } else if (importMode && (Boolean(record.isFailed) || scoreState.failed)) {
+    scoreState.failed = true;
   }
 
   const baseCleaned: PlayHistoryRecord = {
@@ -486,10 +496,14 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
     replayFrames,
     recordedSettings,
     mods,
-    // Preserve existing v2 fields if already populated
+    // Preserve existing v2/v3 fields if already populated
     schemaVersion: typeof record.schemaVersion === 'number' ? record.schemaVersion : undefined,
     replaySource: isReplaySource(record.replaySource) ? record.replaySource : undefined,
-    catalogSetId: typeof record.catalogSetId === 'string' || record.catalogSetId === null ? record.catalogSetId : undefined,
+    catalogSetId: typeof record.catalogSetId === 'string' || record.catalogSetId === null
+      ? record.catalogSetId
+      : (typeof (record as UnknownRecord).sourceSetId === 'number' && Number.isFinite((record as UnknownRecord).sourceSetId as number)
+        ? `osuapi_${(record as UnknownRecord).sourceSetId}`
+        : undefined),
     catalogMapId: typeof record.catalogMapId === 'string' || record.catalogMapId === null ? record.catalogMapId : undefined,
     chartRevisionId: typeof record.chartRevisionId === 'string' || record.chartRevisionId === null ? record.chartRevisionId : undefined,
     checksum: typeof record.checksum === 'string' ? record.checksum.slice(0, 128) : undefined,
@@ -503,6 +517,11 @@ export function sanitizeHistoryRecord(rawRecord: unknown, defaultSettings: GameS
       record.holdTickIntervalMs >= 10 && record.holdTickIntervalMs <= 100
       ? record.holdTickIntervalMs
       : undefined,
+    sourceSetId: typeof (record as UnknownRecord).sourceSetId === 'number' && Number.isFinite((record as UnknownRecord).sourceSetId as number) ? (record as UnknownRecord).sourceSetId as number : null,
+    sourceChartId: typeof (record as UnknownRecord).sourceChartId === 'number' && Number.isFinite((record as UnknownRecord).sourceChartId as number) ? (record as UnknownRecord).sourceChartId as number : null,
+    beatmapDifficulty: typeof (record as UnknownRecord).beatmapDifficulty === 'string' ? String((record as UnknownRecord).beatmapDifficulty).slice(0, 100) : undefined,
+    playedBy: typeof (record as UnknownRecord).playedBy === 'string' ? String((record as UnknownRecord).playedBy).slice(0, 80) : null,
+    clientInfo: isRecord((record as UnknownRecord).clientInfo) ? (record as UnknownRecord).clientInfo as unknown as PlayHistoryRecord['clientInfo'] : null,
   };
 
   baseCleaned.scoreState.recordId ||= baseCleaned.id;

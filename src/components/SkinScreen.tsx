@@ -202,7 +202,7 @@ export default function SkinScreen({
       <div className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35" style={{ backgroundImage: `url("${backgroundImage}")` }} aria-hidden="true" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(18,12,46,0.92),rgba(27,18,47,0.74)_48%,rgba(7,10,18,0.94))]" aria-hidden="true" />
 
-      <div className="relative mx-auto grid h-full min-h-0 w-full max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 py-4 sm:px-6 sm:py-5 lg:grid-cols-[minmax(0,0.82fr)_minmax(420px,1.18fr)] lg:grid-rows-1 lg:gap-5">
+      <div className="relative mx-auto grid h-full min-h-0 w-full max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 pt-3 sm:px-6 sm:pt-5 pb-[max(1rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] lg:grid-cols-[minmax(0,0.82fr)_minmax(420px,1.18fr)] lg:grid-rows-1 lg:gap-5">
         <div className="flex min-h-0 flex-col overflow-hidden">
           <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
             <button type="button" onClick={onBack} className="group flex min-h-10 items-center gap-2 rounded-lg px-1 text-sm font-medium text-white/65 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/70">
@@ -248,7 +248,7 @@ export default function SkinScreen({
           </div>
         </div>
 
-        <div className="min-h-0 overflow-y-auto overscroll-contain pr-1">
+        <div className="min-h-0 overflow-y-auto overscroll-contain pr-1 pb-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))]">
           <div className="rounded-lg border border-white/[0.08] bg-[#0d0e16]/70 p-3 sm:p-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>

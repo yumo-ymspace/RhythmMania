@@ -29,6 +29,8 @@ import {
   Volume2,
   VolumeX,
   Paintbrush,
+  Menu,
+  X,
 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
 import SettingsScreen from './components/SettingsScreen';
@@ -48,7 +50,7 @@ import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
 import { unpackBeatmap } from './utils/unpackHelper';
 import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
 import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, createZipExtractionBudget, decodeBoundedUtf8 } from './utils/securityLimits';
-import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps } from './utils/replayManager';
+import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps, computeBeatmapHash, findMatchingBeatmap } from './utils/replayManager';
 import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs } from './utils/holdTickRules';
 import { extractZipEntry } from './utils/zipResolver';
 import { uploadReplayRecord } from './utils/replayClient';
@@ -58,7 +60,7 @@ import { AuthUser, fetchCurrentUser, logoutUser, initiateGoogleSignIn } from './
 import { FullscreenManager } from './utils/fullscreenManager';
 import { previewPlayer } from './utils/previewPlayer';
 import type { ProfileTarget, ProfileTargetInput } from './utils/profileClient';
-import { downloadBeatmapsetArchive } from './utils/osuTokenManager';
+import { downloadBeatmapsetArchive, searchOsuBeatmapSetId } from './utils/osuTokenManager';
 import { resolveSkinTheme } from './render/skinTheme';
 import { cssColorToHex, parseCssColor } from './render/color';
 
@@ -243,6 +245,8 @@ export default function App() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const previousMasterVolumeRef = useRef<number | null>(null);
@@ -305,7 +309,39 @@ export default function App() {
   }, [isAccountMenuOpen]);
 
   useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        mobileMenuRef.current &&
+        !mobileMenuRef.current.contains(event.target as Node) &&
+        !(event.target as HTMLElement)?.closest('#header-mobile-menu-btn')
+      ) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMobileMenuOpen(false);
+    };
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
     setIsAccountMenuOpen(false);
+    setIsMobileMenuOpen(false);
   }, [path]);
 
   useEffect(() => {
@@ -343,6 +379,7 @@ export default function App() {
     setIsMuted(true);
   };
   const [activeReplayRecord, setActiveReplayRecord] = useState<PlayHistoryRecord | null>(null);
+  const [downloadingSetIds, setDownloadingSetIds] = useState<number[]>([]);
   const replayLoadGenerationRef = useRef(0);
   const [viewingHistoryResult, setViewingHistoryResult] = useState(false);
   // Tracks whether the user has played a map this browser session. Used to
@@ -403,7 +440,9 @@ export default function App() {
           const parsed = JSON.parse(storedHistory);
           if (Array.isArray(parsed)) {
             const sanitized = parsed
-              .map(item => sanitizeHistoryRecord(item, DEFAULT_SETTINGS, customMaps))
+              .map(item => sanitizeHistoryRecord(item, DEFAULT_SETTINGS, customMaps, {
+                allowFailed: Boolean((item as { replaySource?: string } | null)?.replaySource === 'imported'),
+              }))
               .filter((item): item is PlayHistoryRecord => item !== null);
             setPlayHistory(sanitized);
             if (sanitized.length !== parsed.length) {
@@ -435,7 +474,9 @@ export default function App() {
     setPlayHistory(prev => {
       let changed = false;
       const reSanitized = prev.map(record => {
-        const migrated = sanitizeHistoryRecord(record, DEFAULT_SETTINGS, customMaps);
+        const migrated = sanitizeHistoryRecord(record, DEFAULT_SETTINGS, customMaps, {
+          allowFailed: record.replaySource === 'imported',
+        });
         if (!migrated) {
           changed = true;
           return null;
@@ -491,6 +532,29 @@ export default function App() {
   };
 
   // Merges sanitized imported replay records into history; returns how many were new.
+  // Also auto-downloads any missing beatmapsets referenced by sourceSetId.
+  const extractRecordSourceSetId = (record: PlayHistoryRecord | any): number | null => {
+    if (typeof record?.sourceSetId === 'number' && Number.isFinite(record.sourceSetId) && record.sourceSetId > 0) {
+      return record.sourceSetId;
+    }
+    const chartRevisionId = record?.chartRevisionId;
+    if (typeof chartRevisionId === 'string') {
+      const match = /^osuapi_(\d+)/.exec(chartRevisionId);
+      if (match) return Number(match[1]);
+    }
+    const catalogSetId = record?.catalogSetId;
+    if (typeof catalogSetId === 'string') {
+      const match = /^osuapi_(\d+)$/.exec(catalogSetId);
+      if (match) return Number(match[1]);
+    }
+    const beatmapId = record?.beatmapId;
+    if (typeof beatmapId === 'string') {
+      const match = /^osuapi_(\d+)/.exec(beatmapId);
+      if (match) return Number(match[1]);
+    }
+    return null;
+  };
+
   const handleImportRecords = (records: PlayHistoryRecord[]): number => {
     const existingIds = new Set(playHistory.map(r => r.id));
     const fresh = records.filter(r => !existingIds.has(r.id));
@@ -506,6 +570,75 @@ export default function App() {
       }
       return merged;
     });
+    void (async () => {
+      const resolvedSetIds: number[] = [];
+      for (const r of fresh) {
+        let setId = extractRecordSourceSetId(r);
+        if (!setId && r.beatmapTitle) {
+          setId = await searchOsuBeatmapSetId(r.beatmapTitle, r.beatmapArtist);
+        }
+        if (typeof setId === 'number' && Number.isFinite(setId) && setId > 0 && !resolvedSetIds.includes(setId)) {
+          resolvedSetIds.push(setId);
+        }
+      }
+      const missingSetIds = resolvedSetIds.filter(setId =>
+        !customMaps.some(m => m.sourceSetId === setId || String(m.catalogSetId || '').replace(/^osuapi_/, '') === String(setId))
+      );
+      if (missingSetIds.length > 0) {
+        setDownloadingSetIds(prev => Array.from(new Set([...prev, ...missingSetIds])));
+      }
+      for (const setId of missingSetIds) {
+        try {
+          const blob = await downloadBeatmapsetArchive(setId, () => {}, () => {}, MAX_COMPRESSED_SIZE_BYTES);
+          if (blob.size > MAX_COMPRESSED_SIZE_BYTES) continue;
+          const arrayBuffer = await blob.arrayBuffer();
+          const zip = await JSZip.loadAsync(arrayBuffer);
+          validateZipLimits(zip);
+          const extractionBudget = createZipExtractionBudget();
+          const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu') && !zip.files[f].dir);
+          if (osuFiles.length === 0) continue;
+          const importedMaps: Beatmap[] = [];
+          const pkgId = `osuapi_${setId}`;
+          for (const fileKey of osuFiles) {
+            const rawContent = await extractZipEntry(zip.files[fileKey], fileKey, extractionBudget);
+            const content = decodeBoundedUtf8(rawContent, `Beatmap file ${fileKey}`);
+            const parsed = parseBeatmap(content, fileKey);
+            if (!parsed) continue;
+            const md5 = await computeChecksum(rawContent, 'md5');
+            const sha256 = await computeChecksum(rawContent, 'sha256');
+            const chartRevisionId = `osuapi_${setId}_b0_${md5}`;
+            (parsed as unknown as Record<string, unknown>).id = chartRevisionId;
+            (parsed as unknown as Record<string, unknown>).catalogSetId = pkgId;
+            (parsed as unknown as Record<string, unknown>).catalogMapId = chartRevisionId;
+            (parsed as unknown as Record<string, unknown>).chartRevisionId = chartRevisionId;
+            (parsed as unknown as Record<string, unknown>).checksum = md5;
+            (parsed as unknown as Record<string, unknown>).checksumMd5 = md5;
+            (parsed as unknown as Record<string, unknown>).checksumSha256 = sha256;
+            (parsed as unknown as Record<string, unknown>).checksumAlgorithm = 'md5';
+            (parsed as unknown as Record<string, unknown>).isServerMap = true;
+            (parsed as unknown as Record<string, unknown>).packageId = pkgId;
+            (parsed as unknown as Record<string, unknown>).parentPackageId = pkgId;
+            (parsed as unknown as Record<string, unknown>).sourceSetId = setId;
+            (parsed as unknown as Record<string, unknown>).coverUrl = `https://assets.ppy.sh/beatmaps/${setId}/covers/slimcover@2x.jpg`;
+            (parsed as unknown as Record<string, unknown>).isCached = true;
+            (parsed as unknown as Record<string, unknown>).beatmapHash = computeBeatmapHash(parsed);
+            importedMaps.push(parsed as Beatmap);
+          }
+          if (importedMaps.length > 0) {
+            await storageManager.savePackageWithBeatmaps(pkgId, `Beatmapset ${setId}`, new Blob([arrayBuffer]), importedMaps);
+            setCustomMaps(prev => {
+              const existing = new Set(prev.map(m => m.id));
+              const newOnes = importedMaps.filter(m => !existing.has(m.id));
+              return [...newOnes, ...prev];
+            });
+          }
+        } catch (e) {
+          console.warn(`Auto-download for beatmapset ${setId} failed:`, e);
+        } finally {
+          setDownloadingSetIds(prev => prev.filter(id => id !== setId));
+        }
+      }
+    })();
     return fresh.length;
   };
 
@@ -542,24 +675,26 @@ export default function App() {
     let targetMap = providedMap;
 
     if (!targetMap) {
-      const baseId = record.beatmapId?.includes('_converted_')
-        ? record.beatmapId.split('_converted_')[0]
-        : record.beatmapId;
+      targetMap = findMatchingBeatmap(record, customMaps) || undefined;
+    }
 
-      targetMap = customMaps.find(m => 
-        m.id === record.beatmapId || 
-        (baseId && m.id === baseId) || 
-        (record.catalogMapId && m.catalogMapId === record.catalogMapId) ||
-        (record.beatmapHash && m.beatmapHash === record.beatmapHash)
-      );
+    if (!targetMap) {
+      try {
+        const storedMaps = await storageManager.getAllBeatmaps();
+        const found = findMatchingBeatmap(record, storedMaps);
+        if (found) {
+          targetMap = found;
+          setCustomMaps(prev => {
+            if (!prev.some(m => m.id === found.id)) return [found, ...prev];
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.warn('Error querying IndexedDB in handleWatchReplay:', err);
+      }
     }
 
     if (targetMap) {
-      try {
-        await unpackBeatmap(targetMap);
-      } catch (e) {
-        console.warn('Media unpack error:', e);
-      }
       if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       const cached = storageManager.lruMediaCache.get(targetMap.id);
@@ -573,7 +708,8 @@ export default function App() {
 
       setSelectedBeatmap(cloned);
       setActiveReplayRecord(record);
-       navigateScreen('play');
+      setViewingHistoryResult(false);
+      navigateScreen('play');
       return { success: true };
     }
 
@@ -581,7 +717,7 @@ export default function App() {
     const catalogSetId = record.catalogSetId;
     const chartRevisionId = record.chartRevisionId;
     let catalogEntry: any = null;
-    let sourceSetId: number | null = null;
+    let sourceSetId = extractRecordSourceSetId(record);
 
     if (chartRevisionId) {
       try {
@@ -589,7 +725,7 @@ export default function App() {
         if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
         if (res.ok) {
           const json = await res.json();
-          if (json.success) {
+          if (json.success && json.data) {
             catalogEntry = json.data;
             const sid = Number(json.data.sourceSetId);
             if (Number.isInteger(sid) && sid > 0) sourceSetId = sid;
@@ -600,9 +736,13 @@ export default function App() {
       }
     }
 
-    if (!sourceSetId && typeof catalogSetId === 'string') {
-      const match = /^osuapi_(\d+)$/.exec(catalogSetId);
-      if (match) sourceSetId = Number(match[1]);
+    if (!sourceSetId && record.beatmapTitle) {
+      try {
+        const foundId = await searchOsuBeatmapSetId(record.beatmapTitle, record.beatmapArtist);
+        if (foundId) sourceSetId = foundId;
+      } catch (err) {
+        console.warn('Error searching osu! catalog for replay beatmapset:', err);
+      }
     }
 
     if (!sourceSetId) {
@@ -611,6 +751,8 @@ export default function App() {
         error: 'Beatmap is missing locally and could not be located in the osu! mirror for auto-download.'
       };
     }
+
+    setDownloadingSetIds(prev => Array.from(new Set([...prev, sourceSetId!])));
 
     try {
       const blob = await downloadBeatmapsetArchive(
@@ -626,15 +768,15 @@ export default function App() {
       const zip = await JSZip.loadAsync(arrayBuffer);
       validateZipLimits(zip);
       const extractionBudget = createZipExtractionBudget();
-      const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu'));
+      const osuFiles = Object.keys(zip.files).filter(f => f.toLowerCase().endsWith('.osu') && !zip.files[f].dir);
       if (osuFiles.length === 0) throw new Error('No .osu files in beatmap package');
 
       const importedMaps: Beatmap[] = [];
-      const pkgId = catalogEntry?.cloudSetId || catalogSetId;
+      const pkgId = catalogEntry?.cloudSetId || catalogSetId || (sourceSetId ? `osuapi_${sourceSetId}` : null) || (chartRevisionId && /^osuapi_\d+/.test(chartRevisionId) ? chartRevisionId.split('_').slice(0, 2).join('_') : null);
       if (!pkgId) throw new Error('Replay has no verified cloud set identity');
       const targetChecksum = typeof catalogEntry?.checksum === 'string'
-        ? catalogEntry.checksum
-        : typeof record.checksum === 'string' ? record.checksum : null;
+        ? catalogEntry.checksum.toLowerCase()
+        : typeof record.checksum === 'string' ? record.checksum.toLowerCase() : null;
       const targetChecksumAlgorithm = catalogEntry?.checksumAlgorithm === 'sha256' || catalogEntry?.checksumAlgorithm === 'md5'
         ? catalogEntry.checksumAlgorithm
         : record.checksumAlgorithm || (targetChecksum ? inferChecksumAlgorithm(targetChecksum) : null);
@@ -647,35 +789,50 @@ export default function App() {
         const content = decodeBoundedUtf8(rawContent, `Beatmap file ${fileKey}`);
         const parsed = parseBeatmap(content, fileKey);
         if (!parsed) continue;
-        const actualChecksum = targetChecksum && targetChecksumAlgorithm
-          ? await computeChecksum(rawContent, targetChecksumAlgorithm)
-          : null;
+
+        const [md5, sha256] = await Promise.all([
+          computeChecksum(rawContent, 'md5'),
+          computeChecksum(rawContent, 'sha256'),
+        ]);
+
         const normalizedFileName = fileKey.replace(/\\/g, '/').split('/').pop()?.toLowerCase();
-        const isTarget = targetChecksum && actualChecksum
-          ? actualChecksum.toLowerCase() === targetChecksum.toLowerCase()
-          : Boolean(targetFilename && normalizedFileName === targetFilename);
-        if (!isTarget) continue;
-        const fullMap: any = {
+        const isTarget = Boolean(
+          (targetChecksum && (md5.toLowerCase() === targetChecksum || sha256.toLowerCase() === targetChecksum)) ||
+          (targetFilename && normalizedFileName === targetFilename) ||
+          (chartRevisionId && (chartRevisionId.includes(md5) || chartRevisionId.includes(sha256))) ||
+          (record.beatmapDifficulty && parsed.difficulty?.toLowerCase() === record.beatmapDifficulty.toLowerCase() && parsed.keyCount === record.keyCount)
+        );
+
+        const mapChartRevisionId = isTarget && chartRevisionId
+          ? chartRevisionId
+          : `osuapi_${sourceSetId}_b0_${md5}`;
+
+        const mapId = isTarget && chartRevisionId ? chartRevisionId : mapChartRevisionId;
+
+        const fullMap: Beatmap & Record<string, unknown> = {
           ...parsed,
-          id: chartRevisionId,
+          id: mapId,
           catalogSetId: pkgId,
-          catalogMapId: chartRevisionId,
-          chartRevisionId,
-          checksum: targetChecksum || undefined,
-          checksumAlgorithm: targetChecksumAlgorithm || undefined,
-          isServerMap: true,
+          catalogMapId: mapChartRevisionId,
+          chartRevisionId: isTarget ? (chartRevisionId || mapChartRevisionId) : mapChartRevisionId,
+          checksum: md5,
+          checksumAlgorithm: 'md5',
+          isServerMap: Boolean(catalogEntry?.isActive || isTarget),
           packageId: pkgId,
           parentPackageId: pkgId,
           sourceSetId: sourceSetId || parsed.sourceSetId,
-          coverUrl: (sourceSetId || parsed.sourceSetId) ? `https://assets.ppy.sh/beatmaps/${sourceSetId || parsed.sourceSetId}/covers/slimcover@2x.jpg` : parsed.coverUrl,
+          coverUrl: (sourceSetId || parsed.sourceSetId)
+            ? `https://assets.ppy.sh/beatmaps/${sourceSetId || parsed.sourceSetId}/covers/slimcover@2x.jpg`
+            : parsed.coverUrl,
           isCached: true,
+          beatmapHash: computeBeatmapHash(parsed),
         };
         importedMaps.push(fullMap as Beatmap);
       }
 
       if (importedMaps.length === 0) throw new Error('Failed to parse beatmap files');
 
-      await storageManager.savePackageWithBeatmaps(pkgId, catalogEntry?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]), importedMaps);
+      await storageManager.savePackageWithBeatmaps(pkgId, catalogEntry?.title || importedMaps[0]?.title || 'Downloaded Beatmap', new Blob([arrayBuffer]), importedMaps);
       if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       setCustomMaps(prev => {
@@ -684,17 +841,15 @@ export default function App() {
         return [...newOnes, ...prev];
       });
 
-      const matchMap = importedMaps.find(m => 
-        (record.catalogMapId && m.catalogMapId === record.catalogMapId) || 
-        m.id === record.beatmapId || 
-        m.difficulty === (record as any).beatmapDifficulty
+      const matchMap = importedMaps.find(m =>
+        (targetChecksum && (m.checksum?.toLowerCase() === targetChecksum)) ||
+        (chartRevisionId && (m.chartRevisionId === chartRevisionId || m.id === chartRevisionId)) ||
+        (record.catalogMapId && (m.catalogMapId === record.catalogMapId || m.id === record.catalogMapId)) ||
+        (record.beatmapId && m.id === record.beatmapId) ||
+        (record.beatmapDifficulty && m.difficulty?.toLowerCase() === record.beatmapDifficulty.toLowerCase() && m.keyCount === record.keyCount) ||
+        (m.keyCount === record.keyCount)
       ) || importedMaps[0];
 
-      try {
-        await unpackBeatmap(matchMap);
-      } catch (e) {
-        console.warn('Error unpacking downloaded matchMap:', e);
-      }
       if (!isCurrentOperation()) return { success: false, error: 'Replay loading was superseded.' };
 
       const cachedMatch = storageManager.lruMediaCache.get(matchMap.id);
@@ -708,6 +863,7 @@ export default function App() {
 
       setSelectedBeatmap(clonedMatch);
       setActiveReplayRecord(record);
+      setViewingHistoryResult(false);
       navigateScreen('play');
       return { success: true };
     } catch (e: unknown) {
@@ -716,6 +872,10 @@ export default function App() {
         success: false,
         error: e instanceof Error ? e.message : 'Failed to auto-download mirror beatmap for replay playback'
       };
+    } finally {
+      if (sourceSetId) {
+        setDownloadingSetIds(prev => prev.filter(id => id !== sourceSetId));
+      }
     }
   };
 
@@ -986,6 +1146,7 @@ export default function App() {
         replaySource: replaySource,
         holdRules: { holdRulesVersion: HOLD_TICK_RULES_VERSION, holdTickIntervalMs },
       });
+      if (currentUser?.username) newRecord.playedBy = currentUser.username;
 
       const shouldUpload = isUserLoggedIn && newRecord.uploadEligibility === 'eligible';
 
@@ -1079,8 +1240,8 @@ export default function App() {
   return (
     <div
       id="application-container" 
-      className={`bg-[#050508] text-white flex flex-col font-sans selection:bg-cyan-300 selection:text-[#041321] relative h-screen ${
-        (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
+      className={`bg-[#050508] text-white flex flex-col font-sans selection:bg-cyan-300 selection:text-[#041321] relative h-screen h-dvh ${
+        (currentScreen === 'menu' || currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins') ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'
       }`}
     >
       {/* DYNAMIC CROSS-FADING BACKGROUND LAYERS */}
@@ -1126,12 +1287,15 @@ export default function App() {
         <>
           <header
             id="main-header"
-            className="sticky top-0 z-30 h-[60px] shrink-0 border-b border-white/[0.08] bg-[#061a34]/95 px-2 shadow-[0_8px_30px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:h-[68px] sm:px-5 md:px-7"
+            className="sticky top-0 z-30 h-[60px] shrink-0 border-b border-white/[0.08] bg-[#061a34]/95 px-3 shadow-[0_8px_30px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:h-[68px] sm:px-5 md:px-7"
           >
-            <div className="mx-auto flex h-full w-full max-w-[1440px] items-center gap-1 sm:gap-2">
+            <div className="mx-auto flex h-full w-full max-w-[1440px] items-center justify-between gap-1 sm:gap-2">
               <button
                 type="button"
-                onClick={() => leaveProfilePath('menu')}
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  leaveProfilePath('menu');
+                }}
                 className="group flex shrink-0 items-center gap-2 rounded-xl py-2 pr-2 text-left transition-transform duration-150 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
                 title="Back to menu"
               >
@@ -1141,12 +1305,12 @@ export default function App() {
                   className="h-8 w-8 rounded-lg object-cover shadow-[0_0_16px_rgba(0,176,255,0.4)] transition-shadow duration-150 group-hover:shadow-[0_0_22px_rgba(0,176,255,0.7)] sm:h-9 sm:w-9"
                   draggable={false}
                 />
-                <span className="hidden text-[1.35rem] font-black leading-none tracking-[-0.04em] text-white sm:inline md:text-[1.55rem]">
+                <span className="text-[1.2rem] font-black leading-none tracking-[-0.04em] text-white sm:text-[1.35rem] md:text-[1.55rem]">
                   Rhythm<span className="text-cyan-300">Mania</span>
                 </span>
               </button>
 
-              <nav id="top-nav" aria-label="Primary navigation" className="scrollbar-none flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto md:ml-3 md:gap-1">
+              <nav id="top-nav" aria-label="Primary navigation" className="scrollbar-none hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto md:ml-3 md:flex md:gap-1">
                 <button
                   id="header-nav-song-select"
                   type="button"
@@ -1231,124 +1395,375 @@ export default function App() {
               </nav>
 
               <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
-                {authLoading ? (
-                  <div className="flex h-10 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 sm:h-11 sm:w-[118px]">
-                    <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
-                    <span className="ml-2 hidden text-[11px] font-bold sm:inline">Loading</span>
-                  </div>
-                ) : currentUser ? (
-                  <div ref={accountMenuRef} className="relative">
-                    <button
-                      id="header-nav-account"
-                      type="button"
-                      onClick={() => setIsAccountMenuOpen((open) => !open)}
-                      className={`group flex h-10 max-w-[9rem] items-center gap-2 rounded-xl border px-2 text-cyan-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:max-w-none sm:px-3.5 ${isAccountMenuOpen ? 'border-cyan-200/50 bg-cyan-300/[0.16]' : 'border-cyan-300/25 bg-cyan-300/[0.08] hover:border-cyan-200/50 hover:bg-cyan-300/[0.14]'}`}
-                      title="Open account menu"
-                      aria-label={`Open account menu for ${currentUser.username}`}
-                      aria-haspopup="menu"
-                      aria-expanded={isAccountMenuOpen}
-                    >
-                      {currentUser.avatarUrl ? (
-                        <img src={currentUser.avatarUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-cyan-200/40" />
-                      ) : (
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/20 text-[10px] font-black text-cyan-100 ring-1 ring-cyan-200/40">
-                          {currentUser.username.charAt(0).toUpperCase()}
+                {/* Desktop Account Menu / Log In (hidden on mobile) */}
+                <div className="hidden md:flex items-center gap-1 sm:gap-2">
+                  {authLoading ? (
+                    <div className="flex h-10 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 sm:h-11 sm:w-[118px]">
+                      <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
+                      <span className="ml-2 hidden text-[11px] font-bold sm:inline">Loading</span>
+                    </div>
+                  ) : currentUser ? (
+                    <div ref={accountMenuRef} className="relative">
+                      <button
+                        id="header-nav-account"
+                        type="button"
+                        onClick={() => setIsAccountMenuOpen((open) => !open)}
+                        className={`group flex h-10 max-w-[9rem] items-center gap-2 rounded-xl border px-2 text-cyan-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:max-w-none sm:px-3.5 ${isAccountMenuOpen ? 'border-cyan-200/50 bg-cyan-300/[0.16]' : 'border-cyan-300/25 bg-cyan-300/[0.08] hover:border-cyan-200/50 hover:bg-cyan-300/[0.14]'}`}
+                        title="Open account menu"
+                        aria-label={`Open account menu for ${currentUser.username}`}
+                        aria-haspopup="menu"
+                        aria-expanded={isAccountMenuOpen}
+                      >
+                        {currentUser.avatarUrl ? (
+                          <img src={currentUser.avatarUrl} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-cyan-200/40" />
+                        ) : (
+                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-300/20 text-[10px] font-black text-cyan-100 ring-1 ring-cyan-200/40">
+                            {currentUser.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <span className="min-w-0 truncate text-[11px] font-bold">{currentUser.username}</span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-cyan-200/80 transition-transform duration-150 ${isAccountMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                      </button>
+
+                      {isAccountMenuOpen && (
+                        <div
+                          role="menu"
+                          aria-label="Account menu"
+                          className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-lg border border-white/[0.12] bg-[#392c4c]/95 p-1.5 shadow-[0_14px_35px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setIsAccountMenuOpen(false);
+                              openEditProfile();
+                            }}
+                            className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                          >
+                            <SettingsIcon className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                            <span>Account Settings</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setIsAccountMenuOpen(false);
+                              openProfile({ kind: 'userId', value: currentUser.id });
+                            }}
+                            className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                          >
+                            <UserRound className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                            <span>My Profile</span>
+                          </button>
+                          <div className="my-1.5 border-t border-white/[0.12]" aria-hidden="true" />
+                          <a
+                            role="menuitem"
+                            href="https://bug-report.rhythm-mania.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setIsAccountMenuOpen(false)}
+                            className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                          >
+                            <MessageSquareWarning className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
+                            <span>Bug Report</span>
+                          </a>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={requestSignOut}
+                            className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-rose-300 transition-colors hover:bg-rose-400/[0.12] hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/70"
+                          >
+                            <LogOut className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                            <span>Logout</span>
+                          </button>
                         </div>
                       )}
-                      <span className="min-w-0 truncate text-[11px] font-bold">{currentUser.username}</span>
-                      <ChevronDown className={`h-4 w-4 shrink-0 text-cyan-200/80 transition-transform duration-150 ${isAccountMenuOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </div>
+                  ) : (
+                    <button
+                      id="header-nav-login"
+                      type="button"
+                      onClick={handleGoogleSignIn}
+                      className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] px-0 text-[11px] font-bold text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3.5"
+                      title="Log in"
+                    >
+                      <LogIn className="h-[18px] w-[18px] text-cyan-200" />
+                      <span className="hidden sm:inline">Log in</span>
                     </button>
+                  )}
+                </div>
 
-                    {isAccountMenuOpen && (
-                      <div
-                        role="menu"
-                        aria-label="Account menu"
-                        className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-lg border border-white/[0.12] bg-[#392c4c]/95 p-1.5 shadow-[0_14px_35px_rgba(0,0,0,0.42)] backdrop-blur-xl"
-                      >
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setIsAccountMenuOpen(false);
-                            openEditProfile();
-                          }}
-                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
-                        >
-                          <SettingsIcon className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
-                          <span>Account Settings</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setIsAccountMenuOpen(false);
-                            openProfile({ kind: 'userId', value: currentUser.id });
-                          }}
-                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
-                        >
-                          <UserRound className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
-                          <span>My Profile</span>
-                        </button>
-                        <div className="my-1.5 border-t border-white/[0.12]" aria-hidden="true" />
-                        <a
-                          role="menuitem"
-                          href="https://bug-report.rhythm-mania.com"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => setIsAccountMenuOpen(false)}
-                          className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
-                        >
-                          <MessageSquareWarning className="h-[18px] w-[18px] shrink-0 text-white/90" aria-hidden="true" />
-                          <span>Bug Report</span>
-                        </a>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={requestSignOut}
-                          className="group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium text-rose-300 transition-colors hover:bg-rose-400/[0.12] hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/70"
-                        >
-                          <LogOut className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-                          <span>Logout</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    id="header-nav-login"
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] px-0 text-[11px] font-bold text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3.5"
-                    title="Log in"
-                  >
-                    <LogIn className="h-[18px] w-[18px] text-cyan-200" />
-                    <span className="hidden sm:inline">Log in</span>
-                  </button>
-                )}
-
+                {/* Fullscreen Button: Visible on both mobile and desktop! */}
                 <button
                   id="header-nav-fullscreen"
                   type="button"
                   onClick={() => void toggleFullscreen()}
-                  className="flex h-10 w-9 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11"
                   title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                   aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                 >
                   {isFullscreen ? <Minimize2 className="h-[19px] w-[19px]" /> : <Maximize2 className="h-[19px] w-[19px]" />}
                 </button>
+
+                {/* Desktop Mute Button (hidden on mobile) */}
                 <button
                   id="header-nav-mute"
                   type="button"
                   onClick={toggleMute}
-                  className={`flex h-10 w-9 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11 ${isMuted ? 'text-rose-200 hover:bg-white/[0.06]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
+                  className={`hidden md:flex h-10 w-9 items-center justify-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-11 ${isMuted ? 'text-rose-200 hover:bg-white/[0.06]' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'}`}
                   title={isMuted ? 'Unmute audio' : 'Mute audio'}
                   aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
                 >
                   {isMuted ? <VolumeX className="h-[19px] w-[19px]" /> : <Volume2 className="h-[19px] w-[19px]" />}
                 </button>
+
+                {/* Mobile Hamburger Menu Toggle Button (visible on mobile only) */}
+                <button
+                  id="header-mobile-menu-btn"
+                  type="button"
+                  onClick={() => setIsMobileMenuOpen((open) => !open)}
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 ${
+                    isMobileMenuOpen
+                      ? 'border border-cyan-400/40 bg-cyan-500/20 text-cyan-200 shadow-[0_0_12px_rgba(0,176,255,0.3)]'
+                      : 'border border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08] hover:text-white'
+                  }`}
+                  title={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                  aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                  aria-expanded={isMobileMenuOpen}
+                >
+                  {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                </button>
               </div>
             </div>
           </header>
+
+          {/* Mobile Navigation Drawer / Dropdown */}
+          <AnimatePresence>
+            {isMobileMenuOpen && (
+              <>
+                <motion.div
+                  key="mobile-nav-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm md:hidden"
+                  aria-hidden="true"
+                />
+
+                <motion.div
+                  key="mobile-nav-panel"
+                  ref={mobileMenuRef}
+                  initial={{ opacity: 0, y: -12, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.98 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  className="fixed left-3 right-3 top-[66px] z-50 max-h-[calc(100vh-80px)] overflow-y-auto rounded-2xl border border-white/[0.14] bg-[#071932]/95 p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.6),0_0_24px_rgba(0,176,255,0.12)] backdrop-blur-2xl md:hidden"
+                >
+                  {/* Account / Login Section */}
+                  <div className="mb-3">
+                    {authLoading ? (
+                      <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
+                        <span className="text-xs font-bold text-slate-300">Checking authentication...</span>
+                      </div>
+                    ) : currentUser ? (
+                      <div className="rounded-xl border border-cyan-400/20 bg-gradient-to-b from-cyan-500/[0.08] to-transparent p-3">
+                        <div className="flex items-center gap-3">
+                          {currentUser.avatarUrl ? (
+                            <img src={currentUser.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover ring-2 ring-cyan-400/40" />
+                          ) : (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-300/20 text-sm font-black text-cyan-100 ring-2 ring-cyan-400/40">
+                              {currentUser.username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-bold text-white">{currentUser.username}</div>
+                            <div className="truncate font-mono text-[10px] uppercase font-bold tracking-wider text-cyan-300/70">{currentUser.role || 'Player'}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/[0.08] pt-2.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              openProfile({ kind: 'userId', value: currentUser.id });
+                            }}
+                            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/[0.08] hover:text-white"
+                          >
+                            <UserRound className="h-4 w-4 text-cyan-300" />
+                            <span>My Profile</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              openEditProfile();
+                            }}
+                            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/[0.08] hover:text-white"
+                          >
+                            <SettingsIcon className="h-4 w-4 text-cyan-300" />
+                            <span>Edit Profile</span>
+                          </button>
+                          <a
+                            href="https://bug-report.rhythm-mania.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/[0.08] hover:text-white"
+                          >
+                            <MessageSquareWarning className="h-4 w-4 text-amber-300" />
+                            <span>Bug Report</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              requestSignOut();
+                            }}
+                            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/[0.12] hover:text-rose-200"
+                          >
+                            <LogOut className="h-4 w-4 text-rose-400" />
+                            <span>Logout</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          handleGoogleSignIn();
+                        }}
+                        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 py-2.5 text-sm font-bold text-cyan-100 shadow-[0_0_20px_rgba(0,176,255,0.15)] transition-all hover:border-cyan-300/60 hover:from-cyan-500/30 hover:to-blue-600/30"
+                      >
+                        <LogIn className="h-4 w-4 text-cyan-300" />
+                        <span>Log in with Google</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Navigation Links */}
+                  <div className="space-y-1">
+                    <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Navigation</div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        leaveProfilePath('select');
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors ${
+                        currentScreen === 'select'
+                          ? 'border border-cyan-400/30 bg-cyan-500/20 text-cyan-200'
+                          : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <Music2 className="h-[18px] w-[18px] text-cyan-300" />
+                      <span>Song Select</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        setShowFindBeatmapOverlay(true);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <Compass className="h-[18px] w-[18px] text-cyan-300" />
+                      <span>Beatmap Listing</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        setShowSettings(false);
+                        leaveProfilePath('skins');
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors ${
+                        currentScreen === 'skins'
+                          ? 'border border-cyan-400/30 bg-cyan-500/20 text-cyan-200'
+                          : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <Paintbrush className="h-[18px] w-[18px] text-cyan-300" />
+                      <span>Skins</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        leaveProfilePath('history');
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors ${
+                        currentScreen === 'history'
+                          ? 'border border-cyan-400/30 bg-cyan-500/20 text-cyan-200'
+                          : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <RotateCcw className="h-[18px] w-[18px] text-cyan-300" />
+                      <span>History</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        openSettings();
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors ${
+                        showSettings
+                          ? 'border border-cyan-400/30 bg-cyan-500/20 text-cyan-200'
+                          : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <SettingsIcon className="h-[18px] w-[18px] text-cyan-300" />
+                      <span>Settings</span>
+                    </button>
+
+                    <div className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 opacity-60">
+                      <div className="flex items-center gap-3">
+                        <Hammer className="h-[18px] w-[18px]" />
+                        <span>Map Maker</span>
+                      </div>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Soon</span>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 opacity-60">
+                      <div className="flex items-center gap-3">
+                        <Swords className="h-[18px] w-[18px]" />
+                        <span>Party</span>
+                      </div>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Soon</span>
+                    </div>
+                  </div>
+
+                  {/* Utilities & Audio */}
+                  <div className="mt-3 border-t border-white/[0.08] pt-2.5">
+                    <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Controls</div>
+                    <button
+                      type="button"
+                      onClick={toggleMute}
+                      className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-bold transition-colors ${
+                        isMuted ? 'border border-rose-400/20 bg-rose-500/10 text-rose-200' : 'text-slate-300 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isMuted ? <VolumeX className="h-[18px] w-[18px] text-rose-400" /> : <Volume2 className="h-[18px] w-[18px] text-cyan-300" />}
+                        <span>{isMuted ? 'Audio Muted' : 'Audio Active'}</span>
+                      </div>
+                      <span className="text-xs font-medium text-slate-400">{isMuted ? 'Tap to unmute' : 'Tap to mute'}</span>
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
           {authError && (
             <div className="absolute right-4 top-[76px] z-40 max-w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-rose-300/25 bg-rose-950/90 px-4 py-2.5 text-xs text-rose-100 shadow-xl sm:right-6">
               {authError}
@@ -1361,7 +1776,7 @@ export default function App() {
       <main 
         id="app-main-viewport" 
         className={`flex-1 flex flex-col min-h-0 relative ${
-          (currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins')
+          (currentScreen === 'menu' || currentScreen === 'play' || currentScreen === 'select' || currentScreen === 'history' || currentScreen === 'results' || currentScreen === 'skins')
             ? 'w-full h-full' 
             : 'py-6 md:py-12 px-4 md:px-6 z-10'
         }`}
@@ -1374,7 +1789,7 @@ export default function App() {
               initial="initial"
               animate="animate"
               exit="exit"
-              className="w-full"
+              className="w-full h-full relative"
             >
               <MainMenu 
                 onNavigate={(screen) => {
@@ -1576,9 +1991,10 @@ export default function App() {
                   history={playHistory}
                   allBeatmaps={customMaps}
                   setHistoryBgUrl={setHistoryBgUrl}
+                  downloadingSetIds={downloadingSetIds}
                   onWatchReplay={(record) => {
                     setViewingHistoryResult(false);
-                    handleWatchReplay(record);
+                    return handleWatchReplay(record);
                   }}
                   onViewResult={(record) => {
                     setActiveReplayRecord(null);

@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Check,
   X,
+  Loader2,
 } from 'lucide-react';
 import { PlayHistoryRecord, Beatmap, GameSettings } from '../types';
 import { sanitizeCssUrl } from '../utils/securityLimits';
@@ -28,6 +29,8 @@ import { DEFAULT_SETTINGS, HISTORY_LIMIT_UNLIMITED } from './settings/defaultSet
 import metadata from '../../metadata.json';
 import { resolveStarRating } from '../utils/starRating';
 import { getCatalogSetMetadata } from '../utils/catalogSetMetadata';
+import { hasOsuConnection } from '../utils/osuTokenManager';
+import { findMatchingBeatmap } from '../utils/replayManager';
 
 interface PersonalHistoryScreenProps {
   history: PlayHistoryRecord[];
@@ -43,6 +46,7 @@ interface PersonalHistoryScreenProps {
   onBack?: () => void;
   onSelectSong?: () => void;
   setHistoryBgUrl?: (url: string) => void;
+  downloadingSetIds?: number[];
 }
 
 type KeyCountFilter = 'all' | '4k' | '7k';
@@ -70,18 +74,37 @@ const MENU_BACKGROUNDS = [
 
 const DEFAULT_SONG_BANNER = '/backgrounds/Ferineon.webp';
 
-function getSlimCoverUrl(item: any): string | undefined {
-  const itemCoverUrl = typeof item?.coverUrl === 'string' ? item.coverUrl : undefined;
-  if (itemCoverUrl) return itemCoverUrl;
-
+function extractRecordSourceSetId(item: any): number | null {
   let sourceSetId = Number(
     item?.sourceSetId || String(item?.catalogSetId || '').replace(/^osuapi_/, ''),
   );
 
   if (!Number.isInteger(sourceSetId) || sourceSetId < 1) {
+    const chartRevId = item?.chartRevisionId;
+    if (typeof chartRevId === 'string') {
+      const match = chartRevId.match(/^osuapi_(\d+)/);
+      if (match) {
+        const parsed = Number(match[1]);
+        if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
+      }
+    }
+  }
+
+  if (!Number.isInteger(sourceSetId) || sourceSetId < 1) {
     const pkgId = item?.parentPackageId || item?.packageId;
     if (typeof pkgId === 'string') {
       const match = pkgId.match(/(?:osuapi_|pkg_)?(\d{1,10})/);
+      if (match) {
+        const parsed = Number(match[1]);
+        if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
+      }
+    }
+  }
+
+  if (!Number.isInteger(sourceSetId) || sourceSetId < 1) {
+    const bId = item?.beatmapId;
+    if (typeof bId === 'string') {
+      const match = bId.match(/^osuapi_(\d+)/);
       if (match) {
         const parsed = Number(match[1]);
         if (Number.isInteger(parsed) && parsed > 0) sourceSetId = parsed;
@@ -97,7 +120,20 @@ function getSlimCoverUrl(item: any): string | undefined {
     }
   }
 
-  if (!Number.isInteger(sourceSetId) || sourceSetId < 1) return undefined;
+  if (!Number.isInteger(sourceSetId) || sourceSetId < 1) return null;
+  return sourceSetId;
+}
+
+function isRecordBeatmapDownloaded(rec: PlayHistoryRecord, allBeatmaps: Beatmap[]): boolean {
+  return findMatchingBeatmap(rec, allBeatmaps) !== null;
+}
+
+function getSlimCoverUrl(item: any): string | undefined {
+  const itemCoverUrl = typeof item?.coverUrl === 'string' ? item.coverUrl : undefined;
+  if (itemCoverUrl) return itemCoverUrl;
+
+  const sourceSetId = extractRecordSourceSetId(item);
+  if (!Number.isInteger(sourceSetId) || !sourceSetId || sourceSetId < 1) return undefined;
 
   return getCatalogSetMetadata(sourceSetId)?.slimCoverUrl
     || `https://assets.ppy.sh/beatmaps/${sourceSetId}/covers/slimcover@2x.jpg`;
@@ -114,7 +150,8 @@ export default function PersonalHistoryScreen({
   onSetHistoryLimit,
   onBack,
   onSelectSong,
-  setHistoryBgUrl
+  setHistoryBgUrl,
+  downloadingSetIds = []
 }: PersonalHistoryScreenProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [keyFilter, setKeyFilter] = useState<KeyCountFilter>('all');
@@ -127,6 +164,7 @@ export default function PersonalHistoryScreen({
   const [importNotice, setImportNotice] = useState<{ text: string; isError?: boolean } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [openFilterMenu, setOpenFilterMenu] = useState<'sort' | null>(null);
+  const [isLaunchingReplay, setIsLaunchingReplay] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [randomBg, setRandomBg] = useState('');
@@ -158,18 +196,28 @@ export default function PersonalHistoryScreen({
   }, [showSettingsMenu, openFilterMenu]);
 
   const handleImportFile = async (file: File) => {
+    if (!hasOsuConnection()) {
+      setImportNotice({
+        text: 'Please connect your osu! account in Settings or Online Catalog before uploading replays so beatmapsets can be searched and downloaded.',
+        isError: true,
+      });
+      return;
+    }
     if (file.size > MAX_IMPORT_FILE_BYTES) {
       setImportNotice({ text: 'Import failed: file exceeds the 64 MB limit.', isError: true });
       return;
     }
     try {
-      const text = await file.text();
+      const text = (await file.text()).replace(/^\uFEFF/, '');
       const { records, rejectedCount } = parseReplayImport(text, DEFAULT_SETTINGS, allBeatmaps);
       if (records.length === 0) {
         setImportNotice({ text: 'Import failed: no valid replay records found in file.', isError: true });
         return;
       }
       const added = onImportRecords(records);
+      if (records.length > 0 && records[0]?.id) {
+        setSelectedRecordId(records[0].id);
+      }
       const skipped = records.length - added;
       setImportNotice({
         text: `Imported ${added} run${added === 1 ? '' : 's'}` + (skipped > 0 ? ` (${skipped} skipped)` : '') + (rejectedCount > 0 ? ` (${rejectedCount} rejected)` : '') + '.',
@@ -245,6 +293,15 @@ export default function PersonalHistoryScreen({
     if (setHistoryBgUrl) setHistoryBgUrl(currentBgUrl || DEFAULT_SONG_BANNER);
   }, [currentBgUrl, setHistoryBgUrl]);
 
+  const isRecordDownloading = (rec: PlayHistoryRecord) => {
+    const isDownloaded = isRecordBeatmapDownloaded(rec, allBeatmaps);
+    if (isDownloaded) return false;
+    const setId = extractRecordSourceSetId(rec);
+    return Boolean(setId && downloadingSetIds.includes(setId));
+  };
+
+  const isSelectedRecordDownloading = selectedRecord ? isRecordDownloading(selectedRecord) : false;
+
   const handleDeleteRecord = (id: string) => {
     if (selectedRecordId === id) {
       const remaining = filteredHistory.filter(r => r.id !== id);
@@ -255,8 +312,13 @@ export default function PersonalHistoryScreen({
   };
 
   const handleWatchRecord = async (record: PlayHistoryRecord) => {
-    const result = await onWatchReplay(record);
-    if (result && !result.success) setImportNotice({ text: result.error || 'Replay playback could not be started.', isError: true });
+    setIsLaunchingReplay(true);
+    try {
+      const result = await onWatchReplay(record);
+      if (result && !result.success) setImportNotice({ text: result.error || 'Replay playback could not be started.', isError: true });
+    } finally {
+      setIsLaunchingReplay(false);
+    }
   };
 
   const getRelativeTime = (ts: number) => {
@@ -300,9 +362,27 @@ export default function PersonalHistoryScreen({
     setSelectedRecordId(filteredHistory[Math.floor(Math.random() * filteredHistory.length)].id);
   };
 
+  const handleTriggerImport = () => {
+    if (!hasOsuConnection()) {
+      setImportNotice({
+        text: 'Please connect your osu! account in Settings or Online Catalog before uploading replays so beatmapsets can be searched and downloaded.',
+        isError: true,
+      });
+      return;
+    }
+    importInputRef.current?.click();
+  };
+
   const handleDrag = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
+    if (!hasOsuConnection()) {
+      setImportNotice({
+        text: 'Please connect your osu! account in Settings or Online Catalog before uploading replays so beatmapsets can be searched and downloaded.',
+        isError: true,
+      });
+      return;
+    }
     const f = e.dataTransfer.files?.[0];
     if (f) await handleImportFile(f);
   };
@@ -312,7 +392,7 @@ export default function PersonalHistoryScreen({
       <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent">
         <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">{metadata.version}</div>
         <div className="absolute inset-0 bg-black/10 backdrop-blur-[0.5px] pointer-events-none z-0" />
-        <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
+        <input ref={importInputRef} type="file" accept=".rmr,.json,application/json,application/x-rhythmmania-replay" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
         {importNotice && (
           <div className={`absolute top-0 inset-x-0 z-30 px-5 py-2 flex items-center justify-between gap-3 text-xs font-medium backdrop-blur-xl border-b ${importNotice.isError ? 'bg-rose-950/70 border-rose-500/20 text-rose-200' : 'bg-zinc-900/80 border-cyan-500/20 text-cyan-200'}`}>
             <div className="flex items-center gap-2">{importNotice.isError ? <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" /> : <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" />}<span>{importNotice.text}</span></div>
@@ -328,11 +408,11 @@ export default function PersonalHistoryScreen({
                 <p className="text-sm text-slate-400 font-sans max-w-sm leading-relaxed">Complete songs in Song Select or import replays to see your history here.</p>
                 <div className="flex items-center justify-center gap-2 mt-3">
                   {onSelectSong && <button type="button" onClick={onSelectSong} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-950 transition hover:bg-cyan-400"><Music className="h-3.5 w-3.5" /> Song Select</button>}
-                  <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"><Upload className="h-3.5 w-3.5" /> Import</button>
+                  <button type="button" onClick={handleTriggerImport} className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"><Upload className="h-3.5 w-3.5" /> Import</button>
                 </div>
               </div>
-              <button type="button" aria-label="Import replay file" onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop} onClick={() => importInputRef.current?.click()} className="mt-6 p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/80 hover:bg-black/90 transition flex flex-col items-center justify-center w-full max-w-sm">
-                <Upload className="h-4 w-4 text-slate-500 mb-1" /><span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest">DRAG & DROP REPLAY JSON TO IMPORT</span>
+              <button type="button" aria-label="Import replay file" onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop} onClick={handleTriggerImport} className="mt-6 p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/80 hover:bg-black/90 transition flex flex-col items-center justify-center w-full max-w-sm">
+                <Upload className="h-4 w-4 text-slate-500 mb-1" /><span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest">DRAG & DROP RMR / JSON TO IMPORT</span>
               </button>
             </div>
           </div>
@@ -343,9 +423,9 @@ export default function PersonalHistoryScreen({
             </div>
           </div>
         </div>
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto">
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto pb-[env(safe-area-inset-bottom,0px)]">
           <div className="flex items-center gap-0.5 bg-[#09090d]/90 backdrop-blur-md border-t border-l border-r border-white/10 rounded-t-2xl pointer-events-auto shadow-2xl">
-            <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
+            <button type="button" onClick={handleTriggerImport} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
               <div className="flex flex-col items-center gap-1.5"><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
               <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#a3e635] rounded-b-xl" />
             </button>
@@ -361,10 +441,10 @@ export default function PersonalHistoryScreen({
 
   if (isMobile) {
     return (
-      <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
+      <div className="relative w-full h-[calc(100dvh_-_60px)] sm:h-[calc(100dvh_-_68px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent px-4 py-3 gap-3">
         <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-none z-0" />
         {currentBgUrl && <div className="absolute inset-0 bg-cover bg-center opacity-20 blur-xl scale-110 pointer-events-none z-0" style={{ backgroundImage: `url("${sanitizeCssUrl(currentBgUrl)}")` }} />}
-        <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
+        <input ref={importInputRef} type="file" accept=".rmr,.json,application/json,application/x-rhythmmania-replay" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
         {importNotice && (
           <div className={`shrink-0 z-20 px-3 py-2 flex items-center justify-between gap-2 text-xs font-medium backdrop-blur-xl border rounded-xl ${importNotice.isError ? 'bg-rose-950/70 border-rose-500/20 text-rose-200' : 'bg-zinc-900/80 border-cyan-500/20 text-cyan-200'}`}>
             <div className="flex items-center gap-2 min-w-0">{importNotice.isError ? <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" /> : <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" />}<span className="truncate">{importNotice.text}</span></div>
@@ -374,81 +454,126 @@ export default function PersonalHistoryScreen({
 
         {selectedRecord ? (
           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0c0c12]/70 backdrop-blur-md p-4 flex flex-col gap-3 shadow-2xl z-10 shrink-0">
-            {currentBgUrl && <div className="absolute inset-0 bg-cover bg-center opacity-10 blur-xl scale-110 pointer-events-none" style={{ backgroundImage: `url("${sanitizeCssUrl(currentBgUrl)}")` }} />}
             <div className="flex items-center gap-3 relative z-10">
               <div className="w-14 h-14 rounded-xl border border-white/10 bg-slate-900/80 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
-                {currentBgUrl ? <img src={currentBgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" /> : <Music className="h-6 w-6 text-pink-500" />}
+                {currentBgUrl ? (
+                  <img src={currentBgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="Artwork" />
+                ) : (
+                  <Music className="h-6 w-6 text-pink-500" />
+                )}
               </div>
               <div className="flex-1 min-w-0 text-left flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-mono tracking-widest text-pink-500 font-black leading-none mb-1 truncate">{selectedRecord.beatmapArtist || 'Unknown Artist'}</span>
-                <h2 className="font-sans font-black text-base text-white tracking-tight truncate leading-tight">{selectedRecord.beatmapTitle}</h2>
-                <span className="text-[10px] text-slate-400 font-mono uppercase mt-0.5 tracking-wide truncate">{selectedRecord.difficultyName} • {selectedRecord.keyCount}K • ★ {selectedRecord.starRating.toFixed(2)}</span>
+                <span className="text-[10px] uppercase font-mono tracking-widest text-pink-500 font-black leading-none mb-1">
+                  {selectedRecord.beatmapArtist || 'Unknown Artist'}
+                </span>
+                <h2 className="font-sans font-black text-base text-white tracking-tight truncate leading-tight">
+                  {selectedRecord.beatmapTitle || 'Unknown Title'}
+                </h2>
+                <span className="text-[10px] text-slate-400 font-mono uppercase mt-0.5 tracking-wide">
+                  {selectedRecord.beatmapDifficulty || 'Normal'} • {selectedRecord.accuracy.toFixed(2)}%
+                </span>
               </div>
-              <span className={`shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg font-bold text-xs font-sans ${getGradeTheme(selectedRecord.grade, selectedRecord.isFailed).badge}`}>{getGradeTheme(selectedRecord.grade, selectedRecord.isFailed).tag}</span>
             </div>
-            <div className="flex items-center justify-between gap-3 relative z-10">
-              <div className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/5 px-3 py-2 flex items-center justify-between">
-                <div className="text-left"><div className="text-[9px] font-mono uppercase tracking-wider text-slate-500">Score</div><div className="text-sm font-mono font-black text-white tabular-nums">{selectedRecord.score.toLocaleString()}</div></div>
-                <div className="text-right"><div className="text-[9px] font-mono uppercase tracking-wider text-slate-500">Accuracy</div><div className="text-sm font-mono font-bold text-cyan-300 tabular-nums">{selectedRecord.accuracy.toFixed(2)}%</div></div>
-              </div>
-              <button onClick={() => void handleWatchRecord(selectedRecord)} disabled={!selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0} className="px-5 py-2.5 bg-pink-500/80 hover:bg-pink-500 active:brightness-90 active:scale-95 text-slate-950 font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-pink-500/20 flex items-center justify-center gap-1.5 transform transition duration-150 cursor-pointer border border-white/10 select-none shrink-0 disabled:opacity-30">
-                <Play className="h-4 w-4 fill-current text-slate-950" /><span>WATCH</span>
+
+            <div className="flex items-center justify-between gap-2 relative z-10">
+              {onWatchReplay && selectedRecord.replayFrames && selectedRecord.replayFrames.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { void onWatchReplay(selectedRecord); }}
+                  className="flex-1 py-2.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-300 font-sans font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  <span>Replay</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => downloadReplayExport([selectedRecord], `${selectedRecord.beatmapArtist} - ${selectedRecord.beatmapTitle}`)}
+                className="px-3 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 rounded-xl flex items-center justify-center transition active:scale-95 cursor-pointer"
+                title="Export replay file"
+              >
+                <Download className="h-4 w-4" />
               </button>
+              {onDeleteRecord && (
+                <button
+                  type="button"
+                  onClick={() => { onDeleteRecord(selectedRecord.id); setSelectedRecordId(null); }}
+                  className="px-3 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-xl flex items-center justify-center transition active:scale-95 cursor-pointer"
+                  title="Delete record"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
         ) : (
           <div className="rounded-2xl border border-white/10 bg-[#0c0c12]/70 backdrop-blur-md p-6 text-center shadow-2xl z-10 shrink-0">
-            <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No replay selected</p>
-            <div className="flex items-center justify-center gap-2 mt-3">
-              {onSelectSong && <button type="button" onClick={onSelectSong} className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-950"><Music className="h-3.5 w-3.5" /> Song Select</button>}
-              <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100"><Upload className="h-3.5 w-3.5" /> Import</button>
-            </div>
+            <p className="text-xs text-slate-400 font-mono uppercase font-bold tracking-wider">No record selected</p>
+            <p className="text-[10px] text-slate-500 font-mono mt-1">Select a replay from the list below</p>
           </div>
         )}
 
         <div className="flex items-center gap-2 z-10 shrink-0">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400" />
-            <input type="text" placeholder="Search replays..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-[#0f0e15] border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/30 transition-all shadow-lg" />
+            <input 
+              type="text"
+              placeholder="Search history..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-[#0f0e15] border border-white/10 rounded-xl font-sans text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/30 transition-all shadow-lg"
+            />
           </div>
-          <button type="button" onClick={() => importInputRef.current?.click()} className="px-3.5 py-2.5 bg-[#12121a]/80 hover:brightness-110 active:scale-95 border border-white/10 rounded-xl text-[10px] font-sans font-black tracking-wider text-white uppercase flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all shrink-0"><Upload className="h-3.5 w-3.5 text-emerald-400 shrink-0" /><span>IMPORT</span></button>
         </div>
 
         <div className="flex items-center justify-between text-[10px] font-mono font-black text-slate-400 tracking-wider uppercase z-10 px-1 shrink-0">
-          <span>AVAILABLE REPLAYS</span>
-          <span className="text-pink-400 font-bold bg-pink-550/10 px-2 py-0.5 rounded border border-pink-500/10">{filteredHistory.length} replays</span>
+          <span>PAST REPLAYS</span>
+          <span className="text-pink-400 font-bold bg-pink-550/10 px-2 py-0.5 rounded border border-pink-500/10">{filteredHistory.length} records</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 z-10 pb-[90px] pr-0.5 min-h-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 z-10 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] pr-0.5 min-h-0">
           {filteredHistory.length > 0 ? (
             filteredHistory.map((rec) => {
-              const isActive = selectedRecordId === rec.id;
+              const isSelected = selectedRecordId === rec.id;
               const theme = getGradeTheme(rec.grade, rec.isFailed);
-              const banner = rec.coverUrl || DEFAULT_SONG_BANNER;
+              const isItemDownloading = isRecordDownloading(rec);
+
               return (
-                <div key={rec.id} role="button" tabIndex={0} aria-pressed={isActive}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedRecordId(rec.id); } }}
+                <div
+                  key={rec.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   onClick={() => setSelectedRecordId(rec.id)}
-                  className={`group relative border rounded-xl overflow-hidden cursor-pointer select-none transition-all p-3 flex items-center justify-between gap-3 shadow-md active:scale-[0.99] duration-150 ${isActive ? 'border-pink-500 bg-pink-500/5 shadow-[0_0_15px_rgba(236,72,153,0.15)]' : 'border-white/[0.05] bg-[#0c0c12]/85 hover:bg-[#12121a]/90 hover:border-white/10'}`}>
-                  {rec.coverUrl && (
-                    <img src={rec.coverUrl} className="absolute inset-0 h-full w-full object-cover opacity-15 blur-sm pointer-events-none" referrerPolicy="no-referrer" alt="" />
-                  )}
+                  className={`group relative border rounded-xl overflow-hidden cursor-pointer select-none transition-all p-3 flex items-center justify-between gap-3 shadow-md active:scale-[0.99] duration-150 ${
+                    isSelected
+                      ? 'border-pink-500 bg-pink-500/5 shadow-[0_0_15px_rgba(236,72,153,0.15)] text-pink-400'
+                      : 'border-white/[0.05] bg-[#0c0c12]/85 hover:bg-[#12121a]/90 hover:border-white/10 text-slate-100'
+                  }`}
+                >
                   <div className="flex items-center gap-3 relative z-10 min-w-0 flex-1">
                     <div className="w-10 h-10 rounded-lg bg-slate-900 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                      {rec.coverUrl ? <img src={rec.coverUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" /> : <Music className="h-4 w-4 text-pink-500" />}
+                      {rec.coverUrl ? (
+                        <img src={rec.coverUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt="" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-pink-500" />
+                      )}
                     </div>
                     <div className="text-left min-w-0 flex-1">
-                      <h4 className="font-bold font-sans text-sm text-white tracking-tight truncate leading-snug">{rec.beatmapTitle}</h4>
-                      <p className="text-[10px] text-slate-400 font-mono truncate uppercase mt-0.5">{rec.beatmapArtist} • {rec.difficultyName}</p>
-                      <div className="flex items-center gap-1.5 mt-1 text-[10px] font-mono text-slate-400">
+                      <h4 className="font-bold font-sans text-sm text-white tracking-tight truncate leading-snug">
+                        {rec.beatmapTitle}
+                      </h4>
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5">
                         <span className="text-slate-200 font-semibold tabular-nums">{rec.score.toLocaleString()}</span><span>•</span><span className="tabular-nums">{rec.accuracy.toFixed(2)}%</span><span>•</span><span>{rec.keyCount}K</span>
                         {rec.mods && rec.mods.length > 0 && <><span>•</span><span className="text-pink-400 font-sans font-medium text-[9px]">+{rec.mods.join('')}</span></>}
+                        {isItemDownloading && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-mono text-cyan-300 bg-cyan-500/15 px-1.5 py-0.5 rounded border border-cyan-500/30 animate-pulse">
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            <span>Downloading...</span>
+                          </span>
+                        )}
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0 z-10 select-none">
-                    <span className={`inline-flex items-center justify-center h-7 w-7 rounded-lg font-bold text-xs font-sans ${theme.badge}`}>{theme.tag}</span>
-                    <span className="text-[9px] font-mono text-slate-500">{getRelativeTime(rec.timestamp)}</span>
                   </div>
                 </div>
               );
@@ -460,9 +585,9 @@ export default function PersonalHistoryScreen({
           )}
         </div>
 
-        <div className="fixed bottom-0 inset-x-0 bg-[#09090d]/95 backdrop-blur-md border-t border-white/10 p-4 pb-6 flex items-center justify-between gap-3 z-40 shadow-2xl">
+        <div className="fixed bottom-0 inset-x-0 bg-[#09090d]/95 backdrop-blur-md border-t border-white/10 p-4 pb-[max(1.5rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] flex items-center justify-between gap-3 z-40 shadow-2xl">
           <button type="button" onClick={() => { if (onBack) onBack(); }} className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"><ArrowLeft className="h-4 w-4 text-pink-500" /><span>Back</span></button>
-          <button type="button" onClick={() => importInputRef.current?.click()} className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"><Upload className="h-4 w-4 text-emerald-400" /><span>Import</span></button>
+          <button type="button" onClick={handleTriggerImport} className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"><Upload className="h-4 w-4 text-emerald-400" /><span>Import</span></button>
           <button type="button" onClick={handleSelectRandom} className="flex-1 py-3.5 bg-[#121216] border border-white/10 rounded-xl flex items-center justify-center gap-2 text-white font-sans font-bold text-xs uppercase cursor-pointer active:brightness-90 active:scale-95 transition-all shadow-md"><Shuffle className="h-4 w-4 text-[#38bdf8]" /><span>Random</span></button>
         </div>
       </div>
@@ -470,11 +595,11 @@ export default function PersonalHistoryScreen({
   }
 
   return (
-    <div className="relative w-full h-[calc(100vh_-_64px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent">
-      <div className="absolute bottom-6 left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">{metadata.version}</div>
+    <div className="relative w-full h-[calc(100dvh_-_60px)] sm:h-[calc(100dvh_-_68px)] text-slate-100 font-sans select-none overflow-hidden flex flex-col bg-transparent">
+      <div className="absolute bottom-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))] left-6 text-xs text-white/40 font-mono z-[100] select-none pointer-events-none">{metadata.version}</div>
       <div className="absolute inset-0 bg-black/10 backdrop-blur-[0.5px] pointer-events-none z-0" />
       <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-black/20 to-transparent pointer-events-none z-[1]" />
-      <input ref={importInputRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
+      <input ref={importInputRef} type="file" accept=".rmr,.json,application/json,application/x-rhythmmania-replay" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImportFile(f); e.target.value = ''; }} />
       {importNotice && (
         <div className={`absolute top-0 inset-x-0 z-30 px-5 py-2 flex items-center justify-between gap-3 text-xs font-medium backdrop-blur-xl border-b ${importNotice.isError ? 'bg-rose-950/70 border-rose-500/20 text-rose-200' : 'bg-emerald-950/40 border-emerald-500/20 text-emerald-200'}`} role="alert">
           <div className="flex items-center gap-2">{importNotice.isError ? <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" /> : <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}<span>{importNotice.text}</span></div>
@@ -510,8 +635,38 @@ export default function PersonalHistoryScreen({
                 </div>
               </div>
 
-              <button id="main-left-play-button" onClick={() => void handleWatchRecord(selectedRecord)} disabled={!selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0} className="w-full py-4 bg-[#061a34]/80 hover:bg-[#193454] active:scale-95 text-white font-sans font-black text-base tracking-widest rounded-xl shadow-lg shadow-black/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 cursor-pointer border border-white/10 select-none disabled:opacity-30">
-                <Play className="h-5 w-5 fill-current text-cyan-300" /><span>Watch Replay</span>
+              {isSelectedRecordDownloading && (
+                <div className="flex items-center gap-2.5 px-4 py-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-300 text-xs font-mono animate-pulse">
+                  <Loader2 className="h-4 w-4 animate-spin text-cyan-400 shrink-0" />
+                  <div className="flex flex-col text-left min-w-0">
+                    <span className="font-bold uppercase tracking-wider text-[10px] text-cyan-200">Downloading Beatmapset</span>
+                    <span className="text-[9px] text-cyan-400/80 truncate">Original beatmapset is being downloaded...</span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                id="main-left-play-button"
+                onClick={() => void handleWatchRecord(selectedRecord)}
+                disabled={isSelectedRecordDownloading || isLaunchingReplay || !selectedRecord.replayFrames || selectedRecord.replayFrames.length === 0}
+                className={`w-full py-4 bg-[#061a34]/80 hover:bg-[#193454] active:scale-95 text-white font-sans font-black text-base tracking-widest rounded-xl shadow-lg shadow-black/20 flex items-center justify-center gap-2 transform transition hover:scale-[1.01] duration-150 border border-white/10 select-none ${isSelectedRecordDownloading || isLaunchingReplay ? 'opacity-75 cursor-wait' : 'cursor-pointer'} disabled:opacity-30`}
+              >
+                {isSelectedRecordDownloading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
+                    <span>Downloading beatmap...</span>
+                  </>
+                ) : isLaunchingReplay ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
+                    <span>Loading Replay...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-5 w-5 fill-current text-cyan-300" />
+                    <span>Watch Replay</span>
+                  </>
+                )}
               </button>
 
               {confirmDeleteId === selectedRecord.id ? (
@@ -523,10 +678,10 @@ export default function PersonalHistoryScreen({
                 <button type="button" onClick={() => setConfirmDeleteId(selectedRecord.id)} className="w-full py-3 rounded-xl border border-white/10 bg-[#12121a]/80 text-slate-400 hover:border-rose-500/40 hover:text-rose-300 text-xs font-black uppercase tracking-wider transition flex items-center justify-center gap-1.5"><Trash2 className="h-3.5 w-3.5" /> Delete Replay</button>
               )}
 
-              <button type="button" onClick={() => downloadReplayExport([selectedRecord], `${selectedRecord.beatmapArtist} - ${selectedRecord.beatmapTitle}`)} className="w-full py-3 rounded-xl border border-white/10 bg-[#12121a]/80 text-slate-300 hover:border-white/20 hover:text-white text-xs font-sans font-bold uppercase tracking-wider transition flex items-center justify-center gap-1.5"><Download className="h-3.5 w-3.5" /> Export JSON</button>
+              <button type="button" onClick={() => downloadReplayExport([selectedRecord], `${selectedRecord.beatmapArtist} - ${selectedRecord.beatmapTitle}`)} className="w-full py-3 rounded-xl border border-white/10 bg-[#12121a]/80 text-slate-300 hover:border-white/20 hover:text-white text-xs font-sans font-bold uppercase tracking-wider transition flex items-center justify-center gap-1.5"><Download className="h-3.5 w-3.5" /> Export RMR</button>
 
-              <button type="button" aria-label="Import replay file" onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop} onClick={() => importInputRef.current?.click()} className="p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/80 hover:bg-black/90 transition flex flex-col items-center justify-center">
-                <Upload className="h-4 w-4 text-slate-500 mb-1" /><span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest">DRAG & DROP REPLAY JSON TO IMPORT</span>
+              <button type="button" aria-label="Import replay file" onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop} onClick={handleTriggerImport} className="p-3 rounded-xl border border-dashed border-white/10 text-center cursor-pointer hover:border-pink-500/30 bg-black/80 hover:bg-black/90 transition flex flex-col items-center justify-center">
+                <Upload className="h-4 w-4 text-slate-500 mb-1" /><span className="text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest">DRAG & DROP RMR / JSON TO IMPORT</span>
               </button>
 
               <div className="relative" ref={menuRef}>
@@ -542,7 +697,7 @@ export default function PersonalHistoryScreen({
                       </select>
                     </div>
                     <button type="button" onClick={() => { setShowSettingsMenu(false); handleExportAll(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"><Download className="h-3.5 w-3.5" /><span>Export Filtered Plays</span></button>
-                    <button type="button" onClick={() => { setShowSettingsMenu(false); importInputRef.current?.click(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"><Upload className="h-3.5 w-3.5" /><span>Import Replay File</span></button>
+                    <button type="button" onClick={() => { setShowSettingsMenu(false); handleTriggerImport(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors"><Upload className="h-3.5 w-3.5" /><span>Import Replay File</span></button>
                     <button type="button" onClick={() => { setShowSettingsMenu(false); setShowConfirmClear(true); }} className="flex items-center gap-2 px-3 py-2 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /><span>Clear All History</span></button>
                   </div>
                 )}
@@ -556,7 +711,7 @@ export default function PersonalHistoryScreen({
                 <p className="text-sm text-slate-400 font-sans max-w-sm leading-relaxed">Select a replay from the list to watch it</p>
                 <div className="flex items-center justify-center gap-2 mt-2">
                   {onSelectSong && <button type="button" onClick={onSelectSong} className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/35 bg-cyan-400/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-cyan-950 transition hover:bg-cyan-400"><Music className="h-3.5 w-3.5" /> Song Select</button>}
-                  <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"><Upload className="h-3.5 w-3.5" /> Import</button>
+                  <button type="button" onClick={handleTriggerImport} className="inline-flex items-center justify-center gap-2 rounded-xl border border-pink-500/35 bg-pink-500/80 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-pink-100 transition hover:bg-pink-500"><Upload className="h-3.5 w-3.5" /> Import</button>
                 </div>
               </div>
             </div>
@@ -601,6 +756,7 @@ export default function PersonalHistoryScreen({
                 const isActive = selectedRecordId === rec.id;
                 const banner = rec.coverUrl || DEFAULT_SONG_BANNER;
                 const theme = getGradeTheme(rec.grade, rec.isFailed);
+                const isItemDownloading = isRecordDownloading(rec);
                 return (
                   <div key={rec.id} className="flex flex-col gap-0 transition-all pl-8">
                     <div role="button" tabIndex={0} aria-pressed={isActive}
@@ -614,9 +770,15 @@ export default function PersonalHistoryScreen({
                           <span className="text-[10px] uppercase font-mono tracking-wider text-skin-accent mb-0.5 leading-none truncate">{rec.beatmapArtist || 'Unknown Artist'}</span>
                           <h4 className="font-extrabold font-sans text-lg lg:text-xl text-white tracking-tight truncate leading-tight">{rec.beatmapTitle}</h4>
                           <span className="text-[10px] text-slate-400 font-mono mt-1 uppercase font-black tracking-normal truncate">{rec.difficultyName} • {rec.keyCount}K • {getRelativeTime(rec.timestamp)}</span>
-                          <div className="flex items-center gap-1.5 mt-1.5 text-[10px] font-mono">
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[10px] font-mono flex-wrap">
                             <span className="text-slate-200 font-semibold tabular-nums">{rec.score.toLocaleString()}</span><span className="text-slate-500">•</span><span className="text-cyan-300 font-bold tabular-nums">{rec.accuracy.toFixed(2)}%</span><span className="text-slate-500">•</span><span className="text-slate-400">{rec.maxCombo}x</span>
                             {rec.mods && rec.mods.length > 0 && <span className="text-pink-400 font-sans font-bold text-[10px]">+{rec.mods.join('')}</span>}
+                            {isItemDownloading && (
+                              <span className="inline-flex items-center gap-1 text-[9px] font-mono text-cyan-300 bg-cyan-500/15 px-1.5 py-0.5 rounded border border-cyan-500/30 animate-pulse">
+                                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                <span>Downloading...</span>
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex flex-col items-center gap-1.5 shrink-0 select-none">
@@ -637,9 +799,9 @@ export default function PersonalHistoryScreen({
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto">
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-30 select-none bg-transparent pointer-events-none w-auto pb-[env(safe-area-inset-bottom,0px)]">
         <div className="flex items-center gap-0.5 bg-[#09090d]/90 backdrop-blur-md border-t border-l border-r border-white/10 rounded-t-2xl pointer-events-auto shadow-2xl">
-          <button type="button" onClick={() => importInputRef.current?.click()} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
+          <button type="button" onClick={handleTriggerImport} className="relative flex flex-col items-center justify-center bg-[#1e2326]/90 hover:bg-[#252b2f] border border-white/10 active:brightness-95 w-32 h-16 transition-all duration-150 shadow-md cursor-pointer group rounded-l-xl">
             <div className="flex flex-col items-center gap-1.5"><Upload className="h-[22px] w-[22px] text-[#a3e635] transition group-hover:scale-110" /><span className="text-sm font-sans font-extrabold text-white tracking-wide leading-none select-none">Import</span></div>
             <div className="absolute bottom-1 inset-x-0 h-[3px] bg-[#a3e635] rounded-b-xl" />
           </button>
