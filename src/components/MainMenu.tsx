@@ -198,7 +198,7 @@ export const MainMenu = ({
               {/* Inner ambient pulse */}
               <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#ff1a75]/50 to-transparent pointer-events-none" />
               
-              <h1 className="text-4xl sm:text-5xl font-black italic tracking-tighter text-white text-center leading-[1.05] mt-1 sm:mt-2 select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10">
+              <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-white text-center leading-[1.05] mt-1 sm:mt-2 select-none drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10">
                 Rhythm<br />Mania
               </h1>
               <p className="mt-2 text-white/90 font-mono text-[11px] sm:text-xs font-bold tracking-[0.2em] z-10 select-none drop-shadow">
@@ -281,11 +281,21 @@ export const MainMenu = ({
           <ResourceLinks />
           <p className="text-[9px] text-white/35 font-sans text-center max-w-[320px] leading-tight">
             By using RhythmMania, you acknowledge and agree to the{' '}
-            <a href="/tos" className="text-white/50 hover:text-white underline transition-colors">
+            <a
+              href="https://terms-of-service.rhythm-mania.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/50 hover:text-white underline transition-colors"
+            >
               Terms of Service
             </a>{' '}
             and{' '}
-            <a href="/privacypolicy" className="text-white/50 hover:text-white underline transition-colors">
+            <a
+              href="https://privacy-policy.rhythm-mania.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/50 hover:text-white underline transition-colors"
+            >
               Privacy Policy
             </a>
             .
@@ -460,7 +470,7 @@ export const MainMenu = ({
               className="w-64 h-64 md:w-80 md:h-80 rounded-full bg-[#ff4da6]/10 backdrop-blur-md justify-center flex items-center flex-col cursor-pointer border-[8px] border-white/20 shadow-[0_0_60px_rgba(255,77,166,0.5)] relative hover:border-white/40 hover:shadow-[0_0_80px_rgba(255,77,166,0.7)] group transition-colors transition-shadow duration-300 pointer-events-auto"
             >
               <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#ff1a75]/50 to-transparent pointer-events-none group-hover:from-[#ff1a75]/70 transition-opacity" />
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black italic tracking-tighter text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10 select-none text-center leading-[1.05] mt-2">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tighter text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.5)] z-10 select-none text-center leading-[1.05] mt-2">
                 Rhythm<br/>Mania
               </h1>
               <p className="mt-2 text-white/90 font-mono text-xs md:text-sm font-bold tracking-[0.2em] z-10 select-none drop-shadow">
@@ -479,11 +489,21 @@ export const MainMenu = ({
         {/* Bottom Right Legal Notice */}
         <div className="absolute bottom-[max(1.5rem,calc(1rem+env(safe-area-inset-bottom,0px)))] right-6 text-[10px] md:text-xs text-white/40 font-sans z-30 select-text text-right max-w-[280px] md:max-w-md pointer-events-auto">
           By using RhythmMania, you acknowledge and agree to the{' '}
-          <a href="/tos" className="text-white/60 hover:text-white underline transition-colors">
+          <a
+            href="https://terms-of-service.rhythm-mania.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white/60 hover:text-white underline transition-colors"
+          >
             Terms of Service
           </a>{' '}
           and{' '}
-          <a href="/privacypolicy" className="text-white/60 hover:text-white underline transition-colors">
+          <a
+            href="https://privacy-policy.rhythm-mania.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white/60 hover:text-white underline transition-colors"
+          >
             Privacy Policy
           </a>
           .

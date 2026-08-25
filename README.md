@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**RhythmMania Beta Release** · v0.9.5
+**RhythmMania Beta Release** · v0.9.6
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and two rendering engines (**HTML5 Canvas 2D** default and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -28,7 +28,7 @@ RhythmMania is a high-performance, browser-native vertical scroll rhythm game (V
 
 RhythmMania is a browser-based vertical-scroll rhythm game in the *mania* genre (think osu!mania, VSRG, or Stepmania). Notes fall down — or rise up — in columns, and you hit the corresponding key at the moment they reach the judgement line. It supports **2K through 9K** lane configurations, live `.osu` beatmap import from `.osz` packages, Canvas2D and Babylon.js 3D playfield renderers, hit error tracking, and a full suite of precision calibration tools. Local gameplay runs entirely in the browser; optional Vercel Functions and PostgreSQL provide accounts, profiles, catalog registration, and online replay records.
 
-RhythmMania is an **18+ service**. Minors may not use the game or any connected account, profile, catalog, or replay features, even with parental permission. See the in-app [Terms of Service](https://www.rhythm-mania.com/tos) and [Privacy Policy](https://www.rhythm-mania.com/privacypolicy).
+RhythmMania is an **18+ service**. Minors may not use the game or any connected account, profile, catalog, or replay features, even with parental permission. See the [Terms of Service](https://terms-of-service.rhythm-mania.com) and [Privacy Policy](https://privacy-policy.rhythm-mania.com).
 
 ---
 

@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { MainMenu } from './components/MainMenu';
+import LoginModal from './components/LoginModal';
 import SettingsScreen from './components/SettingsScreen';
 import PersonalHistoryScreen from './components/PersonalHistoryScreen';
 import ProfileScreen from './components/ProfileScreen';
@@ -48,7 +49,6 @@ import JSZip from 'jszip';
 import { storageManager } from './utils/storageManager';
 import { convertBeatmapKeyCount, parseBeatmap } from './utils/beatmapParser';
 import { unpackBeatmap } from './utils/unpackHelper';
-import { TermsOfServicePage, PrivacyPolicyPage } from './components/LegalPages';
 import { sanitizeSettings, sanitizeHistoryRecord, sanitizeCssUrl, MAX_COMPRESSED_SIZE_BYTES, validateZipLimits, createZipExtractionBudget, decodeBoundedUtf8 } from './utils/securityLimits';
 import { createPlayHistoryRecord, migrateAndNormalizeBeatmaps, computeBeatmapHash, findMatchingBeatmap } from './utils/replayManager';
 import { HOLD_TICK_RULES_VERSION, holdTickIntervalMs } from './utils/holdTickRules';
@@ -242,6 +242,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -250,6 +251,11 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const previousMasterVolumeRef = useRef<number | null>(null);
+
+  const openLoginModal = () => {
+    setAuthError(null);
+    setShowLoginModal(true);
+  };
 
   // Bootstrap current user session on mount
   useEffect(() => {
@@ -265,6 +271,7 @@ export default function App() {
       (user) => {
         setCurrentUser(user);
         setAuthError(null);
+        setShowLoginModal(false);
       },
       (errMsg) => {
         setAuthError(errMsg);
@@ -1215,28 +1222,6 @@ export default function App() {
     navigateScreen('select');
   };
 
-  if (path === '/tos') {
-    return (
-      <TermsOfServicePage 
-        onBack={() => { 
-          window.history.pushState({}, '', '/'); 
-          setPath('/'); 
-        }} 
-      />
-    );
-  }
-
-  if (path === '/privacypolicy') {
-    return (
-      <PrivacyPolicyPage 
-        onBack={() => { 
-          window.history.pushState({}, '', '/'); 
-          setPath('/'); 
-        }} 
-      />
-    );
-  }
-
   return (
     <div
       id="application-container" 
@@ -1483,8 +1468,8 @@ export default function App() {
                     <button
                       id="header-nav-login"
                       type="button"
-                      onClick={handleGoogleSignIn}
-                      className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] px-0 text-[11px] font-bold text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3.5"
+                      onClick={openLoginModal}
+                      className="group flex h-10 w-9 items-center justify-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] px-0 text-[11px] font-bold text-cyan-100 transition-colors hover:border-cyan-200/50 hover:bg-cyan-300/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 sm:h-11 sm:w-auto sm:justify-start sm:px-3.5 cursor-pointer"
                       title="Log in"
                     >
                       <LogIn className="h-[18px] w-[18px] text-cyan-200" />
@@ -1635,9 +1620,9 @@ export default function App() {
                         type="button"
                         onClick={() => {
                           setIsMobileMenuOpen(false);
-                          handleGoogleSignIn();
+                          openLoginModal();
                         }}
-                        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 py-2.5 text-sm font-bold text-cyan-100 shadow-[0_0_20px_rgba(0,176,255,0.15)] transition-all hover:border-cyan-300/60 hover:from-cyan-500/30 hover:to-blue-600/30"
+                        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/20 to-blue-600/20 py-2.5 text-sm font-bold text-cyan-100 shadow-[0_0_20px_rgba(0,176,255,0.15)] transition-all hover:border-cyan-300/60 hover:from-cyan-500/30 hover:to-blue-600/30 cursor-pointer"
                       >
                         <LogIn className="h-4 w-4 text-cyan-300" />
                         <span>Log in with Google</span>
@@ -1795,7 +1780,7 @@ export default function App() {
                 onNavigate={(screen) => {
                   if (screen === 'profile') {
                     if (currentUser) openProfile({ kind: 'userId', value: currentUser.id });
-                    else handleGoogleSignIn();
+                    else openLoginModal();
                     return;
                   }
                   leaveProfilePath(screen as GameScreen);
@@ -1804,7 +1789,7 @@ export default function App() {
                 settings={settings}
                  currentUser={currentUser}
                  authLoading={authLoading}
-                onSignIn={handleGoogleSignIn}
+                onSignIn={openLoginModal}
                 onSignOut={requestSignOut}
                 authError={authError}
               />
@@ -2051,6 +2036,14 @@ export default function App() {
           onImportPackage={handleImportPackage}
         />
       )}
+
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSignIn={handleGoogleSignIn}
+        authLoading={authLoading}
+        authError={authError}
+      />
 
       {showLogoutConfirm && (
         <div
