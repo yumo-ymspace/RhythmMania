@@ -1023,8 +1023,8 @@ export default function App() {
          judgementPositionY: updated.judgementPositionY !== undefined ? Math.max(20, Math.min(85, Number(updated.judgementPositionY))) : 50,
         laneSeparatorOpacity: updated.laneSeparatorOpacity !== undefined ? Number(updated.laneSeparatorOpacity) : 0.30,
         circleSize: updated.circleSize !== undefined ? Number(updated.circleSize) : 1.0,
-         noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Math.max(0.85, Math.min(sizeMax, Number(updated.noteSizeMultiplier))) : 1.0,
-         receptorSizeMultiplier: updated.receptorSizeMultiplier !== undefined ? Math.max(0.85, Math.min(sizeMax, Number(updated.receptorSizeMultiplier))) : 1.0,
+        noteSizeMultiplier: updated.noteSizeMultiplier !== undefined ? Math.max(0.60, Math.min(1.00, Number(updated.noteSizeMultiplier))) : 1.0,
+        receptorSizeMultiplier: updated.receptorSizeMultiplier !== undefined ? Math.max(0.60, Math.min(1.00, Number(updated.receptorSizeMultiplier))) : 1.0,
         playfieldStyle: updated.playfieldStyle || 'square',
          playfieldWidthPercent,
         progressBarTop: updated.progressBarTop === true || String(updated.progressBarTop) === 'true',
@@ -1414,7 +1414,7 @@ export default function App() {
                         <div
                           role="menu"
                           aria-label="Account menu"
-                          className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-lg border border-white/[0.12] bg-[#392c4c]/95 p-1.5 shadow-[0_14px_35px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+                          className="absolute left-1/2 top-full z-50 mt-2 w-56 -translate-x-1/2 overflow-hidden rounded-lg border border-white/[0.12] bg-[#071932]/95 p-1.5 shadow-[0_14px_35px_rgba(0,0,0,0.42)] backdrop-blur-xl"
                         >
                           <button
                             type="button"
@@ -1806,10 +1806,9 @@ export default function App() {
               className="h-full w-full overflow-hidden"
             >
                 <SkinScreen
-                settings={settings}
-                updateSettings={updateSettings}
-                onBack={() => navigateScreen('menu')}
-               />
+                  settings={settings}
+                  updateSettings={updateSettings}
+                />
             </motion.div>
           )}
 

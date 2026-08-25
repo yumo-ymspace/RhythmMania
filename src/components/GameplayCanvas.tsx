@@ -2995,7 +2995,7 @@ export default function GameplayCanvas({
                   {/* Lane Background Dim */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-slate-400">
-                      <span>Background Shield Dim</span>
+                      <span>Gameplay Background Dim</span>
                       <span className="font-mono text-cyan-400 font-extrabold">{Math.round((settings.backgroundDim ?? 0.60) * 100)}%</span>
                     </div>
                     <input 
@@ -3667,48 +3667,55 @@ export default function GameplayCanvas({
 
             {/* DYNAMIC HIGH-PERFORMANCE DOM COMBO & JUDGEMENT POPUPS */}
             <div 
-              className="absolute inset-0 pointer-events-none flex flex-col items-center select-none z-10 font-sans transition-transform duration-150"
+              className="absolute inset-0 pointer-events-none flex flex-col items-center select-none z-10 font-sans"
               style={{
                 opacity: settings.judgementOpacity ?? 1.0,
-                transform: `scale(${settings.judgementSize ?? 1.0})`,
               }}
             >
-              {/* Keep the combo stack attached to the judgement instead of the playfield top. */}
-              {uiCombo > 4 && (
-                <div
-                  className="absolute left-1/2 -translate-x-1/2 -translate-y-full pb-2 flex flex-col items-center justify-end gap-1 whitespace-nowrap"
-                  style={{ top: `${settings.judgementPositionY ?? 50}%` }}
-                >
-                  {comboBurst !== null && (
-                    <div key={`burst-${comboBurst}`} className="rounded-full border-2 border-amber-300/70 bg-amber-400/20 px-8 py-3 text-2xl font-black uppercase tracking-[0.35em] text-amber-200 shadow-[0_0_35px_rgba(251,191,36,0.65)] animate-combo-pop">
-                      {comboBurst}x
+              {/* Scale combo & judgement anchored directly at judgementPositionY */}
+              <div
+                className="absolute inset-x-0 flex flex-col items-center justify-center transition-transform duration-150"
+                style={{
+                  top: `${settings.judgementPositionY ?? 50}%`,
+                  transform: `translateY(-50%) scale(${settings.judgementSize ?? 1.0})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+                {/* Combo numbers & burst */}
+                {uiCombo > 4 && (
+                  <div
+                    className="absolute bottom-full pb-2 flex flex-col items-center justify-end gap-1 whitespace-nowrap"
+                  >
+                    {comboBurst !== null && (
+                      <div key={`burst-${comboBurst}`} className="rounded-full border-2 border-amber-300/70 bg-amber-400/20 px-8 py-3 text-2xl font-black uppercase tracking-[0.35em] text-amber-200 shadow-[0_0_35px_rgba(251,191,36,0.65)] animate-combo-pop">
+                        {comboBurst}x
+                      </div>
+                    )}
+                    <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">
+                      <span className="text-6xl font-[900] tracking-tighter text-slate-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
+                        {uiCombo}
+                      </span>
+                      <span className="text-[10px] font-black tracking-[0.25em] text-cyan-400 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] uppercase mt-1">
+                        COMBO
+                      </span>
                     </div>
-                  )}
-                  <div key={`combo-${uiCombo}`} className="flex flex-col items-center justify-center animate-combo-pop">
-                    <span className="text-6xl font-[900] tracking-tighter text-slate-100 drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]">
-                      {uiCombo}
-                    </span>
-                    <span className="text-[10px] font-black tracking-[0.25em] text-cyan-400 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)] uppercase mt-1">
-                      COMBO
-                    </span>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Judgement popup */}
-              {uiJudgement && (
-                <div 
-                  key={`judg-${uiJudgement.time}`}
-                   className="absolute inset-x-0 text-center text-5xl font-[900] tracking-widest uppercase drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] animate-judgement-pulse"
-                  style={{ 
-                    color: uiJudgement.color,
-                    textShadow: `0 0 15px currentColor`,
-                    top: `${settings.judgementPositionY ?? 50}%`,
-                  }}
-                >
-                  {uiJudgement.text}
-                </div>
-              )}
+                {/* Judgement popup */}
+                {uiJudgement && (
+                  <div 
+                    key={`judg-${uiJudgement.time}`}
+                    className="text-center text-5xl font-[900] tracking-widest uppercase drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] animate-judgement-pulse whitespace-nowrap"
+                    style={{ 
+                      color: uiJudgement.color,
+                      textShadow: `0 0 15px currentColor`,
+                    }}
+                  >
+                    {uiJudgement.text}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           

@@ -97,18 +97,15 @@ export default function SettingsPane({
                 />
               );
             } else if (row.control.kind === 'slider') {
-              const sizeMax = settings.renderEngine === 'babylon'
-                ? 1.2
-                : settings.playfieldStyle === 'circle'
-                  ? 1.5
-                  : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
               const sliderMin = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                 ? BABYLON_PLAYFIELD_WIDTH_MIN
+                : (row.id === 'noteSizeMultiplier' || row.id === 'receptorSizeMultiplier')
+                  ? 0.60
                 : row.control.min;
               const sliderMax = row.id === 'playfieldWidthPercent' && settings.renderEngine === 'babylon'
                 ? BABYLON_PLAYFIELD_WIDTH_MAX
                 : (row.id === 'noteSizeMultiplier' || row.id === 'receptorSizeMultiplier')
-                  ? sizeMax
+                  ? 1.00
                 : row.control.max;
               const sliderVal = currentValue === undefined || currentValue === null || Number.isNaN(Number(currentValue))
                 ? Number(row.defaultValue ?? 0)

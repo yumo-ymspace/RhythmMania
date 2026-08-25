@@ -12,7 +12,7 @@
 
 import { PlayfieldVisualSettings, ColumnLayout } from './types';
 import { ScrollModel, getScrollDelta } from './scrollVelocity';
-import { isCircleSkinMode } from './skinTheme';
+import { isCircleSkinMode, getLaneColors } from './skinTheme';
 import { getColumnStyles } from './laneLayout';
 
 export function updateColumnsLayout(
@@ -24,7 +24,8 @@ export function updateColumnsLayout(
   laneGlows: number[]
 ): ColumnLayout[] {
   const baseWidth = width / keyCount;
-  const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors);
+  const laneColors = getLaneColors(settings, keyCount);
+  const colStyles = getColumnStyles(keyCount, baseWidth, settings.skinId, settings.customSkinColors, laneColors);
 
   while (existingColumns.length < keyCount) {
     existingColumns.push({
@@ -92,12 +93,10 @@ export function getNoteVisualY(
 ): number {
   const noteScale = settings.noteSizeMultiplier ?? 1;
   const noteHeight = isCircleSkinMode(settings)
-    ? columnWidth * (2 / 3) * noteScale
-      : settings.squareRenderStyle === 'rhythmplus'
-        ? 8 * noteScale
-        : settings.squareRenderStyle === 'rhythmplus-dynamic'
-          ? (20 / 3) * noteScale
-        : 20 * noteScale;
+    ? columnWidth * noteScale
+    : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic')
+      ? 8 * noteScale
+      : 20 * noteScale;
   const halfHeight = noteHeight / 2;
   return settings.upsurfaceNoteMode ? timingY + halfHeight : timingY - halfHeight;
 }

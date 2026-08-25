@@ -109,17 +109,18 @@ export const ROWS: RowDef[] = [
     defaultValue: DEFAULT_SETTINGS.playfieldWidthPercent,
   },
   {
-    id: 'backgroundDim', section: 'graphics', label: 'Background dim',
+    id: 'backgroundDim', section: 'graphics', label: 'Gameplay Background Dim',
     description: 'How much to dim the background while playing.',
     control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
     defaultValue: DEFAULT_SETTINGS.backgroundDim,
+    keywords: ['gameplay', 'background', 'dim', 'play', 'shield', 'darken', 'opacity'],
   },
   {
-    id: 'menuBackgroundDim', section: 'graphics', label: 'Menu background dim',
-    description: 'How much to darken the background picture on the Song Select and Replay Select screens.',
+    id: 'menuBackgroundDim', section: 'graphics', label: 'Menus Background Dim',
+    description: 'How much to darken the background picture across the menus and selection screens.',
     control: { kind: 'slider', min: 0, max: 1, step: 0.05, format: pct },
     defaultValue: DEFAULT_SETTINGS.menuBackgroundDim,
-    keywords: ['menu', 'background', 'song', 'select', 'replay', 'artwork', 'dim', 'darken', 'brightness', 'opacity'],
+    keywords: ['menu', 'menus', 'background', 'song', 'select', 'replay', 'history', 'artwork', 'dim', 'darken', 'brightness', 'opacity'],
   },
   {
     id: 'disableVideo', section: 'graphics', label: 'Disable background video',

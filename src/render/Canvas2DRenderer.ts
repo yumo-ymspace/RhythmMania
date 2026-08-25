@@ -111,9 +111,9 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
     const noteColorFor = (column: number) => laneColors?.[column] || columns[column].color;
     const receptorColorFor = noteColorFor;
 
-    const drawEndReceptor = (ey: number, xPosVal: number, colWVal: number, notePaddingVal: number, noteObj: VisibleNote) => {
+    const drawEndReceptor = (ey: number, xPosVal: number, colWVal: number, _notePaddingVal: number, noteObj: VisibleNote) => {
       const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
-      const rw = (colWVal - notePaddingVal * 2) * noteScale;
+      const rw = colWVal * noteScale;
       const rh = 20 * noteScale;
       const rx = xPosVal + (colWVal - rw) / 2;
       const ry = ey - rh / 2;
@@ -131,9 +131,9 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       ctx.globalAlpha = currentOpacity;
 
       if (isCircleMode) {
-        const cx = rx + rw / 2;
-        const cy = ry + rh / 2;
-        const r = (colWVal * noteScale) / 3.0;
+        const cx = xPosVal + colWVal / 2;
+        const cy = ey;
+        const r = (colWVal * noteScale) / 2.0;
         const noteColor = noteColorFor(noteObj.column);
 
         ctx.beginPath();
@@ -151,52 +151,33 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
         ctx.shadowBlur = 12;
         ctx.fill();
         ctx.shadowBlur = 0;
-       } else if (isDynamicStyle && !isCircleMode) {
-         const dynamicColor = noteObj.isHoldFailed ? '#64748b' : noteColorFor(noteObj.column);
-         ctx.strokeStyle = dynamicColor;
-         ctx.lineWidth = 2;
-         ctx.shadowColor = dynamicColor;
-         ctx.shadowBlur = noteObj.isHoldFailed ? 0 : 7;
-         ctx.beginPath();
-         ctx.rect(rx, ry, rw, rh);
-         ctx.stroke();
-         ctx.shadowBlur = 0;
-        } else {
-         ctx.beginPath();
-         if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
-           const barHeight = 8 * noteScale;
-           ctx.fillStyle = noteColorFor(noteObj.column);
-           ctx.fillRect(rx, ey - barHeight / 2, rw, barHeight);
-         } else {
-          const noteColor = noteColorFor(noteObj.column);
+      } else if (isDynamicStyle && !isCircleMode) {
+        const dynamicColor = noteObj.isHoldFailed ? '#64748b' : noteColorFor(noteObj.column);
+        const barHeight = 8 * noteScale;
+        ctx.strokeStyle = dynamicColor;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = dynamicColor;
+        ctx.shadowBlur = noteObj.isHoldFailed ? 0 : 7;
+        ctx.beginPath();
+        ctx.roundRect(rx, ey - barHeight / 2, rw, barHeight, 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) {
+        const barHeight = 8 * noteScale;
+        ctx.fillStyle = noteColorFor(noteObj.column);
+        ctx.fillRect(rx, ey - barHeight / 2, rw, barHeight);
+      } else {
+        const noteColor = noteColorFor(noteObj.column);
 
-          ctx.roundRect(rx, ry, rw, rh, 4);
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
+        ctx.beginPath();
+        ctx.roundRect(rx, ry, rw, rh, 4);
+        ctx.fillStyle = noteColor;
+        ctx.globalAlpha = currentOpacity * 0.75;
+        ctx.fill();
 
-          ctx.save();
-          ctx.beginPath();
-          ctx.roundRect(rx + 4, ry + 4, rw - 8, rh - 8, 2);
-          ctx.fillStyle = noteColor;
-          ctx.globalAlpha = currentOpacity * 0.75;
-          ctx.fill();
-          ctx.restore();
-
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(rx + 6, ry + 3);
-          ctx.lineTo(rx + 12, ry + rh - 3);
-          ctx.moveTo(rx + 10, ry + 3);
-          ctx.lineTo(rx + 16, ry + rh - 3);
-
-          ctx.moveTo(rx + rw - 6, ry + 3);
-          ctx.lineTo(rx + rw - 12, ry + rh - 3);
-          ctx.moveTo(rx + rw - 10, ry + 3);
-          ctx.lineTo(rx + rw - 16, ry + rh - 3);
-          ctx.stroke();
-        }
+        ctx.strokeStyle = hexToRgba(noteColor, 0.85);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
 
       ctx.restore();
@@ -275,8 +256,6 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 
           ctx.fillStyle = holdGrad;
 
-           const padding = isFocusMode ? 3 : 12;
-           const notePadding = isFocusMode ? 1.5 : 6;
            const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
            const useNotePadding = settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode;
            const toSegmentY = (timingY: number) =>
@@ -288,109 +267,108 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
              endY: toSegmentY(segment.endY),
            });
 
-            const basePadding = isDynamicStyle
-              ? (isFocusMode ? 1.5 : 3)
-              : useNotePadding ? notePadding : padding;
-            const rw = (colW - basePadding * 2) * noteScale;
-            const rx = xPos + (colW - rw) / 2;
+           const isRectangular = !isCircleMode && !isDynamicStyle && settingsSlice.squareRenderStyle !== 'rhythmplus';
+           const receptorScale = settingsSlice.receptorSizeMultiplier ?? 1;
+           const rw = isRectangular ? Math.max(4, (colW - 16) * receptorScale) : colW * noteScale;
+           const rx = xPos + (colW - rw) / 2;
 
-             const getHoldSegmentRect = (
-               segmentStartY: number,
-               segmentEndY: number,
-               trimStart = false,
-               trimEnd = false,
-             ) => {
-               const lowerY = Math.min(segmentStartY, segmentEndY);
-               const upperY = Math.max(segmentStartY, segmentEndY);
-               const startsAtLowerEdge = segmentStartY <= segmentEndY;
-               const extension = (useNotePadding || (isDynamicStyle && !isCircleMode))
-                 ? (useNotePadding ? (8 * noteScale) / 2 : ((20 / 3) * noteScale) / 2)
-                 : 0;
-               const lowerExtension = startsAtLowerEdge
-                 ? (trimStart ? 0 : extension)
-                 : (trimEnd ? 0 : extension);
-               const upperExtension = startsAtLowerEdge
-                 ? (trimEnd ? 0 : extension)
-                 : (trimStart ? 0 : extension);
-               return {
-                 drawY: lowerY - lowerExtension,
-                 drawH: upperY - lowerY + lowerExtension + upperExtension,
-               };
+           const getHoldSegmentRect = (
+             segmentStartY: number,
+             segmentEndY: number,
+             trimStart = false,
+             trimEnd = false,
+           ) => {
+             const lowerY = Math.min(segmentStartY, segmentEndY);
+             const upperY = Math.max(segmentStartY, segmentEndY);
+             const startsAtLowerEdge = segmentStartY <= segmentEndY;
+             const extension = (useNotePadding || (isDynamicStyle && !isCircleMode))
+               ? (8 * noteScale) / 2
+               : 0;
+             const lowerExtension = startsAtLowerEdge
+               ? (trimStart ? 0 : extension)
+               : (trimEnd ? 0 : extension);
+             const upperExtension = startsAtLowerEdge
+               ? (trimEnd ? 0 : extension)
+               : (trimStart ? 0 : extension);
+             return {
+               drawY: lowerY - lowerExtension,
+               drawH: upperY - lowerY + lowerExtension + upperExtension,
              };
+           };
 
-             const drawHoldPath = (
-               segmentStartY: number,
-               segmentEndY: number,
-                trimStart = false,
-                trimEnd = false,
-                flatStart = false,
-                flatEnd = false,
-              ) => {
-               const segment = getHoldSegmentRect(segmentStartY, segmentEndY, trimStart, trimEnd);
+           const drawHoldPath = (
+             segmentStartY: number,
+             segmentEndY: number,
+             trimStart = false,
+             trimEnd = false,
+             flatStart = false,
+             flatEnd = false,
+           ) => {
+             const segment = getHoldSegmentRect(segmentStartY, segmentEndY, trimStart, trimEnd);
+             ctx.beginPath();
+             if (isCircleMode) {
+               const circleRadius = (colW * noteScale) / 2.0;
+               const railStartY = n.holdRulesVersion === 2
+                 ? getNoteVisualY(segmentStartY, colW, settingsSlice)
+                 : segmentStartY;
+               const railEndY = n.holdRulesVersion === 2
+                 ? getNoteVisualY(segmentEndY, colW, settingsSlice)
+                 : segmentEndY;
+               const centerX = xPos + colW / 2;
+               ctx.save();
+               const railStyle = ctx.fillStyle;
+               const previousAlpha = ctx.globalAlpha;
+               ctx.fillStyle = railStyle;
+               ctx.globalAlpha = previousAlpha * 0.55;
+               ctx.fillRect(
+                 centerX - circleRadius,
+                 Math.min(railStartY, railEndY),
+                 circleRadius * 2,
+                 Math.abs(railStartY - railEndY),
+               );
+               ctx.globalAlpha = previousAlpha;
+               ctx.strokeStyle = railStyle;
+               ctx.lineWidth = Math.max(2, 3 * noteScale);
+               ctx.lineCap = 'butt';
                ctx.beginPath();
-               if (isCircleMode) {
-                 const circleRadius = (colW * noteScale) / 3;
-                 const railStartY = n.holdRulesVersion === 2
-                   ? getNoteVisualY(segmentStartY, colW, settingsSlice)
-                   : segmentStartY;
-                 const railEndY = n.holdRulesVersion === 2
-                   ? getNoteVisualY(segmentEndY, colW, settingsSlice)
-                   : segmentEndY;
-                  const centerX = xPos + colW / 2;
-                  ctx.save();
-                  const railStyle = ctx.fillStyle;
-                  const previousAlpha = ctx.globalAlpha;
-                  ctx.fillStyle = railStyle;
-                  ctx.globalAlpha = previousAlpha * 0.55;
-                  ctx.fillRect(
-                    centerX - circleRadius,
-                    Math.min(railStartY, railEndY),
-                    circleRadius * 2,
-                    Math.abs(railStartY - railEndY),
-                  );
-                  ctx.globalAlpha = previousAlpha;
-                  ctx.strokeStyle = railStyle;
-                  ctx.lineWidth = Math.max(2, 3 * noteScale);
-                 ctx.lineCap = 'butt';
-                 ctx.beginPath();
-                 ctx.moveTo(centerX - circleRadius, railStartY);
-                 ctx.lineTo(centerX - circleRadius, railEndY);
-                 ctx.moveTo(centerX + circleRadius, railStartY);
-                 ctx.lineTo(centerX + circleRadius, railEndY);
-                 ctx.stroke();
-                 ctx.restore();
-                 ctx.beginPath();
-                 return segment;
-               }
-               // A missed tick is often only a few pixels tall. Rounded skin
-               // corners then consume its visible width, making it look like
-               // a narrow separate note instead of the same tail texture.
-               const isCompactDiscreteTail = n.holdRulesVersion === 2 &&
-                 Math.abs(segmentStartY - segmentEndY) <= Math.max(24, 20 * noteScale);
-               if (isCompactDiscreteTail || settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode ||
-                 settingsSlice.skinId === 'classic-bar' || settingsSlice.skinId === 'minimalist') {
-                 ctx.rect(rx, segment.drawY, rw, segment.drawH);
-               } else if (isDynamicStyle && !isCircleMode) {
-                 const radius = 4;
-                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
-                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
-                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
-                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
-               } else if (isCircleMode) {
-                 const radius = rw / 2;
-                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
-                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
-                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
-                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
-               } else {
-                 const radius = 6;
-                 const startsAtLowerEdge = segmentStartY <= segmentEndY;
-                 const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
-                 const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
-                 ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
-               }
+               ctx.moveTo(centerX - circleRadius, railStartY);
+               ctx.lineTo(centerX - circleRadius, railEndY);
+               ctx.moveTo(centerX + circleRadius, railStartY);
+               ctx.lineTo(centerX + circleRadius, railEndY);
+               ctx.stroke();
+               ctx.restore();
+               ctx.beginPath();
                return segment;
-             };
+             }
+             // A missed tick is often only a few pixels tall. Rounded skin
+             // corners then consume its visible width, making it look like
+             // a narrow separate note instead of the same tail texture.
+             const isCompactDiscreteTail = n.holdRulesVersion === 2 &&
+               Math.abs(segmentStartY - segmentEndY) <= Math.max(24, 20 * noteScale);
+             if (isCompactDiscreteTail || settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode ||
+               settingsSlice.skinId === 'classic-bar' || settingsSlice.skinId === 'minimalist') {
+               ctx.rect(rx, segment.drawY, rw, segment.drawH);
+             } else if (isDynamicStyle && !isCircleMode) {
+               const radius = 4;
+               const startsAtLowerEdge = segmentStartY <= segmentEndY;
+               const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+               const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+               ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+             } else if (isCircleMode) {
+               const radius = rw / 2;
+               const startsAtLowerEdge = segmentStartY <= segmentEndY;
+               const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+               const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+               ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+             } else {
+               const radius = 6;
+               const startsAtLowerEdge = segmentStartY <= segmentEndY;
+               const topRadius = (startsAtLowerEdge ? flatStart : flatEnd) ? 0 : radius;
+               const bottomRadius = (startsAtLowerEdge ? flatEnd : flatStart) ? 0 : radius;
+               ctx.roundRect(rx, segment.drawY, rw, segment.drawH, [topRadius, topRadius, bottomRadius, bottomRadius]);
+             }
+             return segment;
+           };
 
              const drawHoldStroke = (
                segmentStartY: number,
@@ -465,64 +443,71 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                  ctx.stroke();
                  ctx.restore();
                 } else if (!isCircleMode && !(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode)) {
-                 const color = n.isHit && !n.isReleased ? '#22d3ee' : 'rgba(56,189,248,0.4)';
-                 const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
-                 strokeGrad.addColorStop(0, applyFade(color, fadeStart));
-                 strokeGrad.addColorStop(1, applyFade(color, fadeEnd));
-                 ctx.save();
-                 ctx.strokeStyle = strokeGrad;
-                 ctx.lineWidth = 2;
-                 ctx.beginPath();
-                 ctx.moveTo(xPos + colW / 2, segmentStartY);
-                 ctx.lineTo(xPos + colW / 2, segmentEndY);
-                 ctx.stroke();
-                 ctx.restore();
+                  const color = n.isHit && !n.isReleased ? '#22d3ee' : 'rgba(56,189,248,0.4)';
+                  const strokeGrad = ctx.createLinearGradient(xPos, visualStartY, xPos, visualEndY);
+                  strokeGrad.addColorStop(0, applyFade(color, fadeStart));
+                  strokeGrad.addColorStop(1, applyFade(color, fadeEnd));
+                  ctx.save();
+                  ctx.strokeStyle = strokeGrad;
+                  ctx.lineWidth = 2;
+                  ctx.lineCap = 'butt';
+                  ctx.beginPath();
+                  ctx.moveTo(xPos + colW / 2, segmentStartY);
+                  ctx.lineTo(xPos + colW / 2, segmentEndY);
+                  ctx.stroke();
+                  ctx.restore();
+                }
+              };
+
+             const bodySegments = n.tailSegments?.map(mapHoldSegment) || [{ startY: visualStartY, endY: visualEndY }];
+              const renderSegments = n.holdRulesVersion === 2
+                ? mergeVisibleTailSegments([...bodySegments, ...(n.missedTailSegments || []).map(mapHoldSegment)])
+                : bodySegments;
+              const endpointTailSegment = n.endpointTailSegment
+                ? mapHoldSegment(n.endpointTailSegment)
+                : undefined;
+               for (const segment of renderSegments) {
+                 const endpointBoundary = endpointTailSegment?.startY;
+                 const joinsEndpointAtStart = endpointBoundary !== undefined &&
+                   Math.abs(segment.startY - endpointBoundary) < 0.001;
+                 const joinsEndpointAtEnd = endpointBoundary !== undefined &&
+                   Math.abs(segment.endY - endpointBoundary) < 0.001;
+                 drawHoldPath(
+                   segment.startY,
+                   segment.endY,
+                   joinsEndpointAtStart,
+                   joinsEndpointAtEnd,
+                   joinsEndpointAtStart,
+                   joinsEndpointAtEnd,
+                 );
+                 ctx.fill();
                }
-             };
 
-            const bodySegments = n.tailSegments?.map(mapHoldSegment) || [{ startY: visualStartY, endY: visualEndY }];
-             const renderSegments = n.holdRulesVersion === 2
-               ? mergeVisibleTailSegments([...bodySegments, ...(n.missedTailSegments || []).map(mapHoldSegment)])
-               : bodySegments;
-             const endpointTailSegment = n.endpointTailSegment
-               ? mapHoldSegment(n.endpointTailSegment)
-               : undefined;
-              for (const segment of renderSegments) {
-                const endpointBoundary = endpointTailSegment?.startY;
-                const joinsEndpointAtStart = endpointBoundary !== undefined &&
-                  Math.abs(segment.startY - endpointBoundary) < 0.001;
-                const joinsEndpointAtEnd = endpointBoundary !== undefined &&
-                  Math.abs(segment.endY - endpointBoundary) < 0.001;
-                drawHoldPath(
-                  segment.startY,
-                  segment.endY,
-                  joinsEndpointAtStart,
-                  joinsEndpointAtEnd,
-                  joinsEndpointAtStart,
-                  joinsEndpointAtEnd,
-                );
-                ctx.fill();
-              }
+             ctx.fillStyle = holdGrad;
 
-            ctx.fillStyle = holdGrad;
+             // Preserve the portion that was actually held instead of dimming it
+             // together with the failed remainder after an early release.
+             if (n.hitSegmentStartY !== undefined && n.hitSegmentEndY !== undefined) {
+               const hitColor = noteColorFor(n.column);
+               const hitGrad = ctx.createLinearGradient(xPos, n.hitSegmentStartY, xPos, n.hitSegmentEndY);
+               hitGrad.addColorStop(0, applyFade(hitColor, fadeStart));
+               hitGrad.addColorStop(1, applyFade(hitColor, fadeEnd));
+               ctx.fillStyle = hitGrad;
+               drawHoldPath(
+                 getNoteVisualY(n.hitSegmentStartY, colW, settingsSlice),
+                 getNoteVisualY(n.hitSegmentEndY, colW, settingsSlice),
+               );
+               ctx.fill();
+               ctx.fillStyle = holdGrad;
+             }
 
-            // Preserve the portion that was actually held instead of dimming it
-            // together with the failed remainder after an early release.
-            if (n.hitSegmentStartY !== undefined && n.hitSegmentEndY !== undefined) {
-              const hitColor = noteColorFor(n.column);
-              const hitGrad = ctx.createLinearGradient(xPos, n.hitSegmentStartY, xPos, n.hitSegmentEndY);
-              hitGrad.addColorStop(0, applyFade(hitColor, fadeStart));
-              hitGrad.addColorStop(1, applyFade(hitColor, fadeEnd));
-              ctx.fillStyle = hitGrad;
-              drawHoldPath(
-                getNoteVisualY(n.hitSegmentStartY, colW, settingsSlice),
-                getNoteVisualY(n.hitSegmentEndY, colW, settingsSlice),
-              );
-              ctx.fill();
-              ctx.fillStyle = holdGrad;
-            }
+              const strokeSegments = (!isCircleMode && !(settingsSlice.squareRenderStyle === 'rhythmplus' && !isCircleMode) && !isDynamicStyle)
+                ? (n.holdRulesVersion === 2
+                    ? mergeVisibleTailSegments([...bodySegments, ...(endpointTailSegment ? [endpointTailSegment] : []), ...(n.missedTailSegments || []).map(mapHoldSegment)])
+                    : [{ startY: visualStartY, endY: visualEndY }])
+                : renderSegments;
 
-              for (const segment of renderSegments) {
+              for (const segment of strokeSegments) {
                 const endpointBoundary = endpointTailSegment?.startY;
                 const joinsEndpointAtStart = endpointBoundary !== undefined &&
                   Math.abs(segment.startY - endpointBoundary) < 0.001;
@@ -554,7 +539,9 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
                    false,
                  );
                  ctx.fill();
-                 drawHoldStroke(endpointSegment.startY, endpointSegment.endY, true, false, true, false, true, false);
+                 if (isDynamicStyle && !isCircleMode) {
+                   drawHoldStroke(endpointSegment.startY, endpointSegment.endY, true, false, true, false, true, false);
+                 }
                  ctx.restore();
                });
              }
@@ -573,17 +560,16 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
 
       const xPos = columns[n.column].x;
       const colW = columns[n.column].width;
-      const notePadding = isFocusMode ? 1.5 : 6;
       const noteScale = settingsSlice.noteSizeMultiplier ?? 1;
 
-       const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && (n.isMissed || !n.isHit));
+      const shouldDrawHead = (n.type === 'normal') || (n.type === 'hold' && (n.isMissed || !n.isHit));
 
       if (shouldDrawHead) {
-         if (!(n.type === 'hold' && (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) && settingsSlice.playfieldStyle !== 'circle')) {
-           const rw = (colW - notePadding * 2) * noteScale;
-           const rh = 20 * noteScale;
-           const rx = xPos + (colW - rw) / 2;
-            const ry = getNoteVisualY(n.y, colW, settingsSlice) - rh / 2;
+        if (!(n.type === 'hold' && (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) && settingsSlice.playfieldStyle !== 'circle')) {
+          const rw = colW * noteScale;
+          const rh = 20 * noteScale;
+          const rx = xPos + (colW - rw) / 2;
+          const ry = getNoteVisualY(n.y, colW, settingsSlice) - rh / 2;
 
           ctx.save();
           let currentOpacity = n.opacity;
@@ -595,31 +581,20 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.globalAlpha = currentOpacity;
 
           const drawNoteShape = (radiusDefault: number) => {
-             ctx.beginPath();
-              if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
-                 const barHeight = (20 / 3) * noteScale;
-                 ctx.roundRect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight, barHeight / 2);
-             } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
-                const barHeight = 8 * noteScale;
-                ctx.rect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight);
+            ctx.beginPath();
+            if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
+              const barHeight = 8 * noteScale;
+              ctx.roundRect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight, 3);
+            } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
+              const barHeight = 8 * noteScale;
+              ctx.rect(rx, ry + rh / 2 - barHeight / 2, rw, barHeight);
             } else {
               ctx.roundRect(rx, ry, rw, rh, radiusDefault);
             }
           };
 
-          let noteFill: string = '';
+          let noteFill: string = noteColorFor(n.column);
           let noteStroke: string = noteColorFor(n.column);
-
-          if (isCircleMode) {
-            noteFill = noteColorFor(n.column);
-            noteStroke = noteColorFor(n.column);
-           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' || isDynamicStyle) {
-             noteFill = noteColorFor(n.column);
-             noteStroke = noteColorFor(n.column);
-          } else {
-            noteFill = noteColorFor(n.column);
-            noteStroke = noteColorFor(n.column);
-          }
 
           const grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
           if (settingsSlice.skinId === 'minimalist') {
@@ -645,9 +620,9 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(rx, ry + rh / 2 - 1.5, rw, 3);
           } else if (isCircleMode) {
-            const cx = rx + rw / 2;
-            const cy = ry + rh / 2;
-            const r = (colW * (settingsSlice.noteSizeMultiplier ?? 1.0) * (settingsSlice.circleSize ?? 1.0)) / 3.0;
+            const cx = xPos + colW / 2;
+            const cy = getNoteVisualY(n.y, colW, settingsSlice);
+            const r = (colW * noteScale) / 2.0;
             const noteColor = noteColorFor(n.column);
 
             ctx.beginPath();
@@ -662,27 +637,27 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.stroke();
-            } else if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
-              const isDynamicHold = n.type === 'hold';
-              const dynamicColor = noteColorFor(n.column);
-              ctx.fillStyle = isDynamicHold ? 'rgba(0,0,0,0)' : '#00dce8';
-              ctx.strokeStyle = dynamicColor;
-              ctx.lineWidth = isDynamicHold ? 2 : 1.5;
-              if (!isDynamicHold) {
-                ctx.shadowColor = dynamicColor;
-                ctx.shadowBlur = 8;
-              }
-              drawNoteShape(0);
-              if (!isDynamicHold) ctx.fill();
-              ctx.stroke();
-              if (!isDynamicHold) {
-                ctx.shadowBlur = 0;
-                ctx.fillStyle = '#d9ffff';
-                ctx.beginPath();
-                ctx.roundRect(rx + 3, ry + rh / 2 - 1, rw - 6, 2, 1);
-                ctx.fill();
-              }
-           } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
+          } else if (isDynamicStyle && settingsSlice.playfieldStyle !== 'circle') {
+            const isDynamicHold = n.type === 'hold';
+            const dynamicColor = noteColorFor(n.column);
+            ctx.fillStyle = isDynamicHold ? 'rgba(0,0,0,0)' : dynamicColor;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = isDynamicHold ? 2 : 1.5;
+            if (!isDynamicHold) {
+              ctx.shadowColor = dynamicColor;
+              ctx.shadowBlur = 8;
+            }
+            drawNoteShape(0);
+            if (!isDynamicHold) ctx.fill();
+            ctx.stroke();
+            if (!isDynamicHold) {
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+              ctx.beginPath();
+              ctx.roundRect(rx + 3, ry + rh / 2 - 1, Math.max(1, rw - 6), 2, 1);
+              ctx.fill();
+            }
+          } else if (settingsSlice.squareRenderStyle === 'rhythmplus' && settingsSlice.playfieldStyle !== 'circle') {
             grad.addColorStop(0, noteFill);
             grad.addColorStop(1, noteFill);
             ctx.fillStyle = grad;
@@ -720,7 +695,7 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
             ctx.stroke();
 
             ctx.fillStyle = '#ffffff';
-            ctx.fillRect(rx + 4, ry + 4, rw - 8, 3);
+            ctx.fillRect(rx + 4, ry + 4, Math.max(1, rw - 8), 3);
           }
 
           ctx.restore();
@@ -775,9 +750,10 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
       ctx.globalAlpha = settingsSlice.receptorOpacity ?? 1.0;
 
       if (isCircleMode) {
+        const receptorScale = settingsSlice.receptorSizeMultiplier ?? 1.0;
         const cx = xPos + colW / 2;
         const cy = receptorY;
-        const r = (colW * (settingsSlice.receptorSizeMultiplier ?? 1.0) * (settingsSlice.circleSize ?? 1.0)) / 3.0;
+        const r = (colW * receptorScale) / 2.0;
 
         if (isPressed) {
           ctx.fillStyle = rcColor;
@@ -813,26 +789,41 @@ export class Canvas2DRenderer implements IPlayfieldRenderer {
           ctx.shadowBlur = 0;
         }
       } else if (isDynamicStyle || settingsSlice.squareRenderStyle === 'rhythmplus') {
-        const receptorScale = settingsSlice.receptorSizeMultiplier ?? 1;
-        const rw = (colW - 2) * receptorScale;
-        const rh = 4 * receptorScale;
-        const rx = xPos + (colW - rw) / 2;
+        const rw = colW;
+        const rh = 4;
+        const rx = xPos;
         const ry = receptorY - rh / 2;
 
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.rect(rx, ry, rw, rh);
-        ctx.fill();
         if (isPressed) {
-          ctx.shadowColor = '#ffffff';
-          ctx.shadowBlur = 10;
           ctx.fillStyle = '#ffffff';
-          ctx.fill();
+          ctx.shadowColor = rcColor;
+          ctx.shadowBlur = 12;
+          ctx.fillRect(rx, ry, rw, rh);
           ctx.shadowBlur = 0;
+
+          // Lane-pressed glowing flash on this specific lane
+          const flashGrad = ctx.createLinearGradient(
+            xPos,
+            settingsSlice.upsurfaceNoteMode ? 0 : height,
+            xPos,
+            receptorY
+          );
+          flashGrad.addColorStop(0, hexToRgba(rcColor, 0.35));
+          flashGrad.addColorStop(1, hexToRgba(rcColor, 0));
+          ctx.fillStyle = flashGrad;
+          ctx.fillRect(
+            xPos,
+            settingsSlice.upsurfaceNoteMode ? 0 : receptorY,
+            colW,
+            settingsSlice.upsurfaceNoteMode ? receptorY : height - receptorY
+          );
+        } else {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fillRect(rx, ry, rw, rh);
         }
       } else {
         const receptorScale = settingsSlice.receptorSizeMultiplier ?? 1;
-        const rw = (colW - 12) * receptorScale;
+        const rw = colW * receptorScale;
         const rh = 28 * receptorScale;
         const rx = xPos + (colW - rw) / 2;
         const ry = receptorY - rh / 2;

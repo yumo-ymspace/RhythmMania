@@ -1616,7 +1616,7 @@ export default function SongSelect({
                 <div className="space-y-4">
                   <div className="flex flex-col gap-1.5">
                     <div className="flex justify-between text-[11px] font-mono tracking-wider text-slate-350 uppercase">
-                      <span>Background Dim:</span>
+                      <span>Gameplay Background Dim:</span>
                       <span className="text-amber-400 font-bold">{Math.round(settings.backgroundDim * 100)}%</span>
                     </div>
                     <input 

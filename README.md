@@ -9,7 +9,7 @@
 ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝
 ```
 
-**RhythmMania Beta Release** · v0.9.6
+**RhythmMania Beta Release** · v0.9.7
 
 RhythmMania is a high-performance, browser-native vertical scroll rhythm game (VSRG) built for the competitive mania community. By leveraging the **Web Audio API** for sub-millisecond timing and two rendering engines (**HTML5 Canvas 2D** default and **Babylon.js 3D** PJ Sekai-style converging runway), it delivers a professional-grade experience right in your browser.
 
@@ -81,7 +81,7 @@ browser:
 - **Scroll speed** multiplier
 - **Hitsound and music volume** sliders
 - **Per-mode key rebinding** matrix (2K – 9K, live keyboard intercept, persisted to `localStorage`)
-- **Background dim** sliders — one for gameplay and a separate **menu background dim** for the Song Select / Replay Select artwork
+- **Gameplay Background Dim** and **Menus Background Dim** sliders — one for gameplay background shielding and a separate one for menus and selection screen artwork
 - **Video offset** fine-tune for storyboard video sync
 - **Disable video** toggle
 - **Progress bar position** toggle (top or bottom) and an optional **FPS counter** overlay

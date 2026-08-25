@@ -293,11 +293,8 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
   };
 
   const renderEngine = settings.skinId === 'rhythmmania-3d' || settings.renderEngine === 'babylon' ? 'babylon' : 'canvas';
-  const sizeMax = renderEngine === 'babylon'
-    ? 1.2
-    : settings.playfieldStyle === 'circle'
-      ? 1.5
-      : (settings.squareRenderStyle === 'rhythmplus' || settings.squareRenderStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
+  const sizeMin = 0.60;
+  const sizeMax = 1.00;
   const widthMin = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MIN : PLAYFIELD_WIDTH_MIN;
   const widthMax = renderEngine === 'babylon' ? BABYLON_PLAYFIELD_WIDTH_MAX : PLAYFIELD_WIDTH_MAX;
 
@@ -335,9 +332,9 @@ export function sanitizeSettings(parsed: unknown, defaultSettings: GameSettings)
     judgementSize: clamp(settings.judgementSize, 0.5, 2, defaultSettings.judgementSize || 1.0),
     judgementPositionY: clamp(settings.judgementPositionY, 20, 85, defaultSettings.judgementPositionY || 50),
     laneSeparatorOpacity: clamp(settings.laneSeparatorOpacity, 0, 1, defaultSettings.laneSeparatorOpacity || 0.30),
-    circleSize: clamp(settings.circleSize, 0.5, 2, defaultSettings.circleSize || 1.0),
-    noteSizeMultiplier: clamp(settings.noteSizeMultiplier, 0.85, sizeMax, defaultSettings.noteSizeMultiplier || 1.0),
-    receptorSizeMultiplier: clamp(settings.receptorSizeMultiplier ?? settings.circleSize, 0.85, sizeMax, defaultSettings.receptorSizeMultiplier || 1.0),
+    circleSize: clamp(settings.circleSize, sizeMin, sizeMax, defaultSettings.circleSize || 1.0),
+    noteSizeMultiplier: clamp(settings.noteSizeMultiplier, sizeMin, sizeMax, defaultSettings.noteSizeMultiplier || 1.0),
+    receptorSizeMultiplier: clamp(settings.receptorSizeMultiplier, sizeMin, sizeMax, defaultSettings.receptorSizeMultiplier || 1.0),
     playfieldStyle: settings.playfieldStyle === 'circle' ? 'circle' : 'square',
      playfieldWidthPercent: clamp(settings.playfieldWidthPercent, widthMin, widthMax, Math.max(widthMin, Math.min(widthMax, defaultSettings.playfieldWidthPercent || 40))),
     progressBarTop: Boolean(settings.progressBarTop),

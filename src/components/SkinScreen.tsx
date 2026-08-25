@@ -11,11 +11,12 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowLeft, Check, Paintbrush, RotateCcw, Search, X } from 'lucide-react';
+import { Check, Paintbrush, RotateCcw, Search, X } from 'lucide-react';
 import type { GameSettings } from '../types';
 import { isAtDefault, DEFAULT_SETTINGS } from './settings/defaultSettings';
 import SettingsSlider from './settings/controls/SettingsSlider';
 import LaneColorEditor from './settings/LaneColorEditor';
+import { sanitizeCssUrl } from '../utils/securityLimits';
 
 type SkinStyleId = 'rhythmmania' | 'rhythmmania-3d' | 'rhythmplus' | 'rhythmplus-dynamic' | 'circle';
 
@@ -156,15 +157,14 @@ function SkinSetting({
 export default function SkinScreen({
   settings,
   updateSettings,
-  onBack,
 }: {
   settings: GameSettings;
   updateSettings: (patch: Partial<GameSettings>) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }) {
   const selectedStyle = getSelectedStyle(settings);
   const selectedSkin = SKIN_STYLES.find((skin) => skin.id === selectedStyle) || SKIN_STYLES[0];
-  const sizeMax = selectedStyle === 'circle' ? 1.5 : selectedStyle === 'rhythmmania-3d' ? 1.2 : (selectedStyle === 'rhythmplus' || selectedStyle === 'rhythmplus-dynamic') ? 1.1 : 1.05;
+  const isRhythmPlus = selectedStyle === 'rhythmplus' || selectedStyle === 'rhythmplus-dynamic';
   const [backgroundImage] = useState(() => SKIN_MENU_BACKGROUNDS[Math.floor(Math.random() * SKIN_MENU_BACKGROUNDS.length)]);
   const [skinSettingsQuery, setSkinSettingsQuery] = useState('');
   const normalizedSettingsQuery = skinSettingsQuery.trim().toLowerCase();
@@ -172,8 +172,7 @@ export default function SkinScreen({
     !normalizedSettingsQuery || `${label} ${description}`.toLowerCase().includes(normalizedSettingsQuery);
   const hasVisibleSkinSetting = matchesSkinSetting('Lane colors', 'Set each lane color for every supported key count.')
     || matchesSkinSetting('Note size', 'Scale falling notes up or down.')
-    || (selectedStyle === 'circle' && matchesSkinSetting('Circle size', 'Scale circular notes and receptors.'))
-    || matchesSkinSetting('Receptor size', 'Scale receptors relative to each lane width.')
+    || (!isRhythmPlus && matchesSkinSetting('Receptor size', 'Scale receptors relative to each lane width.'))
     || matchesSkinSetting('Note opacity', 'Set the opacity of falling notes.')
     || matchesSkinSetting('Receptor opacity', 'Set the opacity of landline receptors.')
     || matchesSkinSetting('Judgement text opacity', 'Set the visibility of PERFECT, GREAT, and other judgements.')
@@ -198,21 +197,20 @@ export default function SkinScreen({
   });
 
   return (
-    <section className="relative h-full min-h-0 overflow-hidden bg-[#17142b] text-white" aria-labelledby="skin-assets-title">
-      <div className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35" style={{ backgroundImage: `url("${backgroundImage}")` }} aria-hidden="true" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(18,12,46,0.92),rgba(27,18,47,0.74)_48%,rgba(7,10,18,0.94))]" aria-hidden="true" />
+    <section className="relative h-full min-h-0 overflow-hidden bg-[#070b14] text-white" aria-labelledby="skin-assets-title">
+      <div
+        className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `linear-gradient(rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3}), rgba(0, 0, 0, ${settings.menuBackgroundDim ?? 0.3})), url("${sanitizeCssUrl(backgroundImage)}")`,
+        }}
+        aria-hidden="true"
+      />
 
       <div className="relative mx-auto grid h-full min-h-0 w-full max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 pt-3 sm:px-6 sm:pt-5 pb-[max(1rem,calc(0.5rem+env(safe-area-inset-bottom,0px)))] lg:grid-cols-[minmax(0,0.82fr)_minmax(420px,1.18fr)] lg:grid-rows-1 lg:gap-5">
         <div className="flex min-h-0 flex-col overflow-hidden">
-          <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
-            <button type="button" onClick={onBack} className="group flex min-h-10 items-center gap-2 rounded-lg px-1 text-sm font-medium text-white/65 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/70">
-              <ArrowLeft className="h-5 w-5 transition-transform duration-150 group-hover:-translate-x-0.5" />
-              <span>Back</span>
-            </button>
-            <div className="flex items-center gap-2 text-right">
-              <Paintbrush className="hidden h-5 w-5 text-cyan-200 sm:block" />
-              <h1 id="skin-assets-title" className="text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl">Skin Assets</h1>
-            </div>
+          <div className="mb-4 flex shrink-0 items-center gap-2">
+            <Paintbrush className="h-5 w-5 text-cyan-200" />
+            <h1 id="skin-assets-title" className="text-xl font-semibold tracking-[-0.03em] text-white sm:text-2xl">Skin Assets</h1>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -290,17 +288,11 @@ export default function SkinScreen({
             </SkinSetting>}
 
             {matchesSkinSetting('Note size', 'Scale falling notes up or down.') && <SkinSetting id="noteSizeMultiplier" label="Note size" description="Scale falling notes up or down." settings={settings} updateSettings={updateSettings}>
-              <SettingsSlider id="skin-note-size" value={Number(settings.noteSizeMultiplier ?? 1)} min={0.85} max={sizeMax} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={updateNumber('noteSizeMultiplier')} />
+              <SettingsSlider id="skin-note-size" value={Number(settings.noteSizeMultiplier ?? 1)} min={0.60} max={1.00} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={updateNumber('noteSizeMultiplier')} />
             </SkinSetting>}
 
-            {selectedStyle === 'circle' && matchesSkinSetting('Circle size', 'Scale circular notes and receptors.') && (
-              <SkinSetting id="circleSize" label="Circle size" description="Scale circular notes and receptors." settings={settings} updateSettings={updateSettings}>
-                <SettingsSlider id="skin-circle-size" value={Number(settings.circleSize ?? 1)} min={0.5} max={1.5} step={0.05} format={(value) => `${Math.round(value * 100)}%`} onChange={updateNumber('circleSize')} />
-              </SkinSetting>
-            )}
-
-            {matchesSkinSetting('Receptor size', 'Scale receptors relative to each lane width.') && <SkinSetting id="receptorSizeMultiplier" label="Receptor size" description="Scale receptors relative to each lane width." settings={settings} updateSettings={updateSettings}>
-              <SettingsSlider id="skin-receptor-size" value={Number(settings.receptorSizeMultiplier ?? 1)} min={0.85} max={sizeMax} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={updateNumber('receptorSizeMultiplier')} />
+            {!isRhythmPlus && matchesSkinSetting('Receptor size', 'Scale receptors relative to each lane width.') && <SkinSetting id="receptorSizeMultiplier" label="Receptor size" description="Scale receptors relative to each lane width." settings={settings} updateSettings={updateSettings}>
+              <SettingsSlider id="skin-receptor-size" value={Number(settings.receptorSizeMultiplier ?? 1)} min={0.60} max={1.00} step={0.01} format={(value) => `${Math.round(value * 100)}%`} onChange={updateNumber('receptorSizeMultiplier')} />
             </SkinSetting>}
 
             {matchesSkinSetting('Note opacity', 'Set the opacity of falling notes.') && <SkinSetting id="noteOpacity" label="Note opacity" description="Set the opacity of falling notes." settings={settings} updateSettings={updateSettings}>
